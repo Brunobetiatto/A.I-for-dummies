@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "mysql_connection.h": "c",
+        "connection.h": "c",
+        "warning.h": "c",
+        "sqlstring.h": "c",
+        "algorithm": "c",
+        "jdbc.h": "c"
+    }
+}

@@ -5,23 +5,85 @@
 #include <ctype.h>
 #include "communicator.h"
 
-/* --- forward declarations for helpers defined later in this header --- */
+/* forward decls if missing */
 static GPtrArray*   csv_parse_line_all(const char *line);
 static void         clear_treeview_columns(GtkTreeView *view);
 static GtkListStore* create_model_with_n_cols(gint n_visible_cols);
 static void         build_columns_from_headers(GtkTreeView *view, GPtrArray *headers);
 static gboolean     row_matches_filter(GPtrArray *fields, const char *needle);
-/* --------------------------------------------------------------------- */
 
 
-/* ===== Globals you already had (add the view) ===== */
-GtkListStore *store_global = NULL;  // model
-GtkEntry     *entry_global = NULL;  // filter entry
-GtkTreeView  *view_global  = NULL;  // <-- set this once after you create your TreeView
+/* global widgets used by the table updater */
+extern GtkEntry     *entry_global;
+extern GtkTreeView  *view_global;
+extern GtkListStore *store_global;
 
+
+// Build model/columns from a CSV text blob (UTF-8)
+static gboolean update_table_from_csv_text(const char *csv_utf8, GtkEntry *entry, GtkTreeView *view) {
+    if (!csv_utf8 || !*csv_utf8) {
+        clear_treeview_columns(view);
+        GtkListStore *empty = gtk_list_store_new(1, G_TYPE_STRING);
+        gtk_tree_view_set_model(view, GTK_TREE_MODEL(empty));
+        GtkCellRenderer *r = gtk_cell_renderer_text_new();
+        GtkTreeViewColumn *c = gtk_tree_view_column_new_with_attributes("error", r, "text", 0, NULL);
+        gtk_tree_view_append_column(view, c);
+        return TRUE;
+    }
+
+    const char *filter_text = entry ? gtk_entry_get_text(entry) : NULL;
+    char *buf = g_strdup(csv_utf8);
+    char *save = NULL;
+    char *line = strtok_r(buf, "\n", &save);
+
+    // header
+    GPtrArray *headers = NULL;
+    while (line) {
+        if (line[0] != 'I' && line[0] != '-' && line[0] != '\0') {
+            headers = csv_parse_line_all(line);
+            break;
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+    if (!headers || headers->len == 0) { g_free(buf); return TRUE; }
+
+    GtkListStore *new_store = create_model_with_n_cols((gint)headers->len);
+    build_columns_from_headers(view, headers);
+    gtk_tree_view_set_model(view, GTK_TREE_MODEL(new_store));
+    if (store_global) g_object_unref(store_global);
+    store_global = new_store;
+
+    const gint bg_idx = (gint)headers->len;
+    gint row_count = 0;
+
+    // rows
+    line = strtok_r(NULL, "\n", &save);
+    while (line) {
+        if (line[0] != 'I' && line[0] != '-') {
+            GPtrArray *fields = csv_parse_line_all(line);
+            if (fields && fields->len >= headers->len) {
+                if (row_matches_filter(fields, filter_text)) {
+                    GtkTreeIter it;
+                    gtk_list_store_append(store_global, &it);
+                    for (guint i = 0; i < headers->len; ++i) {
+                        const char *val = (const char*)fields->pdata[i];
+                        gtk_list_store_set(store_global, &it, (gint)i, val ? val : "", -1);
+                    }
+                    const char *bg = (row_count % 2 == 0) ? "#f0f0f0" : "#ffffff";
+                    gtk_list_store_set(store_global, &it, bg_idx, bg, -1);
+                    row_count++;
+                }
+            }
+            if (fields) g_ptr_array_free(fields, TRUE);
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+
+    g_ptr_array_free(headers, TRUE);
+    g_free(buf);
+    return TRUE;
+}
 /* ===== Helpers ===== */
-
-/* ===== New helpers to build Python commands (Windows; capture STDERR) ===== */
 
 static WCHAR* build_cmd_dump_table(const WCHAR *db, const WCHAR *table,
                                    const WCHAR *user, const WCHAR *pass) {

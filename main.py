@@ -6,7 +6,7 @@ def main(args) -> int:
     conn = mysql.connector.connect(
         host="localhost",
         user="root",      # seu usuário MySQL
-        password="pepsi@123",  # sua senha MySQL
+        password="",  # sua senha MySQL
         database="teste"
     )
 
@@ -18,7 +18,7 @@ def main(args) -> int:
     print("ID | NOME")
     print("---+------")
     for (id, nome) in dados:
-        print(id, " |", nome)
+        print(id, " |", nome, flush=True)
     
     return 0
 

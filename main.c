@@ -1,161 +1,87 @@
-// main.c
+#include <gtk/gtk.h>
+#include "cmd_runner.h"
 
-#include <stdlib.h>
-#include <stdio.h>
+GtkListStore *store_global; // Armazena os dados da tabela
 
-#ifdef _WIN32
+// Função para atualizar os dados do Python
+gboolean update_table(gpointer user_data) {
+    wchar_t *saida = run_cmd_out(L"python main.py");
+    if (!saida) return TRUE;
 
-#include <Windows.h>
+    char *saida_utf8 = g_utf16_to_utf8((gunichar2*)saida, -1, NULL, NULL, NULL);
+    free(saida);
 
-#elif _MAC || _UNIX32
+    gtk_list_store_clear(store_global);
 
-#define GetCurrentDirectory getcwd 
+    char *linha = strtok(saida_utf8, "\n");
+    int row_count = 0;
+    while (linha != NULL) {
+        if (linha[0] != 'I' && linha[0] != '-') {
+            int id;
+            char nome[256];
+            if (sscanf(linha, "%d | %s", &id, nome) == 2) {
+                GtkTreeIter iter;
+                gtk_list_store_append(store_global, &iter);
+                // Define a cor de fundo alternada
+                const char *bg_color = (row_count % 2 == 0) ? "#f0f0f0" : "#ffffff";
+                gtk_list_store_set(store_global, &iter,
+                                   0, id,
+                                   1, nome,
+                                   2, bg_color,
+                                   -1);
+                row_count++;
+            }
+        }
+        linha = strtok(NULL, "\n");
+    }
 
-#else
+    g_free(saida_utf8);
+    return TRUE;
+}
 
-#warning "Sistema operacional não reconhecido!"
+int main(int argc, char *argv[]) {
+    gtk_init(&argc, &argv);
 
-exit(EXIT_FAILURE)
+    // Janela principal
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Tabela de Dados do Python");
+    gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-#endif
+    // Modelo da tabela: ID, NOME, COR
+    store_global = gtk_list_store_new(3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING);
 
-// flag: --DEBUG
-char *DEBUG_FLAG    = "--DEBUG";
-BOOL DEBUG          = FALSE;
+    // TreeView
+    GtkWidget *treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store_global));
 
-// atualizar as informações do diretório CWD
-DWORD 
-update_cwd(
-    DWORD buff_size,
-    WCHAR *cwd
-);
+    // Coluna ID
+    GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
+    g_object_set(renderer, "font", "Sans 30", NULL); // aumenta fonte
+    GtkTreeViewColumn *col_id = gtk_tree_view_column_new_with_attributes("ID", renderer,
+                                                                         "text", 0,
+                                                                         "cell-background", 2,
+                                                                         NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), col_id);
 
-BOOL 
-run_cmd_out(
-    WCHAR *cwd,
-    WCHAR *cmd
-);
+    // Coluna NOME
+    renderer = gtk_cell_renderer_text_new();
+    g_object_set(renderer, "font", "Sans 30", NULL); // aumenta fonte
+    GtkTreeViewColumn *col_nome = gtk_tree_view_column_new_with_attributes("NOME", renderer,
+                                                                           "text", 1,
+                                                                           "cell-background", 2,
+                                                                           NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), col_nome);
 
-BOOL
-build_cmd_from_cwd(
-    WCHAR *cwd,
-    WCHAR *cmd,
-    DWORD cmd_size
-);
+    // Scroll
+    GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(scrolled), treeview);
+    gtk_container_add(GTK_CONTAINER(window), scrolled);
 
-int
-parse_and_read(
-    WCHAR *cwd
-);
+    gtk_widget_show_all(window);
 
-#include <string.h>
+    // Atualiza automaticamente a cada 2 segundos
+    g_timeout_add(2000, update_table, NULL);
 
-int main(int argc, char *argv[]){
-    DEBUG = strncmp(argv[argc - 1], DEBUG_FLAG, 8) == 0
-            ? TRUE 
-            : FALSE;
-
-    WCHAR cwd[MAX_PATH];
-
-    update_cwd(sizeof(cwd), cwd);
-
+    gtk_main();
     return 0;
-}
-
-// helper primariamente para a função Sleep que recebe um DWORD 
-// representando millisegundos. apenas para legibilidade do
-// código
-#define SECONDS(x) (x * 1000)
-
-DWORD update_cwd(DWORD buff_size, WCHAR *cwd){
-    FreeConsole();
-    BOOL success = AllocConsole();
-    if (success) {
-        FILE* pConsole;
-        freopen_s(&pConsole, "CONOUT$", "w", stdout); 
-        freopen_s(&pConsole, "CONIN$", "r", stdin);   
-        freopen_s(&pConsole, "CONERR$", "w", stderr); 
-        
-        //////////////////////////////////
-        HWND hWnd = GetConsoleWindow();
-        ShowWindow(hWnd, DEBUG);
-        /////////////////////////////////
-
-        for (;;){
-            GetCurrentDirectoryW(buff_size, cwd);
-
-            WCHAR cmd[MAX_PATH * 2];
-            
-            if (build_cmd_from_cwd(cwd, cmd, sizeof(cmd))){
-                run_cmd_out(cwd, cmd);
-            } else {
-                wprintf(L"[ERROR] Problema encontrado construindo comando \"%ls\" a partir do diretorio (CWD) \"%ls\"!\n\nAbortando...\n",
-                        cmd, cwd);
-
-                Sleep(SECONDS(5));
-
-                exit(EXIT_FAILURE);
-            }
-
-            if (GetAsyncKeyState(VK_RETURN) & 0x8000){
-                return 0;
-            }
-        }
-        
-        FreeConsole();
-    } else {
-        MessageBoxW(NULL, 
-            L"Falha ao alocar console!", 
-            L"Erro", 
-            MB_OK | MB_ICONERROR);
-    }
-}
-
-BOOL build_cmd_from_cwd(WCHAR *cwd, WCHAR *cmd, DWORD cmd_size){
-    const WCHAR 
-    *call = L"py",
-    *file = L"main.py",
-    *argv = L"";
-
-    if (_snwprintf_s(cmd, cmd_size, _TRUNCATE, 
-        L"%s \"%ls\\%s\" %s", 
-        call, cwd, file, argv) < 0) {
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-
-BOOL run_cmd_out(WCHAR *cwd, WCHAR *cmd){
-    FILE *fp, *fw;
-    WCHAR buffer[1024], cwdBuffer[1024];;
-
-    fp = _wpopen(cmd, L"rt");
-    if (fp == NULL) {
-        perror("Erro ao rodar CMD");
-        exit(EXIT_FAILURE);
-    }
-
-    fw = _wfopen(cwdBuffer, L"w");
-    if (fw == NULL) {
-        perror("Erro ao criar arquivo .txt");
-        exit(EXIT_FAILURE);
-    }
-
-    if (_snwprintf_s(cwdBuffer, _countof(cwdBuffer), _TRUNCATE,
-            L"%ls\\novo.txt", 
-            cwd) < 0) {
-            return FALSE;
-        }
-
-    while (fgetws(buffer, _countof(buffer), fp) != NULL) {
-        fwprintf(fw, L"%s", buffer);
-    }
-
-    fflush(fw);
-    _pclose(fp); 
-    fclose(fw);
-
-    return TRUE;
 }

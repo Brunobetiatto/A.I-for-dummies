@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "stdio.h": "c",
+        "gtk.h": "c",
+        "communicator.h": "c",
+        "string.h": "c"
+    }
+}

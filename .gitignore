@@ -1,5 +1,5 @@
-CONERR$
+CONERR
 *.dll
 *.tmp
 *.o
-.vscode
+.vscode/

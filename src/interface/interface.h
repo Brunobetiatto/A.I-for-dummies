@@ -1,3 +1,4 @@
+//interface.h
 #include <gtk/gtk.h>
 #include <windows.h>
 #include <string.h>

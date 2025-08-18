@@ -76,14 +76,14 @@
 import sys, io, argparse
 import mysql.connector
 
-# Force UTF-8 pipes on Windows
 sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding="utf-8", newline="\n")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 def open_conn(args):
     return mysql.connector.connect(
         host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.db
+        password=args.password, database=args.db,
+        autocommit=True
     )
 
 def list_tables(c):
@@ -120,6 +120,12 @@ def serve(args):
         if not line:
             continue
         try:
+            try:
+                c.ping(reconnect=True, attempts=1, delay=0)
+            except Exception:
+                c.close()
+                c = open_conn(args)
+
             if line.upper() == "QUIT":
                 break
             elif line.upper() == "LIST":

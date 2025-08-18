@@ -375,15 +375,401 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     return ctx;
 }
 
+/* Environment */
 
 
-static void add_environment_tab(GtkNotebook *nb) {
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    GtkWidget *placeholder = gtk_label_new("Environment (coming soon)");
-    gtk_box_pack_start(GTK_BOX(vbox), placeholder, TRUE, TRUE, 0);
-    GtkWidget *lbl = gtk_label_new("Environment");
-    gtk_notebook_append_page(nb, vbox, lbl);
-    gtk_widget_show_all(vbox);
+// Environment | Datasets
+
+// Pre-processing | Regress | View
+
+// ┌──────┬───────────┬────┐
+// │ File │ Import DB |    |
+// └──────┴───────────┴────┘
+
+
+
+//communicate with Python backend
+//| open/create dropdown menu "trainees"
+//| attempt to fetch already existing models (python/models/*)
+//| |   if doesn't exist, form an empty list of "trainees"
+//| |   if exists, retrieve and form a list of available "trainees"
+//| 
+
+typedef struct {
+    /* left controls */
+    GtkComboBoxText *ds_combo;
+    GtkComboBoxText *model_combo;
+    GtkComboBoxText *algo_combo;
+    GtkSpinButton   *train_spn;
+    GtkSpinButton   *val_spn;
+    GtkSpinButton   *test_spn;
+    GtkEntry        *x_feat;
+    GtkEntry        *y_feat;
+    GtkCheckButton  *scale_chk;
+    GtkCheckButton  *impute_chk;
+
+    GtkButton       *btn_train;
+    GtkButton       *btn_validate;
+    GtkButton       *btn_test;
+    GtkButton       *btn_refresh_ds;
+
+    /* right notebook */
+    GtkNotebook     *right_nb;
+    GtkTreeView     *preview_view;
+    GtkImage        *plot_img;
+    GtkTextView     *logs_view;
+    GtkListStore    *preview_store;
+
+    /* footer */
+    GtkProgressBar  *progress;
+    GtkLabel        *status;
+
+    /* stack */
+    GtkStack        *stack;
+} EnvCtx;
+
+/* --- small helpers --- */
+
+static void log_append(EnvCtx *ctx, const char *line) {
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->logs_view);
+    GtkTextIter end; gtk_text_buffer_get_end_iter(buf, &end);
+    gtk_text_buffer_insert(buf, &end, line, -1);
+    gtk_text_buffer_insert(buf, &end, "\n", -1);
+}
+
+static void set_status(EnvCtx *ctx, const char *s) {
+    gtk_label_set_text(ctx->status, s);
+}
+
+/* render PNG (base64) string into GtkImage */
+static void set_plot_png_b64(EnvCtx *ctx, const char *b64) {
+    if (!b64 || !*b64) { gtk_image_clear(ctx->plot_img); return; }
+    gsize out_len = 0;
+    guchar *bytes = g_base64_decode(b64, &out_len);
+    if (!bytes) { gtk_image_clear(ctx->plot_img); return; }
+    GInputStream *ms = g_memory_input_stream_new_from_data(bytes, out_len, g_free);
+    GdkPixbuf *pix = gdk_pixbuf_new_from_stream(ms, NULL, NULL);
+    g_object_unref(ms);
+    if (pix) {
+        gtk_image_set_from_pixbuf(ctx->plot_img, pix);
+        g_object_unref(pix);
+    } else {
+        gtk_image_clear(ctx->plot_img);
+    }
+}
+
+/* Minimal CSV->TreeView (head + up to 200 rows) */
+static void preview_from_csv_into(GtkTreeView *view, const char *csv) {
+    if (!csv) return;
+    char *dup = g_strdup(csv), *save = NULL;
+    char *line = strtok_r(dup, "\n", &save);
+    if (!line) { g_free(dup); return; }
+
+    // parse header
+    GPtrArray *hdr = csv_parse_line_all(line);
+    if (!hdr || hdr->len == 0) { if (hdr) g_ptr_array_free(hdr, TRUE); g_free(dup); return; }
+
+    // model
+    gint n = (gint)hdr->len;
+    GType *types = g_new0(GType, n); for (gint i=0;i<n;++i) types[i]=G_TYPE_STRING;
+    GtkListStore *store = gtk_list_store_newv(n, types);
+    g_free(types);
+    gtk_tree_view_set_model(view, GTK_TREE_MODEL(store));
+    g_object_unref(store);
+
+    // columns
+    GList *cols = gtk_tree_view_get_columns(view);
+    for (GList *l=cols;l;l=l->next) gtk_tree_view_remove_column(view, GTK_TREE_VIEW_COLUMN(l->data));
+    g_list_free(cols);
+    for (guint i=0;i<hdr->len;++i) {
+        GtkCellRenderer *r = gtk_cell_renderer_text_new();
+        GtkTreeViewColumn *c = gtk_tree_view_column_new_with_attributes((const char*)hdr->pdata[i], r, "text", i, NULL);
+        gtk_tree_view_append_column(view, c);
+    }
+
+    // rows
+    int count = 0;
+    while ((line = strtok_r(NULL, "\n", &save)) && count < 200) {
+        GPtrArray *row = csv_parse_line_all(line);
+        if (row && row->len >= hdr->len) {
+            GtkTreeIter it; gtk_list_store_append(store, &it);
+            for (guint i=0;i<hdr->len;++i) {
+                gtk_list_store_set(store, &it, (gint)i, (const char*)row->pdata[i], -1);
+            }
+        }
+        if (row) g_ptr_array_free(row, TRUE);
+        ++count;
+    }
+    g_ptr_array_free(hdr, TRUE);
+    g_free(dup);
+}
+
+/* --- backend roundtrips (UI-safe) --------------------------------------- */
+
+static char* req(const char *cmd) {
+    size_t n=0; return backend_request(cmd, &n); /* returns malloc'ed; free with g_free */
+}
+
+static void on_refresh_datasets(GtkButton *b, gpointer user) {
+    (void)b;
+    EnvCtx *ctx = user;
+    char *js = req("LIST_DATASETS\n");
+    if (!js) { set_status(ctx, "No datasets"); return; }
+    // naive parse: look for "datasets":["a","b",...]
+    gtk_combo_box_text_remove_all(ctx->ds_combo);
+    const char *p = strstr(js, "\"datasets\"");
+    if (p) {
+        const char *lb = strchr(p, '['), *rb = lb ? strchr(lb, ']') : NULL;
+        if (lb && rb && rb>lb) {
+            char *arr = g_strndup(lb+1, (gsize)(rb-lb-1));
+            char *tok = strtok(arr, ",");
+            while (tok) {
+                while (*tok==' '||*tok=='\"') ++tok;
+                char *end = tok + strlen(tok);
+                while (end>tok && (end[-1]=='\"'||end[-1]==' ')) *--end = 0;
+                if (*tok) gtk_combo_box_text_append_text(ctx->ds_combo, tok);
+                tok = strtok(NULL, ",");
+            }
+            g_free(arr);
+        }
+    }
+    g_free(js);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), 0);
+    set_status(ctx, "Datasets refreshed");
+}
+
+static void on_load_dataset(GtkButton *b, gpointer user) {
+    (void)b;
+    EnvCtx *ctx = user;
+    const char *ds = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+    if (!ds) { set_status(ctx, "Select a dataset"); return; }
+    GString *cmd = g_string_new("LOAD_DATASET ");
+    g_string_append(cmd, ds);
+    g_string_append_c(cmd, '\n');
+    char *js = req(cmd->str);
+    g_string_free(cmd, TRUE);
+    if (js) { set_status(ctx, "Dataset loaded"); g_free(js); }
+    char *csv = req("PREVIEW 200\n");
+    if (csv) { preview_from_csv_into(ctx->preview_view, csv); g_free(csv); }
+}
+
+static void on_plot_update(GtkButton *b, gpointer user) {
+    (void)b;
+    EnvCtx *ctx = user;
+    const char *x = gtk_entry_get_text(ctx->x_feat);
+    const char *y = gtk_entry_get_text(ctx->y_feat);
+    if (!*x || !*y) { set_status(ctx, "Enter X and Y"); return; }
+    GString *j = g_string_new("{\"type\":\"scatter\",\"x\":\"");
+    g_string_append(j, x); g_string_append(j, "\",\"y\":\"");
+    g_string_append(j, y); g_string_append(j, "\"}");
+    GString *cmd = g_string_new("PLOT ");
+    g_string_append(cmd, j->str); g_string_append_c(cmd, '\n');
+    char *resp = req(cmd->str);
+    g_string_free(cmd, TRUE); g_string_free(j, TRUE);
+    if (!resp) { set_status(ctx, "Plot error"); return; }
+    const char *k = strstr(resp, "\"data\":\"");
+    if (k) {
+        k += 8; const char *end = strchr(k, '"');
+        if (end) { char *b64 = g_strndup(k, (gsize)(end-k)); set_plot_png_b64(ctx, b64); g_free(b64); }
+    }
+    g_free(resp);
+    gtk_notebook_set_current_page(ctx->right_nb, 1); // Plot tab
+}
+
+static void on_train_clicked(GtkButton *b, gpointer user) {
+    (void)b;
+    EnvCtx *ctx = user;
+    const char *ds = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+    const char *algo = gtk_combo_box_text_get_active_text(ctx->algo_combo);
+    if (!ds || !algo) { set_status(ctx, "Pick dataset & algo"); return; }
+    int tr = (int)gtk_spin_button_get_value(ctx->train_spn);
+    int va = (int)gtk_spin_button_get_value(ctx->val_spn);
+    int te = (int)gtk_spin_button_get_value(ctx->test_spn);
+
+    GString *cfg = g_string_new("{\"algo\":\"");
+    g_string_append(cfg, algo);
+    g_string_append(cfg, "\",\"dataset\":\"");
+    g_string_append(cfg, ds);
+    g_string_append(cfg, "\",\"split\":{\"train\":");
+    g_string_append_printf(cfg, "%.2f,\"val\":%.2f,\"test\":%.2f",
+                           tr/100.0, va/100.0, te/100.0);
+    g_string_append(cfg, "},\"preproc\":{");
+    g_string_append(cfg, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ctx->impute_chk)) ? "\"impute\":\"median\"" : "\"impute\":null");
+    g_string_append(cfg, ",");
+    g_string_append(cfg, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ctx->scale_chk)) ? "\"scale\":\"standard\"" : "\"scale\":null");
+    g_string_append(cfg, "}}");
+
+    GString *cmd = g_string_new("TRAIN ");
+    g_string_append(cmd, cfg->str);
+    g_string_append_c(cmd, '\n');
+
+    set_status(ctx, "Training…");
+    gtk_progress_bar_pulse(ctx->progress);
+
+    char *resp = req(cmd->str);  // simple: wait for final JSON; for streaming progress, switch to incremental read
+    g_string_free(cfg, TRUE); g_string_free(cmd, TRUE);
+
+    if (resp) {
+        log_append(ctx, resp);
+        // naive metrics scrape
+        const char *r2 = strstr(resp, "\"r2\":");
+        if (r2) set_status(ctx, "Training complete");
+        else set_status(ctx, "Training done (no metrics?)");
+        g_free(resp);
+    } else {
+        set_status(ctx, "Training failed");
+    }
+    gtk_progress_bar_set_fraction(ctx->progress, 0.0);
+}
+
+/* Build the Environment tab */
+void add_environment_tab(GtkNotebook *nb) {
+    EnvCtx *ctx = g_new0(EnvCtx, 1);
+
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+
+    /* stack switcher (top) */
+    ctx->stack = GTK_STACK(gtk_stack_new());
+    gtk_stack_set_transition_type(ctx->stack, GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
+    GtkWidget *switcher = gtk_stack_switcher_new();
+    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), ctx->stack);
+    gtk_box_pack_start(GTK_BOX(outer), switcher, FALSE, FALSE, 0);
+
+    /* main split */
+    GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
+
+    /* left controls */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+
+    // dataset row + refresh + load
+    GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->ds_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+    ctx->btn_refresh_ds = GTK_BUTTON(gtk_button_new_with_label("Refresh"));
+    GtkWidget *btn_load = gtk_button_new_with_label("Load");
+    gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ds_row), btn_load, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), ds_row, FALSE, FALSE, 0);
+
+    // trainees row
+    GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+    gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
+    gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new("Trainee:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(left), tr_row, FALSE, FALSE, 0);
+
+    // algo + params (minimal)
+    GtkWidget *algo_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->algo_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+    gtk_combo_box_text_append_text(ctx->algo_combo, "linreg");
+    gtk_combo_box_text_append_text(ctx->algo_combo, "ridge");
+    gtk_combo_box_text_append_text(ctx->algo_combo, "lasso");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), 0);
+    gtk_box_pack_start(GTK_BOX(algo_row), gtk_label_new("Regressor:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(algo_row), GTK_WIDGET(ctx->algo_combo), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(left), algo_row, FALSE, FALSE, 0);
+
+    // split sliders (spin buttons)
+    GtkAdjustment *adj1 = gtk_adjustment_new(70, 1, 98, 1, 5, 0);
+    GtkAdjustment *adj2 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
+    GtkAdjustment *adj3 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
+    ctx->train_spn = GTK_SPIN_BUTTON(gtk_spin_button_new(adj1, 1, 0));
+    ctx->val_spn   = GTK_SPIN_BUTTON(gtk_spin_button_new(adj2, 1, 0));
+    ctx->test_spn  = GTK_SPIN_BUTTON(gtk_spin_button_new(adj3, 1, 0));
+    GtkWidget *split_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(split_row), gtk_label_new("Split (T/V/S %)"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->train_spn), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->val_spn),   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->test_spn),  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), split_row, FALSE, FALSE, 0);
+
+    // features (X,Y) and basic preproc
+    GtkWidget *xy_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->x_feat = GTK_ENTRY(gtk_entry_new());
+    ctx->y_feat = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(ctx->x_feat, "X feature (e.g., sepal_length)");
+    gtk_entry_set_placeholder_text(ctx->y_feat, "Y target (e.g., price)");
+    gtk_box_pack_start(GTK_BOX(xy_row), GTK_WIDGET(ctx->x_feat), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(xy_row), GTK_WIDGET(ctx->y_feat), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(left), xy_row, FALSE, FALSE, 0);
+
+    ctx->impute_chk = GTK_CHECK_BUTTON(gtk_check_button_new_with_label("Impute (median)"));
+    ctx->scale_chk  = GTK_CHECK_BUTTON(gtk_check_button_new_with_label("Scale (standard)"));
+    gtk_box_pack_start(GTK_BOX(left), GTK_WIDGET(ctx->impute_chk), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), GTK_WIDGET(ctx->scale_chk),  FALSE, FALSE, 0);
+
+    // action buttons
+    GtkWidget *act_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->btn_train    = GTK_BUTTON(gtk_button_new_with_label("Train"));
+    GtkWidget *btn_plot = gtk_button_new_with_label("Plot");
+    ctx->btn_validate = GTK_BUTTON(gtk_button_new_with_label("Validate"));
+    ctx->btn_test     = GTK_BUTTON(gtk_button_new_with_label("Test"));
+    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_train), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(act_row), btn_plot, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_validate), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_test), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), act_row, FALSE, FALSE, 0);
+
+    gtk_paned_pack1(GTK_PANED(paned), left, FALSE, FALSE);
+
+    /* right notebook */
+    GtkWidget *right_nb = gtk_notebook_new();
+    ctx->right_nb = GTK_NOTEBOOK(right_nb);
+
+    // preview scroller
+    GtkWidget *tv = gtk_tree_view_new();        // <- tv = tree view widget
+    ctx->preview_view = GTK_TREE_VIEW(tv);      // keep a typed handle in your context
+    GtkWidget *scroller_preview = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(scroller_preview), tv);
+    gtk_notebook_append_page(ctx->right_nb, scroller_preview, gtk_label_new("Preview"));
+
+
+    // logs scroller
+    GtkWidget *scroller_logs = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(scroller_logs), GTK_WIDGET(ctx->logs_view));
+    gtk_notebook_append_page(ctx->right_nb, scroller_logs, gtk_label_new("Logs"));
+
+    // plot
+    ctx->plot_img = GTK_IMAGE(gtk_image_new());
+    GtkWidget *plot_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_pack_start(GTK_BOX(plot_box), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
+    gtk_notebook_append_page(ctx->right_nb, plot_box, gtk_label_new("Plot"));
+
+    // metrics
+    GtkWidget *metrics_view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(metrics_view), FALSE);
+    gtk_notebook_append_page(ctx->right_nb, metrics_view, gtk_label_new("Metrics"));
+
+    gtk_paned_pack2(GTK_PANED(paned), right_nb, TRUE, FALSE);
+
+    /* footer */
+    GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->progress = GTK_PROGRESS_BAR(gtk_progress_bar_new());
+    ctx->status   = GTK_LABEL(gtk_label_new("Idle"));
+    gtk_box_pack_start(GTK_BOX(footer), GTK_WIDGET(ctx->progress), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(footer), GTK_WIDGET(ctx->status), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
+
+    /* stack pages (we reuse the same left/right; the stack is a navigator, not extra copies) */
+    gtk_stack_add_titled(ctx->stack, paned, "preproc",   "Pre-processing");
+    gtk_stack_add_titled(ctx->stack, paned, "regressor", "Regression");
+    gtk_stack_add_titled(ctx->stack, paned, "view",      "View");
+
+    /* wire signals */
+    g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_datasets), ctx);
+    g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_dataset),     ctx);
+    g_signal_connect(btn_plot,            "clicked", G_CALLBACK(on_plot_update),      ctx);
+    g_signal_connect(ctx->btn_train,      "clicked", G_CALLBACK(on_train_clicked),    ctx);
+
+    /* mount into notebook */
+    GtkWidget *tab_lbl = gtk_label_new("Environment");
+    gtk_notebook_append_page(nb, outer, tab_lbl);
+    gtk_widget_show_all(outer);
+
+    /* initial population */
+    on_refresh_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
 }
 
 /* ---- destroy ---- */

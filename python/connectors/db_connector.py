@@ -73,21 +73,27 @@
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# --- db_connector.py: robust serve loop for your GUI -------------------------
 import sys, io, argparse
 import mysql.connector
 
+# Normalize pipes to UTF-8 text with '\n' newlines on Windows too
 sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding="utf-8", newline="\n")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 def open_conn(args):
+    # autocommit=True ensures each SELECT sees latest committed rows
     return mysql.connector.connect(
-        host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.db,
-        autocommit=True
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        password=args.password,
+        database=args.db,
+        autocommit=True,      # <- key setting
     )
 
-def list_tables(c):
-    cur = c.cursor()
+def list_tables(cnx):
+    cur = cnx.cursor()
     cur.execute("SHOW TABLES")
     rows = [r[0] for r in cur.fetchall()]
     cur.close()
@@ -95,17 +101,20 @@ def list_tables(c):
     for t in rows:
         sys.stdout.write(f"{t}\n")
 
-def dump_table(c, table):
-    cur = c.cursor()
+def dump_table(cnx, table):
+    cur = cnx.cursor()
+    # Uncomment ORDER BY if you have a stable primary key (keeps hash diffs predictable)
+    # cur.execute(f"SELECT * FROM `{table}` ORDER BY `id`")
     cur.execute(f"SELECT * FROM `{table}`")
     cols = [d[0] for d in cur.description]
     sys.stdout.write(",".join(cols) + "\n")
     for row in cur.fetchall():
+        # simple CSV; your C parser handles quotes and commas
         sys.stdout.write(",".join("" if v is None else str(v) for v in row) + "\n")
     cur.close()
 
-def describe_table(c, table):
-    cur = c.cursor()
+def describe_table(cnx, table):
+    cur = cnx.cursor()
     cur.execute(f"DESCRIBE `{table}`")
     sys.stdout.write("Field,Type,Null,Key,Default,Extra\n")
     for r in cur.fetchall():
@@ -113,32 +122,44 @@ def describe_table(c, table):
     cur.close()
 
 def serve(args):
-    c = open_conn(args)
-    sys.stdout.write("READY\n"); sys.stdout.flush()
+    cnx = open_conn(args)
+    # Signal readiness to the C side (it waits for "READY\n")
+    sys.stdout.write("READY\n")
+    sys.stdout.flush()
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
         try:
+            # Make sure the connection is alive for each command
             try:
-                c.ping(reconnect=True, attempts=1, delay=0)
+                cnx.ping(reconnect=True, attempts=1, delay=0)
             except Exception:
-                c.close()
-                c = open_conn(args)
+                try:
+                    cnx.close()
+                except Exception:
+                    pass
+                cnx = open_conn(args)
 
             if line.upper() == "QUIT":
                 break
             elif line.upper() == "LIST":
-                list_tables(c); sys.stdout.write("\x04\n"); sys.stdout.flush()
+                list_tables(cnx);   sys.stdout.write("\x04\n"); sys.stdout.flush()
             elif line.upper().startswith("DUMP "):
-                dump_table(c, line.split(" ", 1)[1]); sys.stdout.write("\x04\n"); sys.stdout.flush()
+                dump_table(cnx, line.split(" ", 1)[1]);  sys.stdout.write("\x04\n"); sys.stdout.flush()
             elif line.upper().startswith("SCHEMA "):
-                describe_table(c, line.split(" ", 1)[1]); sys.stdout.write("\x04\n"); sys.stdout.flush()
+                describe_table(cnx, line.split(" ", 1)[1]); sys.stdout.write("\x04\n"); sys.stdout.flush()
             else:
                 sys.stdout.write("ERR unknown command\n\x04\n"); sys.stdout.flush()
         except Exception as e:
             sys.stdout.write(f"ERR {e}\n\x04\n"); sys.stdout.flush()
-    c.close()
+
+    try:
+        cnx.close()
+    except Exception:
+        pass
+
 
 def oneshot(args):
     c = open_conn(args)

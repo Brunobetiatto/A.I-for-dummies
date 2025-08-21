@@ -30,6 +30,115 @@ typedef struct {
     int           id_col;       /* -1 if none found */
 } TabCtx;
 
+/* ==== Metal theme (global) ================================================ */
+static const char *METAL_CSS =
+"/* Base window background (Metal-like brushed gray) */\n"
+"window, dialog, .background {"
+"  background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));"
+"}\n"
+"\n"
+"/* Panels / frames with light bevel */\n"
+".metal-panel {"
+"  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);"
+"  border: 1px solid #7f7f7f;"
+"  box-shadow: inset 1px 1px 0px 0px #ffffff, inset -1px -1px 0px 0px #808080;"
+"  padding: 10px;"
+"  border-radius: 2px;"
+"}\n"
+"\n"
+"/* Buttons: flat metal gradient with beveled edges */\n"
+"button {"
+"  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);"
+"  border: 1px solid #7a7a7a;"
+"  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;"
+"  padding: 4px 10px;"
+"}\n"
+"button:hover {"
+"  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);"
+"}\n"
+"button:active {"
+"  background-image: linear-gradient(to bottom, #c9c9c9, #b8b8b8);"
+"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
+"}\n"
+"button:disabled {"
+"  opacity: 0.6;"
+"}\n"
+"\n"
+"/* Text entries: sunken look */\n"
+"entry, spinbutton, combobox, combobox entry {"
+"  background: #ffffff;"
+"  border: 1px solid #7a7a7a;"
+"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
+"  padding: 4px;"
+"}\n"
+"entry:focus {"
+"  border-color: #2a5db0;"
+"}\n"
+"\n"
+"/* Notebook (tabs) */\n"
+"notebook > header {"
+"  background-image: linear-gradient(to bottom, #d2d2d2, #c2c2c2);"
+"  border-bottom: 1px solid #7a7a7a;"
+"}\n"
+"notebook tab {"
+"  background-image: linear-gradient(to bottom, #e2e2e2, #cdcdcd);"
+"  border: 1px solid #7a7a7a;"
+"  margin: 2px;"
+"  padding: 4px 8px;"
+"}\n"
+"notebook tab:checked {"
+"  background-image: linear-gradient(to bottom, #f2f2f2, #dbdbdb);"
+"}\n"
+"\n"
+"/* TreeView header */\n"
+"treeview header button {"
+"  background-image: linear-gradient(to bottom, #e3e3e3, #cfcfcf);"
+"  border: 1px solid #7a7a7a;"
+"  padding: 4px 6px;"
+"  font-weight: bold;"
+"}\n"
+"\n"
+"/* Progressbar */\n"
+"progressbar trough {"
+"  border: 1px solid #7a7a7a;"
+"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
+"}\n"
+"progressbar progress {"
+"  background-image: linear-gradient(to bottom, #9fbef7, #5582d0);"
+"}\n"
+"\n"
+"/* Scrollbars a bit chunkier for desktop */\n"
+"scrollbar slider {"
+"  background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);"
+"  border: 1px solid #7a7a7a;"
+"}\n";
+
+static void apply_metal_theme(void) {
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(prov, METAL_CSS, -1, NULL);
+#if GTK_CHECK_VERSION(3,0,0)
+    GdkScreen *scr = gdk_screen_get_default();
+    gtk_style_context_add_provider_for_screen(scr,
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+#else
+    /* Fallback: add to default context (older GTKs) */
+    GtkWidgetPath *path = gtk_widget_path_new(); (void)path;
+#endif
+    g_object_unref(prov);
+}
+
+/* Small helper to wrap a child in a beveled metal panel */
+static GtkWidget* metal_wrap(GtkWidget *child, const char *name_opt) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(box), "metal-panel");
+    if (name_opt && *name_opt) gtk_widget_set_name(box, name_opt);
+    gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0);
+    return box;
+}
+/* ==== end Metal theme ===================================================== */
+
+
 typedef struct {
     /* left controls */
     GtkComboBoxText *ds_combo;
@@ -382,49 +491,57 @@ static GtkWidget* make_refresh_button(TabCtx *ctx) {
 /* ---- UI building ---- */
 
 static TabCtx* add_datasets_tab(GtkNotebook *nb) {
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    /* Outer with padding */
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
 
-    /* top row: refresh button (LEFT) + filter entry */
-    GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    /* Top bar: refresh + filter */
+    GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Filter (matches any column)...");
+    GtkWidget *top_left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-    /* tree view */
-    GtkWidget *tree = gtk_tree_view_new();
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_container_add(GTK_CONTAINER(scroll), tree);
-
-    /* context FIRST */
+    /* Context FIRST */
     TabCtx *ctx = g_new0(TabCtx, 1);
     ctx->entry   = GTK_ENTRY(entry);
+    GtkWidget *tree = gtk_tree_view_new();
     ctx->view    = GTK_TREE_VIEW(tree);
     ctx->store   = NULL;
     ctx->dump_cmd= g_strdup_printf("DUMP %s\n", TABLE_NAME);
     ctx->n_cols  = 0;
     ctx->id_col  = -1;
 
-    /* real refresh button bound to ctx (LEFT) */
     GtkWidget *btn = make_refresh_button(ctx);
-    gtk_box_pack_start(GTK_BOX(hrow), btn, FALSE, FALSE, 0);   /* left-most */
-    gtk_box_pack_start(GTK_BOX(hrow), entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(top_left), btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(top), top_left, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(top), entry, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(vbox), hrow,  FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), scroll, TRUE,  TRUE,  0);
+    /* Tree in scroller */
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(scroll), tree);
+
+    /* Wrap both in panels for depth */
+    GtkWidget *top_panel   = metal_wrap(top,   "ds-top-bar");
+    GtkWidget *table_panel = metal_wrap(scroll,"ds-table");
+
+    gtk_box_pack_start(GTK_BOX(outer), top_panel,   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), table_panel, TRUE,  TRUE,  0);
 
     GtkWidget *lbl = gtk_label_new("Datasets");
-    gtk_notebook_append_page(nb, vbox, lbl);
+    gtk_notebook_append_page(nb, outer, lbl);
 
     /* signals */
     g_signal_connect(entry, "changed", G_CALLBACK(on_entry_changed), ctx);
 
-    gtk_widget_show_all(vbox);
+    gtk_widget_show_all(outer);
 
     /* initial fill + periodic refresh */
-    refresh_datasets_tab_core(ctx, TRUE);          /* force once on startup */
-    g_timeout_add(2000, refresh_timer_cb, ctx);    /* gentle background updates */
+    refresh_datasets_tab_core(ctx, TRUE);
+    g_timeout_add(2000, refresh_timer_cb, ctx);
 
     return ctx;
 }
+
 
 /* Environment */
 
@@ -643,177 +760,89 @@ static void on_train_clicked(GtkButton *b, gpointer user) {
 
 
 // Adicione esta função para criar a janela de login
+// Adicione/REPLACE a função create_login_window:
 static GtkWidget* create_login_window(LoginData *login_data) {
-    // Criar janela
+    /* Window */
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies - Login");
-    gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
+    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies – Login");
+    gtk_window_set_default_size(GTK_WINDOW(window), 460, 340);
     gtk_window_set_modal(GTK_WINDOW(window), TRUE);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_window_set_decorated(GTK_WINDOW(window), TRUE);
-    gtk_container_set_border_width(GTK_CONTAINER(window), 0);
-    
-    // Permitir redimensionamento (útil para tela cheia)
     gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
+    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 
-    // Criar box principal
-    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add(GTK_CONTAINER(window), main_box);
+    /* Outer center box so content stays centered while scalable */
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(window), outer);
+    gtk_widget_set_halign(outer, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(outer, GTK_ALIGN_CENTER);
 
-    // CSS no estilo Windows clássico
-    const char *css =
-    "window {"
-    "    background-color: #c0c0c0;"
-    "    border: 2px solid;"
-    "    border-color: #dfdfdf #808080 #808080 #dfdfdf;"
-    "}"
-    ""
-    "#login-form {"
-    "    background-color: #c0c0c0;"
-    "    border: 2px solid;"
-    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
-    "    padding: 15px;"
-    "    margin: 10px;"
-    "}"
-    ""
-    "#login-title {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    font-size: 18px;"
-    "    font-weight: bold;"
-    "    color: #000080;"
-    "    margin-bottom: 20px;"
-    "    text-align: center;"
-    "}"
-    ""
-    ".input-label {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    font-size: 14px;"
-    "    color: #000000;"
-    "    margin-bottom: 5px;"
-    "}"
-    ""
-    "entry {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    background-color: #ffffff;"
-    "    border: 2px solid;"
-    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
-    "    padding: 5px;"
-    "    font-size: 14px;"
-    "    color: #000000;"
-    "}"
-    ""
-    "entry:focus {"
-    "    border-color: #000080;"
-    "}"
-    ""
-    "#login-button {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    background-color: #c0c0c0;"
-    "    border: 2px solid;"
-    "    border-color: #dfdfdf #808080 #808080 #dfdfdf;"
-    "    padding: 5px 15px;"
-    "    font-size: 14px;"
-    "    color: #000000;"
-    "}"
-    ""
-    "#login-button:hover {"
-    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
-    "}"
-    ""
-    "#login-button:active {"
-    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
-    "    background-color: #a0a0a0;"
-    "}"
-    ""
-    "#status-label {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    color: #800000;"
-    "    font-size: 12px;"
-    "    text-align: center;"
-    "    margin-top: 10px;"
-    "}"
-    ""
-    "#footer-label {"
-    "    font-family: 'MS Sans Serif', sans-serif;"
-    "    color: #808080;"
-    "    font-size: 10px;"
-    "    text-align: center;"
-    "    margin-top: 15px;"
-    "}";
+    /* Form container with metal depth */
+    GtkWidget *form = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_container_set_border_width(GTK_CONTAINER(form), 16);
+    GtkWidget *panel = metal_wrap(form, "login-form");
+    gtk_box_pack_start(GTK_BOX(outer), panel, FALSE, FALSE, 0);
 
-    // Aplicar CSS
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(provider, css, -1, NULL);
-    
-    GtkStyleContext *context = gtk_widget_get_style_context(window);
-    gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(provider), 
-                                  GTK_STYLE_PROVIDER_PRIORITY_USER);
-    g_object_unref(provider);
+    /* Title */
+    GtkWidget *title = gtk_label_new("AI For Dummies");
+    PangoAttrList *attrs = pango_attr_list_new();
+    pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    pango_attr_list_insert(attrs, pango_attr_size_new(14 * PANGO_SCALE));
+    gtk_label_set_attributes(GTK_LABEL(title), attrs);
+    pango_attr_list_unref(attrs);
+    gtk_box_pack_start(GTK_BOX(form), title, FALSE, FALSE, 0);
 
-    // Container do formulário
-    GtkWidget *form_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_name(form_container, "login-form");
-    gtk_box_pack_start(GTK_BOX(main_box), form_container, TRUE, TRUE, 0);
-    
-    // Centralizar o formulário na tela
-    gtk_widget_set_halign(form_container, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(form_container, GTK_ALIGN_CENTER);
-    gtk_widget_set_margin_top(form_container, 20);
-    gtk_widget_set_margin_bottom(form_container, 20);
-    gtk_widget_set_margin_start(form_container, 20);
-    gtk_widget_set_margin_end(form_container, 20);
+    /* Grid for labels/inputs */
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    gtk_box_pack_start(GTK_BOX(form), grid, TRUE, TRUE, 0);
 
-    // Título
-    GtkWidget *title_label = gtk_label_new("AI For Dummies");
-    gtk_widget_set_name(title_label, "login-title");
-    gtk_box_pack_start(GTK_BOX(form_container), title_label, FALSE, FALSE, 0);
+    /* Username */
+    GtkWidget *lbl_user = gtk_label_new("Usuário:");
+    gtk_widget_set_halign(lbl_user, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, 0, 1, 1);
 
-    // Campo de email
-    GtkWidget *email_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    GtkWidget *email_label = gtk_label_new("Usuário:");
-    gtk_widget_set_name(email_label, "input-label");
-    gtk_box_pack_start(GTK_BOX(email_box), email_label, FALSE, FALSE, 0);
-    
     login_data->email_entry = GTK_ENTRY(gtk_entry_new());
     gtk_entry_set_placeholder_text(login_data->email_entry, "Digite seu usuário");
-    gtk_box_pack_start(GTK_BOX(email_box), GTK_WIDGET(login_data->email_entry), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(form_container), email_box, FALSE, FALSE, 0);
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->email_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(grid), GTK_WIDGET(login_data->email_entry), 1, 0, 2, 1);
 
-    // Campo de senha
-    GtkWidget *pass_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    GtkWidget *pass_label = gtk_label_new("Senha:");
-    gtk_widget_set_name(pass_label, "input-label");
-    gtk_box_pack_start(GTK_BOX(pass_box), pass_label, FALSE, FALSE, 0);
-    
+    /* Password with reveal */
+    GtkWidget *lbl_pass = gtk_label_new("Senha:");
+    gtk_widget_set_halign(lbl_pass, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(grid), lbl_pass, 0, 1, 1, 1);
+
     login_data->pass_entry = GTK_ENTRY(gtk_entry_new());
     gtk_entry_set_placeholder_text(login_data->pass_entry, "Digite sua senha");
     gtk_entry_set_visibility(login_data->pass_entry, FALSE);
-    gtk_box_pack_start(GTK_BOX(pass_box), GTK_WIDGET(login_data->pass_entry), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(form_container), pass_box, FALSE, FALSE, 0);
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->pass_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(grid), GTK_WIDGET(login_data->pass_entry), 1, 1, 1, 1);
 
-    // Botão de login
-    GtkWidget *login_btn = gtk_button_new_with_label("Entrar");
-    gtk_widget_set_name(login_btn, "login-button");
-    gtk_box_pack_start(GTK_BOX(form_container), login_btn, FALSE, FALSE, 0);
+    GtkWidget *reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
+    gtk_widget_set_tooltip_text(reveal_btn, "Mostrar/ocultar senha");
+    g_signal_connect(reveal_btn, "toggled",
+        G_CALLBACK(on_toggle_password_visibility), login_data->pass_entry);
+    gtk_grid_attach(GTK_GRID(grid), reveal_btn, 2, 1, 1, 1);
 
-    // Status
+    /* Actions row */
+    GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
+    gtk_widget_set_hexpand(btn_login, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), btn_login, 1, 2, 2, 1);
+
+    /* Status + footer */
     login_data->status_label = GTK_LABEL(gtk_label_new(""));
-    gtk_widget_set_name(GTK_WIDGET(login_data->status_label), "status-label");
-    gtk_box_pack_start(GTK_BOX(form_container), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(form), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
 
-    // Rodapé
-    GtkWidget *footer_label = gtk_label_new("Pressione Enter para continuar ou ESC para sair");
-    gtk_widget_set_name(footer_label, "footer-label");
-    gtk_box_pack_start(GTK_BOX(form_container), footer_label, FALSE, FALSE, 0);
+    GtkWidget *footer = gtk_label_new("Enter para entrar • ESC para sair");
+    gtk_box_pack_start(GTK_BOX(form), footer, FALSE, FALSE, 0);
 
-    // Conectar sinais
-    g_signal_connect(login_btn, "clicked", G_CALLBACK(on_login_clicked), login_data);
-    
-    // Conectar sinal para fechar com ESC e enviar com Enter
+    /* Signals */
+    g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_clicked), login_data);
     g_signal_connect(window, "key-press-event", G_CALLBACK(on_login_key_press), login_data);
 
     return window;
 }
+
 
 // Função para alternar a visibilidade da senha
 static void on_toggle_password_visibility(GtkButton *button, gpointer user_data) {
@@ -923,9 +952,8 @@ static void on_login_clicked(GtkButton *b, gpointer user_data) {
 }
 
 /* Build the Environment tab */
+/* Build the Environment tab */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
-    // Usar o contexto passado em vez de criar um novo
-
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 
     /* stack switcher (top) */
@@ -939,10 +967,8 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
 
-    /* left controls */
-    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-
-
+    /* LEFT: controls inside a Metal panel */
+    GtkWidget *left_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
     /* dataset row + refresh + load */
     GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -952,17 +978,17 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ds_row), btn_load, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left), ds_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), ds_row, FALSE, FALSE, 0);
 
-    // trainees row
+    /* trainees row */
     GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
     gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
     gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new("Trainee:"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left), tr_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), tr_row, FALSE, FALSE, 0);
 
-    // algo + params (minimal)
+    /* algo + params */
     GtkWidget *algo_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->algo_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
     gtk_combo_box_text_append_text(ctx->algo_combo, "linreg");
@@ -971,9 +997,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), 0);
     gtk_box_pack_start(GTK_BOX(algo_row), gtk_label_new("Regressor:"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(algo_row), GTK_WIDGET(ctx->algo_combo), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left), algo_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), algo_row, FALSE, FALSE, 0);
 
-    // split sliders (spin buttons)
+    /* split sliders */
     GtkAdjustment *adj1 = gtk_adjustment_new(70, 1, 98, 1, 5, 0);
     GtkAdjustment *adj2 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
     GtkAdjustment *adj3 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
@@ -985,9 +1011,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->train_spn), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->val_spn),   FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->test_spn),  FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left), split_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), split_row, FALSE, FALSE, 0);
 
-    // features (X,Y) and basic preproc
+    /* features + preproc */
     GtkWidget *xy_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->x_feat = GTK_ENTRY(gtk_entry_new());
     ctx->y_feat = GTK_ENTRY(gtk_entry_new());
@@ -995,14 +1021,14 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_entry_set_placeholder_text(ctx->y_feat, "Y target (e.g., price)");
     gtk_box_pack_start(GTK_BOX(xy_row), GTK_WIDGET(ctx->x_feat), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(xy_row), GTK_WIDGET(ctx->y_feat), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left), xy_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), xy_row, FALSE, FALSE, 0);
 
     ctx->impute_chk = GTK_CHECK_BUTTON(gtk_check_button_new_with_label("Impute (median)"));
     ctx->scale_chk  = GTK_CHECK_BUTTON(gtk_check_button_new_with_label("Scale (standard)"));
-    gtk_box_pack_start(GTK_BOX(left), GTK_WIDGET(ctx->impute_chk), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left), GTK_WIDGET(ctx->scale_chk),  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), GTK_WIDGET(ctx->impute_chk), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), GTK_WIDGET(ctx->scale_chk),  FALSE, FALSE, 0);
 
-    // action buttons
+    /* action buttons */
     GtkWidget *act_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->btn_train    = GTK_BUTTON(gtk_button_new_with_label("Train"));
     GtkWidget *btn_plot = gtk_button_new_with_label("Plot");
@@ -1012,40 +1038,44 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(act_row), btn_plot, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_validate), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_test), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left), act_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content), act_row, FALSE, FALSE, 0);
 
-    gtk_paned_pack1(GTK_PANED(paned), left, FALSE, FALSE);
+    /* Wrap left in metal panel and pack into paned */
+    GtkWidget *left_panel = metal_wrap(left_content, "env-left-panel");
+    gtk_paned_pack1(GTK_PANED(paned), left_panel, FALSE, FALSE);
 
-    /* right notebook */
+    /* RIGHT: notebook content; the theme styles tabs */
     GtkWidget *right_nb = gtk_notebook_new();
     ctx->right_nb = GTK_NOTEBOOK(right_nb);
 
-    // preview scroller
+    /* Preview */
     GtkWidget *tv = gtk_tree_view_new();
     ctx->preview_view = GTK_TREE_VIEW(tv);
     GtkWidget *scroller_preview = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scroller_preview), tv);
     gtk_notebook_append_page(ctx->right_nb, scroller_preview, gtk_label_new("Preview"));
 
-    // logs scroller - garantir que logs_view está inicializado
+    /* Logs */
     ctx->logs_view = GTK_TEXT_VIEW(gtk_text_view_new());
     gtk_text_view_set_editable(ctx->logs_view, FALSE);
     GtkWidget *scroller_logs = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scroller_logs), GTK_WIDGET(ctx->logs_view));
     gtk_notebook_append_page(ctx->right_nb, scroller_logs, gtk_label_new("Logs"));
 
-    // plot
+    /* Plot */
     ctx->plot_img = GTK_IMAGE(gtk_image_new());
     GtkWidget *plot_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_box_pack_start(GTK_BOX(plot_box), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
     gtk_notebook_append_page(ctx->right_nb, plot_box, gtk_label_new("Plot"));
 
-    // metrics
+    /* Metrics */
     GtkWidget *metrics_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(metrics_view), FALSE);
     gtk_notebook_append_page(ctx->right_nb, metrics_view, gtk_label_new("Metrics"));
 
-    gtk_paned_pack2(GTK_PANED(paned), right_nb, TRUE, FALSE);
+    /* Wrap right in panel for consistent depth */
+    GtkWidget *right_panel = metal_wrap(right_nb, "env-right-panel");
+    gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, FALSE);
 
     /* footer */
     GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -1053,15 +1083,14 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     ctx->status   = GTK_LABEL(gtk_label_new("Idle"));
     gtk_box_pack_start(GTK_BOX(footer), GTK_WIDGET(ctx->progress), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(footer), GTK_WIDGET(ctx->status), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), metal_wrap(footer, "env-footer"), FALSE, FALSE, 0);
 
     /* stack pages */
     gtk_stack_add_titled(ctx->stack, paned, "preproc",   "Pre-processing");
     gtk_stack_add_titled(ctx->stack, paned, "regressor", "Regression");
     gtk_stack_add_titled(ctx->stack, paned, "view",      "View");
 
-    /* wire signals - REMOVER O SINAL DO BOTÃO DE LOGIN */
-    // g_signal_connect(ctx->btn_login, "clicked", G_CALLBACK(on_login_clicked), ctx);
+    /* signals */
     g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_datasets), ctx);
     g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_dataset),     ctx);
     g_signal_connect(btn_plot,            "clicked", G_CALLBACK(on_plot_update),      ctx);
@@ -1075,6 +1104,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* initial population */
     on_refresh_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
 }
+
 /* ---- destroy ---- */
 static void on_destroy(GtkWidget *w, gpointer data) {
     (void)w; (void)data;
@@ -1088,6 +1118,8 @@ static void on_destroy(GtkWidget *w, gpointer data) {
 // Modifique a função main para usar o sistema de login
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
+
+    apply_metal_theme();
 
     /* EDIT credentials (or load from env) */
     const WCHAR *DB   = L"AIForDummies";

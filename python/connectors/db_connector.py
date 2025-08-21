@@ -74,56 +74,63 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # --- db_connector.py: robust serve loop for your GUI -------------------------
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# --- db_connector.py: robust serve loop for your GUI -------------------------
 import sys, io, argparse
-import mysql.connector
+import json
+import pymysql   # trocado: mysql.connector -> pymysql
+
+import os
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from database.CRUD.create import create_user as create_user_fn
+from database.CRUD.read import verify_login as verify_login_fn
 
 # Normalize pipes to UTF-8 text with '\n' newlines on Windows too
 sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding="utf-8", newline="\n")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 def open_conn(args):
-    # autocommit=True ensures each SELECT sees latest committed rows
-    return mysql.connector.connect(
+    # autocommit=True garante que SELECT vê dados mais recentes
+    return pymysql.connect(
         host=args.host,
         port=args.port,
         user=args.user,
         password=args.password,
         database=args.db,
-        autocommit=True,      # <- key setting
+        autocommit=True,
+        cursorclass=pymysql.cursors.Cursor  # mesmo comportamento que o mysql.connector
     )
 
 def list_tables(cnx):
-    cur = cnx.cursor()
-    cur.execute("SHOW TABLES")
-    rows = [r[0] for r in cur.fetchall()]
-    cur.close()
+    with cnx.cursor() as cur:
+        cur.execute("SHOW TABLES")
+        rows = [r[0] for r in cur.fetchall()]
     sys.stdout.write("table\n")
     for t in rows:
         sys.stdout.write(f"{t}\n")
 
 def dump_table(cnx, table):
-    cur = cnx.cursor()
-    # Uncomment ORDER BY if you have a stable primary key (keeps hash diffs predictable)
-    # cur.execute(f"SELECT * FROM `{table}` ORDER BY `id`")
-    cur.execute(f"SELECT * FROM `{table}`")
-    cols = [d[0] for d in cur.description]
-    sys.stdout.write(",".join(cols) + "\n")
-    for row in cur.fetchall():
-        # simple CSV; your C parser handles quotes and commas
-        sys.stdout.write(",".join("" if v is None else str(v) for v in row) + "\n")
-    cur.close()
+    with cnx.cursor() as cur:
+        cur.execute(f"SELECT * FROM `{table}`")
+        cols = [d[0] for d in cur.description]
+        sys.stdout.write(",".join(cols) + "\n")
+        for row in cur.fetchall():
+            sys.stdout.write(",".join("" if v is None else str(v) for v in row) + "\n")
 
 def describe_table(cnx, table):
-    cur = cnx.cursor()
-    cur.execute(f"DESCRIBE `{table}`")
-    sys.stdout.write("Field,Type,Null,Key,Default,Extra\n")
-    for r in cur.fetchall():
-        sys.stdout.write(",".join("" if v is None else str(v) for v in r) + "\n")
-    cur.close()
+    with cnx.cursor() as cur:
+        cur.execute(f"DESCRIBE `{table}`")
+        sys.stdout.write("Field,Type,Null,Key,Default,Extra\n")
+        for r in cur.fetchall():
+            sys.stdout.write(",".join("" if v is None else str(v) for v in r) + "\n")
 
 def serve(args):
     cnx = open_conn(args)
-    # Signal readiness to the C side (it waits for "READY\n")
     sys.stdout.write("READY\n")
     sys.stdout.flush()
 
@@ -132,9 +139,8 @@ def serve(args):
         if not line:
             continue
         try:
-            # Make sure the connection is alive for each command
             try:
-                cnx.ping(reconnect=True, attempts=1, delay=0)
+                cnx.ping(reconnect=True)
             except Exception:
                 try:
                     cnx.close()
@@ -150,6 +156,34 @@ def serve(args):
                 dump_table(cnx, line.split(" ", 1)[1]);  sys.stdout.write("\x04\n"); sys.stdout.flush()
             elif line.upper().startswith("SCHEMA "):
                 describe_table(cnx, line.split(" ", 1)[1]); sys.stdout.write("\x04\n"); sys.stdout.flush()
+            elif line.upper().startswith("CREATE_USER "):
+                try:
+                    payload = json.loads(line.split(" ", 1)[1])
+                    nome = payload.get("nome", "")
+                    email = payload.get("email", "")
+                    password = payload.get("password", "")
+                    if not nome or not email or not password:
+                        sys.stdout.write("ERR missing_fields\n\x04\n"); sys.stdout.flush()
+                    else:
+                        res = create_user_fn(cnx, nome, email, password)
+                        sys.stdout.write(f"OK {res['id']}|{res['nome']}|{res['email']}\n\x04\n"); sys.stdout.flush()
+                except Exception as e:
+                    sys.stdout.write(f"ERR {e}\n\x04\n"); sys.stdout.flush()
+            elif line.upper().startswith("LOGIN "):
+                try:
+                    payload = json.loads(line.split(" ", 1)[1])
+                    email = payload.get("email", "")
+                    password = payload.get("password", "")
+                    if not email or not password:
+                        sys.stdout.write("ERR missing_fields\n\x04\n"); sys.stdout.flush()
+                    else:
+                        user = verify_login_fn(cnx, email, password)
+                        if user:
+                            sys.stdout.write(f"OK {user['id']}|{user['nome']}|{user['email']}\n\x04\n"); sys.stdout.flush()
+                        else:
+                            sys.stdout.write("ERR invalid_credentials\n\x04\n"); sys.stdout.flush()
+                except Exception as e:
+                    sys.stdout.write(f"ERR {e}\n\x04\n"); sys.stdout.flush()
             else:
                 sys.stdout.write("ERR unknown command\n\x04\n"); sys.stdout.flush()
         except Exception as e:
@@ -159,7 +193,6 @@ def serve(args):
         cnx.close()
     except Exception:
         pass
-
 
 def oneshot(args):
     c = open_conn(args)
@@ -171,8 +204,8 @@ def oneshot(args):
 
 def parse_args(argv):
     p = argparse.ArgumentParser()
-    p.add_argument("--host", default="localhost")
-    p.add_argument("--port", type=int, default=3306)
+    p.add_argument("--host", default="hopper.proxy.rlwy.net")
+    p.add_argument("--port", type=int, default=39703)
     p.add_argument("--user", required=True)
     p.add_argument("--password", required=True)
     p.add_argument("--db", required=True)
@@ -192,4 +225,3 @@ def main(argv):
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
-

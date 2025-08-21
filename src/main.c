@@ -30,6 +30,55 @@ typedef struct {
     int           id_col;       /* -1 if none found */
 } TabCtx;
 
+typedef struct {
+    /* left controls */
+    GtkComboBoxText *ds_combo;
+    GtkComboBoxText *model_combo;
+    GtkComboBoxText *algo_combo;
+    GtkSpinButton   *train_spn;
+    GtkSpinButton   *val_spn;
+    GtkSpinButton   *test_spn;
+    GtkEntry        *x_feat;
+    GtkEntry        *y_feat;
+    GtkCheckButton  *scale_chk;
+    GtkCheckButton  *impute_chk;
+
+    GtkButton       *btn_train;
+    GtkButton       *btn_validate;
+    GtkButton       *btn_test;
+    GtkButton       *btn_refresh_ds;
+
+    /* right notebook */
+    GtkNotebook     *right_nb;
+    GtkTreeView     *preview_view;
+    GtkImage        *plot_img;
+    GtkTextView     *logs_view;
+    GtkListStore    *preview_store;
+
+    /* footer */
+    GtkProgressBar  *progress;
+    GtkLabel        *status;
+
+    /* stack */
+    GtkStack        *stack;
+
+    /* login widgets */
+    GtkEntry    *login_email;
+    GtkEntry    *login_pass;
+    GtkButton   *btn_login;
+    gboolean     logged_in;
+
+} EnvCtx;
+
+typedef struct {
+    GtkWidget *login_window;
+    GtkWidget *main_window;
+    GtkEntry *email_entry;
+    GtkEntry *pass_entry;
+    GtkLabel *status_label;
+    EnvCtx *env_ctx;
+} LoginData;
+
 /* ---- forward decls ---- */
 static gboolean refresh_datasets_tab(gpointer data);
 static void     on_destroy(GtkWidget *w, gpointer data);
@@ -37,8 +86,10 @@ static void     on_entry_changed(GtkEditable *e, gpointer data);
 static void     on_refresh_clicked(GtkButton *b, gpointer data);
 static GtkWidget* make_refresh_button(TabCtx *ctx);
 static TabCtx*  add_datasets_tab(GtkNotebook *nb);
-static void     add_environment_tab(GtkNotebook *nb);
-
+static void     add_environment_tab(GtkNotebook *nb, EnvCtx *env);
+static void on_login_clicked(GtkButton *b, gpointer user_data);
+static void on_toggle_password_visibility(GtkButton *button, gpointer user_data);
+static gboolean on_login_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
 /* ---- selection preservation helpers ---- */
 
 static gchar* make_row_key_from_iter(GtkTreeModel *model, GtkTreeIter *it, int n_cols, int id_col) {
@@ -395,39 +446,6 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
 //| |   if exists, retrieve and form a list of available "trainees"
 //| 
 
-typedef struct {
-    /* left controls */
-    GtkComboBoxText *ds_combo;
-    GtkComboBoxText *model_combo;
-    GtkComboBoxText *algo_combo;
-    GtkSpinButton   *train_spn;
-    GtkSpinButton   *val_spn;
-    GtkSpinButton   *test_spn;
-    GtkEntry        *x_feat;
-    GtkEntry        *y_feat;
-    GtkCheckButton  *scale_chk;
-    GtkCheckButton  *impute_chk;
-
-    GtkButton       *btn_train;
-    GtkButton       *btn_validate;
-    GtkButton       *btn_test;
-    GtkButton       *btn_refresh_ds;
-
-    /* right notebook */
-    GtkNotebook     *right_nb;
-    GtkTreeView     *preview_view;
-    GtkImage        *plot_img;
-    GtkTextView     *logs_view;
-    GtkListStore    *preview_store;
-
-    /* footer */
-    GtkProgressBar  *progress;
-    GtkLabel        *status;
-
-    /* stack */
-    GtkStack        *stack;
-} EnvCtx;
-
 /* --- small helpers --- */
 
 static void log_append(EnvCtx *ctx, const char *line) {
@@ -622,9 +640,291 @@ static void on_train_clicked(GtkButton *b, gpointer user) {
     gtk_progress_bar_set_fraction(ctx->progress, 0.0);
 }
 
+
+
+// Adicione esta função para criar a janela de login
+static GtkWidget* create_login_window(LoginData *login_data) {
+    // Criar janela
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies - Login");
+    gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
+    gtk_window_set_modal(GTK_WINDOW(window), TRUE);
+    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+    gtk_window_set_decorated(GTK_WINDOW(window), TRUE);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 0);
+    
+    // Permitir redimensionamento (útil para tela cheia)
+    gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
+
+    // Criar box principal
+    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(window), main_box);
+
+    // CSS no estilo Windows clássico
+    const char *css =
+    "window {"
+    "    background-color: #c0c0c0;"
+    "    border: 2px solid;"
+    "    border-color: #dfdfdf #808080 #808080 #dfdfdf;"
+    "}"
+    ""
+    "#login-form {"
+    "    background-color: #c0c0c0;"
+    "    border: 2px solid;"
+    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
+    "    padding: 15px;"
+    "    margin: 10px;"
+    "}"
+    ""
+    "#login-title {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    font-size: 18px;"
+    "    font-weight: bold;"
+    "    color: #000080;"
+    "    margin-bottom: 20px;"
+    "    text-align: center;"
+    "}"
+    ""
+    ".input-label {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    font-size: 14px;"
+    "    color: #000000;"
+    "    margin-bottom: 5px;"
+    "}"
+    ""
+    "entry {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    background-color: #ffffff;"
+    "    border: 2px solid;"
+    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
+    "    padding: 5px;"
+    "    font-size: 14px;"
+    "    color: #000000;"
+    "}"
+    ""
+    "entry:focus {"
+    "    border-color: #000080;"
+    "}"
+    ""
+    "#login-button {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    background-color: #c0c0c0;"
+    "    border: 2px solid;"
+    "    border-color: #dfdfdf #808080 #808080 #dfdfdf;"
+    "    padding: 5px 15px;"
+    "    font-size: 14px;"
+    "    color: #000000;"
+    "}"
+    ""
+    "#login-button:hover {"
+    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
+    "}"
+    ""
+    "#login-button:active {"
+    "    border-color: #808080 #dfdfdf #dfdfdf #808080;"
+    "    background-color: #a0a0a0;"
+    "}"
+    ""
+    "#status-label {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    color: #800000;"
+    "    font-size: 12px;"
+    "    text-align: center;"
+    "    margin-top: 10px;"
+    "}"
+    ""
+    "#footer-label {"
+    "    font-family: 'MS Sans Serif', sans-serif;"
+    "    color: #808080;"
+    "    font-size: 10px;"
+    "    text-align: center;"
+    "    margin-top: 15px;"
+    "}";
+
+    // Aplicar CSS
+    GtkCssProvider *provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(provider, css, -1, NULL);
+    
+    GtkStyleContext *context = gtk_widget_get_style_context(window);
+    gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(provider), 
+                                  GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(provider);
+
+    // Container do formulário
+    GtkWidget *form_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_name(form_container, "login-form");
+    gtk_box_pack_start(GTK_BOX(main_box), form_container, TRUE, TRUE, 0);
+    
+    // Centralizar o formulário na tela
+    gtk_widget_set_halign(form_container, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(form_container, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(form_container, 20);
+    gtk_widget_set_margin_bottom(form_container, 20);
+    gtk_widget_set_margin_start(form_container, 20);
+    gtk_widget_set_margin_end(form_container, 20);
+
+    // Título
+    GtkWidget *title_label = gtk_label_new("AI For Dummies");
+    gtk_widget_set_name(title_label, "login-title");
+    gtk_box_pack_start(GTK_BOX(form_container), title_label, FALSE, FALSE, 0);
+
+    // Campo de email
+    GtkWidget *email_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    GtkWidget *email_label = gtk_label_new("Usuário:");
+    gtk_widget_set_name(email_label, "input-label");
+    gtk_box_pack_start(GTK_BOX(email_box), email_label, FALSE, FALSE, 0);
+    
+    login_data->email_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->email_entry, "Digite seu usuário");
+    gtk_box_pack_start(GTK_BOX(email_box), GTK_WIDGET(login_data->email_entry), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(form_container), email_box, FALSE, FALSE, 0);
+
+    // Campo de senha
+    GtkWidget *pass_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    GtkWidget *pass_label = gtk_label_new("Senha:");
+    gtk_widget_set_name(pass_label, "input-label");
+    gtk_box_pack_start(GTK_BOX(pass_box), pass_label, FALSE, FALSE, 0);
+    
+    login_data->pass_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->pass_entry, "Digite sua senha");
+    gtk_entry_set_visibility(login_data->pass_entry, FALSE);
+    gtk_box_pack_start(GTK_BOX(pass_box), GTK_WIDGET(login_data->pass_entry), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(form_container), pass_box, FALSE, FALSE, 0);
+
+    // Botão de login
+    GtkWidget *login_btn = gtk_button_new_with_label("Entrar");
+    gtk_widget_set_name(login_btn, "login-button");
+    gtk_box_pack_start(GTK_BOX(form_container), login_btn, FALSE, FALSE, 0);
+
+    // Status
+    login_data->status_label = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_set_name(GTK_WIDGET(login_data->status_label), "status-label");
+    gtk_box_pack_start(GTK_BOX(form_container), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
+
+    // Rodapé
+    GtkWidget *footer_label = gtk_label_new("Pressione Enter para continuar ou ESC para sair");
+    gtk_widget_set_name(footer_label, "footer-label");
+    gtk_box_pack_start(GTK_BOX(form_container), footer_label, FALSE, FALSE, 0);
+
+    // Conectar sinais
+    g_signal_connect(login_btn, "clicked", G_CALLBACK(on_login_clicked), login_data);
+    
+    // Conectar sinal para fechar com ESC e enviar com Enter
+    g_signal_connect(window, "key-press-event", G_CALLBACK(on_login_key_press), login_data);
+
+    return window;
+}
+
+// Função para alternar a visibilidade da senha
+static void on_toggle_password_visibility(GtkButton *button, gpointer user_data) {
+    GtkEntry *entry = GTK_ENTRY(user_data);
+    gboolean visible = gtk_entry_get_visibility(entry);
+    gtk_entry_set_visibility(entry, !visible);
+    
+    // Alterar o ícone baseado no estado
+    const gchar *icon_name = visible ? "view-conceal-symbolic" : "view-reveal-symbolic";
+    GtkWidget *new_icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
+    gtk_button_set_image(GTK_BUTTON(button), new_icon);
+}
+
+// Função para lidar com eventos de teclado
+static gboolean on_login_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data) {
+    LoginData *login_data = (LoginData*)user_data;
+    
+    if (event->keyval == GDK_KEY_Escape) {
+        gtk_widget_hide(login_data->login_window);
+        return TRUE;
+    }
+    
+    if (event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter) {
+        on_login_clicked(NULL, login_data);
+        return TRUE;
+    }
+    
+    return FALSE;
+}
+
+static void on_login_clicked(GtkButton *b, gpointer user_data) {
+    (void)b;
+    LoginData *login_data = (LoginData*)user_data;
+    const char *email = gtk_entry_get_text(login_data->email_entry);
+    const char *pass = gtk_entry_get_text(login_data->pass_entry);
+
+    if (!email || !*email || !pass || !*pass) {
+        gtk_label_set_text(login_data->status_label, "Digite email e senha");
+        return;
+    }
+
+    /* Montar JSON de autenticação */
+    GString *j = g_string_new("{\"email\":\"");
+    g_string_append(j, email);
+    g_string_append(j, "\",\"password\":\"");
+    g_string_append(j, pass);
+    g_string_append(j, "\"}");
+    
+    GString *cmd = g_string_new("LOGIN ");
+    g_string_append(cmd, j->str);
+    g_string_append_c(cmd, '\n');
+
+    char *resp = req(cmd->str);
+    g_string_free(j, TRUE);
+    g_string_free(cmd, TRUE);
+
+    if (!resp) {
+        gtk_label_set_text(login_data->status_label, "Sem resposta do backend");
+        return;
+    }
+
+    /* Processar resposta */
+    if (strncmp(resp, "OK ", 3) == 0) {
+        /* Login bem-sucedido - extrair informações do usuário */
+        const char *payload = resp + 3;
+        char *dup = g_strdup(payload);
+        char *tok = strtok(dup, "|");
+        const char *uid = tok ? tok : "";
+        tok = strtok(NULL, "|");
+        const char *name = tok ? tok : "";
+
+        /* Fechar janela de login e mostrar janela principal */
+        gtk_widget_destroy(login_data->login_window);
+        gtk_widget_show_all(login_data->main_window);
+
+        /* Habilitar controles na interface principal */
+        EnvCtx *ctx = login_data->env_ctx;
+        if (ctx) {
+            set_status(ctx, name && *name ? name : "Logado com sucesso");
+            ctx->logged_in = TRUE;
+
+            /* Habilitar componentes da interface */
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->ds_combo), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->model_combo), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->algo_combo), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_refresh_ds), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_train), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_validate), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_test), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->x_feat), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->y_feat), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->scale_chk), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->impute_chk), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->train_spn), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->val_spn), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(ctx->test_spn), TRUE);
+        }
+
+        g_free(dup);
+    } else {
+        /* Exibir mensagem de erro */
+        const char *error_msg = strstr(resp, "ERR ") ? resp + 4 : resp;
+        gtk_label_set_text(login_data->status_label, error_msg);
+    }
+
+    g_free(resp);
+}
+
 /* Build the Environment tab */
-void add_environment_tab(GtkNotebook *nb) {
-    EnvCtx *ctx = g_new0(EnvCtx, 1);
+void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
+    // Usar o contexto passado em vez de criar um novo
 
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 
@@ -642,7 +942,9 @@ void add_environment_tab(GtkNotebook *nb) {
     /* left controls */
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
-    // dataset row + refresh + load
+
+
+    /* dataset row + refresh + load */
     GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->ds_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
     ctx->btn_refresh_ds = GTK_BUTTON(gtk_button_new_with_label("Refresh"));
@@ -719,14 +1021,15 @@ void add_environment_tab(GtkNotebook *nb) {
     ctx->right_nb = GTK_NOTEBOOK(right_nb);
 
     // preview scroller
-    GtkWidget *tv = gtk_tree_view_new();        // <- tv = tree view widget
-    ctx->preview_view = GTK_TREE_VIEW(tv);      // keep a typed handle in your context
+    GtkWidget *tv = gtk_tree_view_new();
+    ctx->preview_view = GTK_TREE_VIEW(tv);
     GtkWidget *scroller_preview = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scroller_preview), tv);
     gtk_notebook_append_page(ctx->right_nb, scroller_preview, gtk_label_new("Preview"));
 
-
-    // logs scroller
+    // logs scroller - garantir que logs_view está inicializado
+    ctx->logs_view = GTK_TEXT_VIEW(gtk_text_view_new());
+    gtk_text_view_set_editable(ctx->logs_view, FALSE);
     GtkWidget *scroller_logs = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scroller_logs), GTK_WIDGET(ctx->logs_view));
     gtk_notebook_append_page(ctx->right_nb, scroller_logs, gtk_label_new("Logs"));
@@ -752,12 +1055,13 @@ void add_environment_tab(GtkNotebook *nb) {
     gtk_box_pack_start(GTK_BOX(footer), GTK_WIDGET(ctx->status), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
 
-    /* stack pages (we reuse the same left/right; the stack is a navigator, not extra copies) */
+    /* stack pages */
     gtk_stack_add_titled(ctx->stack, paned, "preproc",   "Pre-processing");
     gtk_stack_add_titled(ctx->stack, paned, "regressor", "Regression");
     gtk_stack_add_titled(ctx->stack, paned, "view",      "View");
 
-    /* wire signals */
+    /* wire signals - REMOVER O SINAL DO BOTÃO DE LOGIN */
+    // g_signal_connect(ctx->btn_login, "clicked", G_CALLBACK(on_login_clicked), ctx);
     g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_datasets), ctx);
     g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_dataset),     ctx);
     g_signal_connect(btn_plot,            "clicked", G_CALLBACK(on_plot_update),      ctx);
@@ -771,7 +1075,6 @@ void add_environment_tab(GtkNotebook *nb) {
     /* initial population */
     on_refresh_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
 }
-
 /* ---- destroy ---- */
 static void on_destroy(GtkWidget *w, gpointer data) {
     (void)w; (void)data;
@@ -782,15 +1085,16 @@ static void on_destroy(GtkWidget *w, gpointer data) {
 }
 
 /* ---- main ---- */
+// Modifique a função main para usar o sistema de login
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
     /* EDIT credentials (or load from env) */
-    const WCHAR *DB   = L"aifordummies";
+    const WCHAR *DB   = L"AIForDummies";
     const WCHAR *USER = L"root";
-    const WCHAR *PASS = L"pepsi@123";
-    const WCHAR *HOST = L"localhost";
-    const int    PORT = 3306;
+    const WCHAR *PASS = L"hhzpIxzAuLBiDBPLELofDfZzDklgpVHD";
+    const WCHAR *HOST = L"hopper.proxy.rlwy.net";
+    const int    PORT = 39703;
 
 #ifdef _WIN32
     if (!backend_start(DB, USER, PASS, HOST, PORT)) {
@@ -802,18 +1106,44 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies");
-    gtk_window_set_default_size(GTK_WINDOW(window), 1100, 700);
-    g_signal_connect(window, "destroy", G_CALLBACK(on_destroy), NULL);
+    GtkWidget *main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(main_window), "AI For Dummies");
+    gtk_window_set_default_size(GTK_WINDOW(main_window), 1100, 700);
+    g_signal_connect(main_window, "destroy", G_CALLBACK(on_destroy), NULL);
 
     GtkWidget *notebook = gtk_notebook_new();
-    gtk_container_add(GTK_CONTAINER(window), notebook);
+    gtk_container_add(GTK_CONTAINER(main_window), notebook);
 
-    add_environment_tab(GTK_NOTEBOOK(notebook));
+    // Criar contexto da interface
+    EnvCtx *env_ctx = g_new0(EnvCtx, 1);
+    add_environment_tab(GTK_NOTEBOOK(notebook), env_ctx);
     add_datasets_tab(GTK_NOTEBOOK(notebook));
 
-    gtk_widget_show_all(window);
+    // Configurar sistema de login
+    LoginData login_data = {0};
+    login_data.main_window = main_window;
+    login_data.env_ctx = env_ctx;
+    
+    // Criar e mostrar janela de login
+    login_data.login_window = create_login_window(&login_data);
+    gtk_widget_show_all(login_data.login_window);
+
+    // Inicialmente desabilitar controles da interface principal
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->ds_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->model_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->algo_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_refresh_ds), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_train), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_validate), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_test), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->x_feat), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->y_feat), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->scale_chk), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->impute_chk), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->train_spn), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->val_spn), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->test_spn), FALSE);
+
     gtk_main();
     return 0;
 }

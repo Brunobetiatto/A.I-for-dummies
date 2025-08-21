@@ -4,7 +4,8 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/**",
-                "C:\\gtk-3.0\\gtk\\**"
+                "C:\\msys64\\mingw64\\include\\**",
+                "C:\\msys64\\mingw64\\lib\\glib-2.0\\include**"
             ],
             "defines": [
                 "_DEBUG",

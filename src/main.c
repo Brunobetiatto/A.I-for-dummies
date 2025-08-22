@@ -186,6 +186,12 @@ typedef struct {
     GtkEntry *pass_entry;
     GtkLabel *status_label;
     EnvCtx *env_ctx;
+
+    GtkNotebook *notebook;
+    GtkEntry *register_name_entry;
+    GtkEntry *register_email_entry;
+    GtkEntry *register_pass_entry;
+    GtkEntry *register_confirm_entry;
 } LoginData;
 
 /* ---- forward decls ---- */
@@ -756,31 +762,83 @@ static void on_train_clicked(GtkButton *b, gpointer user) {
     }
     gtk_progress_bar_set_fraction(ctx->progress, 0.0);
 }
+// Função para processar o cadastro de novo usuário
+static void on_register_clicked(GtkButton *b, gpointer user_data) {
+    (void)b;
+    LoginData *login_data = (LoginData*)user_data;
+    
+    // Obter dados dos campos de cadastro
+    const char *name = gtk_entry_get_text(login_data->register_name_entry);
+    const char *email = gtk_entry_get_text(login_data->register_email_entry);
+    const char *pass = gtk_entry_get_text(login_data->register_pass_entry);
+    const char *confirm_pass = gtk_entry_get_text(login_data->register_confirm_entry);
 
+    // Validações básicas
+    if (!name || !*name || !email || !*email || !pass || !*pass || !confirm_pass || !*confirm_pass) {
+        gtk_label_set_text(login_data->status_label, "Preencha todos os campos");
+        return;
+    }
 
+    if (strcmp(pass, confirm_pass) != 0) {
+        gtk_label_set_text(login_data->status_label, "Senhas não coincidem");
+        return;
+    }
 
-// Adicione esta função para criar a janela de login
-// Adicione/REPLACE a função create_login_window:
+    // Montar JSON para cadastro
+    GString *j = g_string_new("{\"nome\":\"");
+    g_string_append(j, name);
+    g_string_append(j, "\",\"email\":\"");
+    g_string_append(j, email);
+    g_string_append(j, "\",\"password\":\"");
+    g_string_append(j, pass);
+    g_string_append(j, "\"}");
+    
+    GString *cmd = g_string_new("CREATE_USER ");
+    g_string_append(cmd, j->str);
+    g_string_append_c(cmd, '\n');
+
+    char *resp = req(cmd->str);
+    g_string_free(j, TRUE);
+    g_string_free(cmd, TRUE);
+
+    if (!resp) {
+        gtk_label_set_text(login_data->status_label, "Sem resposta do backend");
+        return;
+    }
+
+    // Processar resposta
+    if (strncmp(resp, "OK ", 3) == 0) {
+        gtk_label_set_text(login_data->status_label, "Usuário criado com sucesso!");
+        // Limpar campos
+        gtk_entry_set_text(login_data->register_name_entry, "");
+        gtk_entry_set_text(login_data->register_email_entry, "");
+        gtk_entry_set_text(login_data->register_pass_entry, "");
+        gtk_entry_set_text(login_data->register_confirm_entry, "");
+        // Voltar para aba de login
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(login_data->notebook), 0);
+    } else {
+        const char *error_msg = strstr(resp, "ERR ") ? resp + 4 : resp;
+        gtk_label_set_text(login_data->status_label, error_msg);
+    }
+
+    g_free(resp);
+}
+
+// Função para criar a janela de login com abas
 static GtkWidget* create_login_window(LoginData *login_data) {
     /* Window */
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies – Login");
-    gtk_window_set_default_size(GTK_WINDOW(window), 460, 340);
+    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies – Login/Cadastro");
+    gtk_window_set_default_size(GTK_WINDOW(window), 460, 400);
     gtk_window_set_modal(GTK_WINDOW(window), TRUE);
     gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 
-    /* Outer center box so content stays centered while scalable */
+    /* Outer center box */
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), outer);
     gtk_widget_set_halign(outer, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(outer, GTK_ALIGN_CENTER);
-
-    /* Form container with metal depth */
-    GtkWidget *form = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_container_set_border_width(GTK_CONTAINER(form), 16);
-    GtkWidget *panel = metal_wrap(form, "login-form");
-    gtk_box_pack_start(GTK_BOX(outer), panel, FALSE, FALSE, 0);
 
     /* Title */
     GtkWidget *title = gtk_label_new("AI For Dummies");
@@ -789,55 +847,137 @@ static GtkWidget* create_login_window(LoginData *login_data) {
     pango_attr_list_insert(attrs, pango_attr_size_new(14 * PANGO_SCALE));
     gtk_label_set_attributes(GTK_LABEL(title), attrs);
     pango_attr_list_unref(attrs);
-    gtk_box_pack_start(GTK_BOX(form), title, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), title, FALSE, FALSE, 0);
 
-    /* Grid for labels/inputs */
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
-    gtk_box_pack_start(GTK_BOX(form), grid, TRUE, TRUE, 0);
+    /* Notebook para abas de Login e Cadastro */
+    GtkWidget *notebook = gtk_notebook_new();
+    gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_TOP);
+    login_data->notebook = GTK_NOTEBOOK(notebook);
+    gtk_box_pack_start(GTK_BOX(outer), notebook, TRUE, TRUE, 0);
 
-    /* Username */
-    GtkWidget *lbl_user = gtk_label_new("Usuário:");
-    gtk_widget_set_halign(lbl_user, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, 0, 1, 1);
+    /* ========== ABA DE LOGIN ========== */
+    GtkWidget *login_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_container_set_border_width(GTK_CONTAINER(login_box), 16);
+    
+    /* Grid para formulário de login */
+    GtkWidget *login_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(login_grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(login_grid), 8);
+    gtk_box_pack_start(GTK_BOX(login_box), login_grid, TRUE, TRUE, 0);
+
+    /* Email */
+    GtkWidget *lbl_email = gtk_label_new("Email:");
+    gtk_widget_set_halign(lbl_email, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(login_grid), lbl_email, 0, 0, 1, 1);
 
     login_data->email_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->email_entry, "Digite seu usuário");
+    gtk_entry_set_placeholder_text(login_data->email_entry, "Digite seu email");
     gtk_widget_set_hexpand(GTK_WIDGET(login_data->email_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(grid), GTK_WIDGET(login_data->email_entry), 1, 0, 2, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), GTK_WIDGET(login_data->email_entry), 1, 0, 2, 1);
 
-    /* Password with reveal */
+    /* Senha */
     GtkWidget *lbl_pass = gtk_label_new("Senha:");
     gtk_widget_set_halign(lbl_pass, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), lbl_pass, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), lbl_pass, 0, 1, 1, 1);
 
     login_data->pass_entry = GTK_ENTRY(gtk_entry_new());
     gtk_entry_set_placeholder_text(login_data->pass_entry, "Digite sua senha");
     gtk_entry_set_visibility(login_data->pass_entry, FALSE);
     gtk_widget_set_hexpand(GTK_WIDGET(login_data->pass_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(grid), GTK_WIDGET(login_data->pass_entry), 1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), GTK_WIDGET(login_data->pass_entry), 1, 1, 1, 1);
 
     GtkWidget *reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
-    gtk_widget_set_tooltip_text(reveal_btn, "Mostrar/ocultar senha");
-    g_signal_connect(reveal_btn, "toggled",
-        G_CALLBACK(on_toggle_password_visibility), login_data->pass_entry);
-    gtk_grid_attach(GTK_GRID(grid), reveal_btn, 2, 1, 1, 1);
+    g_signal_connect(reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->pass_entry);
+    gtk_grid_attach(GTK_GRID(login_grid), reveal_btn, 2, 1, 1, 1);
 
-    /* Actions row */
+    /* Botão de login */
     GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
     gtk_widget_set_hexpand(btn_login, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), btn_login, 1, 2, 2, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), btn_login, 1, 2, 2, 1);
 
-    /* Status + footer */
+    /* Adicionar aba de login */
+    GtkWidget *login_label = gtk_label_new("Login");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, login_label);
+
+    /* ========== ABA DE CADASTRO ========== */
+    GtkWidget *register_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_container_set_border_width(GTK_CONTAINER(register_box), 16);
+    
+    /* Grid para formulário de cadastro */
+    GtkWidget *register_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(register_grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(register_grid), 8);
+    gtk_box_pack_start(GTK_BOX(register_box), register_grid, TRUE, TRUE, 0);
+
+    /* Nome */
+    GtkWidget *lbl_name = gtk_label_new("Nome:");
+    gtk_widget_set_halign(lbl_name, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(register_grid), lbl_name, 0, 0, 1, 1);
+
+    login_data->register_name_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->register_name_entry, "Digite seu nome completo");
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_name_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_name_entry), 1, 0, 2, 1);
+
+    /* Email */
+    GtkWidget *lbl_reg_email = gtk_label_new("Email:");
+    gtk_widget_set_halign(lbl_reg_email, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(register_grid), lbl_reg_email, 0, 1, 1, 1);
+
+    login_data->register_email_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->register_email_entry, "Digite seu email");
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_email_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_email_entry), 1, 1, 2, 1);
+
+    /* Senha */
+    GtkWidget *lbl_reg_pass = gtk_label_new("Senha:");
+    gtk_widget_set_halign(lbl_reg_pass, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(register_grid), lbl_reg_pass, 0, 2, 1, 1);
+
+    login_data->register_pass_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->register_pass_entry, "Crie uma senha");
+    gtk_entry_set_visibility(login_data->register_pass_entry, FALSE);
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_pass_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_pass_entry), 1, 2, 1, 1);
+
+    GtkWidget *reg_reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
+    g_signal_connect(reg_reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->register_pass_entry);
+    gtk_grid_attach(GTK_GRID(register_grid), reg_reveal_btn, 2, 2, 1, 1);
+
+    /* Confirmar Senha */
+    GtkWidget *lbl_confirm = gtk_label_new("Confirmar:");
+    gtk_widget_set_halign(lbl_confirm, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(register_grid), lbl_confirm, 0, 3, 1, 1);
+
+    login_data->register_confirm_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(login_data->register_confirm_entry, "Confirme sua senha");
+    gtk_entry_set_visibility(login_data->register_confirm_entry, FALSE);
+    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_confirm_entry), TRUE);
+    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_confirm_entry), 1, 3, 1, 1);
+
+    GtkWidget *confirm_reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
+    g_signal_connect(confirm_reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->register_confirm_entry);
+    gtk_grid_attach(GTK_GRID(register_grid), confirm_reveal_btn, 2, 3, 1, 1);
+
+    /* Botão de cadastro */
+    GtkWidget *btn_register = gtk_button_new_with_label("Cadastrar");
+    gtk_widget_set_hexpand(btn_register, TRUE);
+    gtk_grid_attach(GTK_GRID(register_grid), btn_register, 1, 4, 2, 1);
+
+    /* Adicionar aba de cadastro */
+    GtkWidget *register_label = gtk_label_new("Cadastro");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), register_box, register_label);
+
+    /* Status e footer */
     login_data->status_label = GTK_LABEL(gtk_label_new(""));
-    gtk_box_pack_start(GTK_BOX(form), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
 
     GtkWidget *footer = gtk_label_new("Enter para entrar • ESC para sair");
-    gtk_box_pack_start(GTK_BOX(form), footer, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
 
-    /* Signals */
+    /* Conectar sinais */
     g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_clicked), login_data);
+    g_signal_connect(btn_register, "clicked", G_CALLBACK(on_register_clicked), login_data);
     g_signal_connect(window, "key-press-event", G_CALLBACK(on_login_key_press), login_data);
 
     return window;

@@ -163,6 +163,7 @@ typedef struct {
     GtkImage        *plot_img;
     GtkTextView     *logs_view;
     GtkListStore    *preview_store;
+    GtkButton       *btn_logout;
 
     /* footer */
     GtkProgressBar  *progress;
@@ -176,6 +177,10 @@ typedef struct {
     GtkEntry    *login_pass;
     GtkButton   *btn_login;
     gboolean     logged_in;
+
+    /* Referência para a janela principal */
+    GtkWidget   *main_window;
+
 
 } EnvCtx;
 
@@ -205,6 +210,9 @@ static void     add_environment_tab(GtkNotebook *nb, EnvCtx *env);
 static void on_login_clicked(GtkButton *b, gpointer user_data);
 static void on_toggle_password_visibility(GtkButton *button, gpointer user_data);
 static gboolean on_login_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+static void on_logout_clicked(GtkButton *b, gpointer user_data);
+static void set_status(EnvCtx *ctx, const char *s);
+static GtkWidget* create_login_window(LoginData *login_data);
 /* ---- selection preservation helpers ---- */
 
 static gchar* make_row_key_from_iter(GtkTreeModel *model, GtkTreeIter *it, int n_cols, int id_col) {
@@ -255,6 +263,60 @@ static void restore_selection_by_key(TabCtx *ctx, const gchar *key) {
     }
 }
 
+static void on_logout_clicked(GtkButton *b, gpointer user_data) {
+    (void)b;
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    
+    // Limpar estado de autenticação
+    ctx->logged_in = FALSE;
+    
+    // Desabilitar controles da interface
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->ds_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->model_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->algo_combo), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_refresh_ds), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_train), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_validate), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_test), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->x_feat), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->y_feat), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->scale_chk), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->impute_chk), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->train_spn), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->val_spn), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(ctx->test_spn), FALSE);
+    
+    // Limpar dados sensíveis
+    gtk_entry_set_text(ctx->x_feat, "");
+    gtk_entry_set_text(ctx->y_feat, "");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), -1);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->model_combo), -1);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), -1);
+    
+    // Limpar visualizações
+    gtk_list_store_clear(ctx->preview_store);
+    gtk_image_clear(ctx->plot_img);
+    
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->logs_view);
+    gtk_text_buffer_set_text(buf, "", -1);
+    
+    // Mostrar mensagem de status
+    set_status(ctx, "Desconectado. Faça login para continuar.");
+    
+    // Esconder botão de logout
+    gtk_widget_hide(GTK_WIDGET(ctx->btn_logout));
+    
+    // Esconder janela principal
+    gtk_widget_hide(ctx->main_window);
+    
+    // Recriar e mostrar a janela de login
+    LoginData login_data = {0};
+    login_data.main_window = ctx->main_window;
+    login_data.env_ctx = ctx;
+    
+    GtkWidget *login_window = create_login_window(&login_data);
+    gtk_widget_show_all(login_window);
+}
 /* ---- Datasets refresh (no flicker, preserves selection) ---- */
 /* Force-aware core refresh */
 static gboolean refresh_datasets_tab_core(TabCtx *ctx, gboolean force) {
@@ -1079,6 +1141,9 @@ static void on_login_clicked(GtkButton *b, gpointer user_data) {
             gtk_widget_set_sensitive(GTK_WIDGET(ctx->train_spn), TRUE);
             gtk_widget_set_sensitive(GTK_WIDGET(ctx->val_spn), TRUE);
             gtk_widget_set_sensitive(GTK_WIDGET(ctx->test_spn), TRUE);
+            
+            // Mostrar botão de logout
+            gtk_widget_show_all(GTK_WIDGET(ctx->btn_logout));
         }
 
         g_free(dup);
@@ -1110,6 +1175,18 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* LEFT: controls inside a Metal panel */
     GtkWidget *left_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
+    // Adicione o botão de logout na barra de ferramentas
+    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
+    
+    // Botão de logout (inicialmente escondido)
+    ctx->btn_logout = GTK_BUTTON(gtk_button_new_with_label("Logout"));
+    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_logout), FALSE, FALSE, 0);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_logout), "Sair da conta");
+    gtk_widget_hide(GTK_WIDGET(ctx->btn_logout));
+    
+    // Conectar o sinal do botão de logout
+    g_signal_connect(ctx->btn_logout, "clicked", G_CALLBACK(on_logout_clicked), ctx);
     /* dataset row + refresh + load */
     GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->ds_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1286,8 +1363,10 @@ int main(int argc, char *argv[]) {
     GtkWidget *notebook = gtk_notebook_new();
     gtk_container_add(GTK_CONTAINER(main_window), notebook);
 
+
     // Criar contexto da interface
     EnvCtx *env_ctx = g_new0(EnvCtx, 1);
+    env_ctx->main_window = main_window;  // Armazenar referência à janela principal
     add_environment_tab(GTK_NOTEBOOK(notebook), env_ctx);
     add_datasets_tab(GTK_NOTEBOOK(notebook));
 

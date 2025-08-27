@@ -1345,7 +1345,7 @@ set_split_ui(ctx, 70.0);
     /* action buttons */
     /* === Botão único Play =================================================== */
     GtkWidget *act_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *btn_play = gtk_button_new_with_label("▶ Play");
+    GtkWidget *btn_play = gtk_button_new_with_label("▶ Run");
     ctx->btn_play = GTK_BUTTON(btn_play);
     gtk_box_pack_start(GTK_BOX(act_row), btn_play, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(left_content), act_row, FALSE, FALSE, 0);

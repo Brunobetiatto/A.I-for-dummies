@@ -1,5 +1,4 @@
-build/main.o: src/main.c src/interface/interface.h \
- C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
+build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  C:/msys64/mingw64/include/gtk-3.0/gdk/gdk.h \
  C:/msys64/mingw64/include/gtk-3.0/gdk/gdkconfig.h \
  C:/msys64/mingw64/include/glib-2.0/glib.h \
@@ -670,7 +669,6 @@ build/main.o: src/main.c src/interface/interface.h \
  C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvseparator.h \
  C:/msys64/mingw64/include/gtk-3.0/gtk/gtk-autocleanups.h \
  src/interface/communicator.h
-src/interface/interface.h:
 C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdkconfig.h:

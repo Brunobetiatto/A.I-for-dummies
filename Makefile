@@ -42,6 +42,11 @@ GTKPKG := gtk+-3.0
 CFLAGS  += $(shell $(PKG_CONFIG) --cflags $(GTKPKG))
 LDFLAGS += $(shell $(PKG_CONFIG) --libs   $(GTKPKG))
 
+# Extra libs: curl (pkg-config), cJSON (manual)
+CURLPKG := libcurl
+CFLAGS  += $(shell $(PKG_CONFIG) --cflags $(CURLPKG))
+LDFLAGS += $(shell $(PKG_CONFIG) --libs   $(CURLPKG)) -lcjson
+
 # Sources and objects
 SRC := $(wildcard src/*.c) $(wildcard src/*/*.c)
 OBJ := $(patsubst src/%.c,build/%.o,$(SRC))

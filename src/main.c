@@ -1,36 +1,18 @@
-// src/main.c
+// gcc main.c -o main $(pkg-config --cflags --libs gtk+-3.0) -lcurl -lcjson
 
-#include "interface/interface.h"
-#ifdef _WIN32
-#include <Windows.h>
-#ifndef _countof
-#define _countof(a) (sizeof(a)/sizeof((a)[0]))
-#endif
-BOOL  backend_start(const WCHAR*, const WCHAR*, const WCHAR*, const WCHAR*, int);
-char* backend_request(const char *req_utf8, size_t *out_len_opt);
-void  backend_stop(void);
-#endif
+#include <gtk/gtk.h>
+#include <curl/curl.h>
+#include <cjson/cJSON.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <wchar.h>
+#include <windows.h>
 
-/* ---- globals expected by interface.h ---- */
-GtkEntry     *entry_global = NULL;
-GtkTreeView  *view_global  = NULL;
-GtkListStore *store_global = NULL;
+// ====== incluir seu comunicador (o código que você passou) ======
+#include "interface/communicator.h"
 
-#define TABLE_NAME "dataset"
-
-/* ---- Datasets tab context ---- */
-typedef struct {
-    GtkEntry     *entry;        /* free-text filter */
-    GtkTreeView  *view;         /* data view */
-    GtkListStore *store;        /* model owned here */
-    gchar        *dump_cmd;     /* "DUMP <table>\n" */
-    guint         last_data_hash;
-    guint         last_header_hash;
-    int           n_cols;
-    int           id_col;       /* -1 if none found */
-} TabCtx;
-
-/* ==== Metal theme (global) ================================================ */
+// ====== Metal Theme CSS ======
 static const char *METAL_CSS =
 "/* Base window background (Metal-like brushed gray) */\n"
 "window, dialog, .background {"
@@ -46,6 +28,13 @@ static const char *METAL_CSS =
 "  border-radius: 2px;"
 "}\n"
 "\n"
+"/* Frames (group boxes) */\n"
+"frame > label { font-weight: bold; padding: 0 4px; }\n"
+"frame > border {"
+"  border: 1px solid #7f7f7f;"
+"  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;"
+"  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);"
+"}\n"
 "/* Buttons: flat metal gradient with beveled edges */\n"
 "button {"
 "  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);"
@@ -113,34 +102,42 @@ static const char *METAL_CSS =
 "  border: 1px solid #7a7a7a;"
 "}\n";
 
+// aplicar estilo
 static void apply_metal_theme(void) {
     GtkCssProvider *prov = gtk_css_provider_new();
     gtk_css_provider_load_from_data(prov, METAL_CSS, -1, NULL);
-#if GTK_CHECK_VERSION(3,0,0)
     GdkScreen *scr = gdk_screen_get_default();
     gtk_style_context_add_provider_for_screen(scr,
         GTK_STYLE_PROVIDER(prov),
         GTK_STYLE_PROVIDER_PRIORITY_USER);
-#else
-    /* Fallback: add to default context (older GTKs) */
-    GtkWidgetPath *path = gtk_widget_path_new(); (void)path;
-#endif
     g_object_unref(prov);
 }
 
-/* Small helper to wrap a child in a beveled metal panel */
 static GtkWidget* metal_wrap(GtkWidget *child, const char *name_opt) {
+    // container que recebe a classe .metal-panel do seu CSS
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_style_context_add_class(gtk_widget_get_style_context(box), "metal-panel");
-    if (name_opt && *name_opt) gtk_widget_set_name(box, name_opt);
-    gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0);
+    if (name_opt && *name_opt) {
+        gtk_widget_set_name(box, name_opt);   // opcional: dá um "name" para CSS
+    }
+    GtkStyleContext *sc = gtk_widget_get_style_context(box);
+    gtk_style_context_add_class(sc, "metal-panel"); // usa a regra já definida no METAL_CSS
+    gtk_container_set_border_width(GTK_CONTAINER(box), 6); // respiro
+    gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0); // coloca o conteúdo dentro
     return box;
 }
-/* ==== end Metal theme ===================================================== */
 
-
+// ==== Contexto do Tab ====
 typedef struct {
-    /* left controls */
+    GtkEntry     *entry;
+    GtkTreeView  *view;
+    GtkListStore *store;
+} TabCtx;
+
+
+
+/* forward declare EnvCtx (se já não existir) */
+#ifndef ENVCTX_DEFINED
+typedef struct {
     GtkComboBoxText *ds_combo;
     GtkComboBoxText *model_combo;
     GtkComboBoxText *algo_combo;
@@ -157,1006 +154,352 @@ typedef struct {
     GtkButton       *btn_test;
     GtkButton       *btn_refresh_ds;
 
-    /* right notebook */
     GtkNotebook     *right_nb;
     GtkTreeView     *preview_view;
     GtkImage        *plot_img;
     GtkTextView     *logs_view;
     GtkListStore    *preview_store;
     GtkButton       *btn_logout;
+    GtkButton       *btn_play;
 
-    /* footer */
     GtkProgressBar  *progress;
     GtkLabel        *status;
 
-    /* stack */
     GtkStack        *stack;
-
-    /* login widgets */
-    GtkEntry    *login_email;
-    GtkEntry    *login_pass;
-    GtkButton   *btn_login;
-    gboolean     logged_in;
-
-    /* Referência para a janela principal */
-    GtkWidget   *main_window;
+    GtkWidget       *main_window;
 
 
+    GtkScale        *split_scale;      /* slider (GtkRange) */
+    GtkEntry        *split_entry;      /* text entry (accepts comma) */
+    GtkLabel        *split_train_lbl;
+    GtkLabel        *split_test_lbl;
+    gboolean         split_lock;
 } EnvCtx;
-
-typedef struct {
-    GtkWidget *login_window;
-    GtkWidget *main_window;
-    GtkEntry *email_entry;
-    GtkEntry *pass_entry;
-    GtkLabel *status_label;
-    EnvCtx *env_ctx;
-
-    GtkNotebook *notebook;
-    GtkEntry *register_name_entry;
-    GtkEntry *register_email_entry;
-    GtkEntry *register_pass_entry;
-    GtkEntry *register_confirm_entry;
-} LoginData;
-
-/* ---- forward decls ---- */
-static gboolean refresh_datasets_tab(gpointer data);
-static void     on_destroy(GtkWidget *w, gpointer data);
-static void     on_entry_changed(GtkEditable *e, gpointer data);
-static void     on_refresh_clicked(GtkButton *b, gpointer data);
-static GtkWidget* make_refresh_button(TabCtx *ctx);
-static TabCtx*  add_datasets_tab(GtkNotebook *nb);
-static void     add_environment_tab(GtkNotebook *nb, EnvCtx *env);
-static void on_login_clicked(GtkButton *b, gpointer user_data);
-static void on_toggle_password_visibility(GtkButton *button, gpointer user_data);
-static gboolean on_login_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
-static void on_logout_clicked(GtkButton *b, gpointer user_data);
-static void set_status(EnvCtx *ctx, const char *s);
-static GtkWidget* create_login_window(LoginData *login_data);
-/* ---- selection preservation helpers ---- */
-
-static gchar* make_row_key_from_iter(GtkTreeModel *model, GtkTreeIter *it, int n_cols, int id_col) {
-    if (id_col >= 0) {
-        gchar *v = NULL;
-        gtk_tree_model_get(model, it, id_col, &v, -1);
-        return v ? v : g_strdup("");
-    }
-    GString *acc = g_string_new(NULL);
-    for (int i = 0; i < n_cols; ++i) {
-        gchar *v = NULL;
-        gtk_tree_model_get(model, it, i, &v, -1);
-        g_string_append(acc, v ? v : "");
-        g_free(v);
-        if (i + 1 < n_cols) g_string_append_c(acc, 0x1f); /* unit separator */
-    }
-    return g_string_free(acc, FALSE);
-}
-
-static gchar* get_selected_key(TabCtx *ctx) {
-    if (!ctx->store) return NULL;
-    GtkTreeSelection *sel = gtk_tree_view_get_selection(ctx->view);
-    GtkTreeModel *model = GTK_TREE_MODEL(ctx->store);
-    GtkTreeIter it;
-    if (gtk_tree_selection_get_selected(sel, &model, &it)) {
-        return make_row_key_from_iter(model, &it, ctx->n_cols, ctx->id_col);
-    }
-    return NULL;
-}
-
-static void restore_selection_by_key(TabCtx *ctx, const gchar *key) {
-    if (!ctx->store || !key || !*key) return;
-    GtkTreeModel *model = GTK_TREE_MODEL(ctx->store);
-    GtkTreeIter it;
-    gboolean valid = gtk_tree_model_get_iter_first(model, &it);
-    while (valid) {
-        gchar *rk = make_row_key_from_iter(model, &it, ctx->n_cols, ctx->id_col);
-        gboolean match = (g_strcmp0(rk, key) == 0);
-        g_free(rk);
-        if (match) {
-            GtkTreePath *path = gtk_tree_model_get_path(model, &it);
-            gtk_tree_view_set_cursor(ctx->view, path, NULL, FALSE);
-            gtk_tree_view_scroll_to_cell(ctx->view, path, NULL, FALSE, 0.0, 0.0);
-            gtk_tree_path_free(path);
-            return;
-        }
-        valid = gtk_tree_model_iter_next(model, &it);
-    }
-}
-
-static void on_logout_clicked(GtkButton *b, gpointer user_data) {
-    (void)b;
-    EnvCtx *ctx = (EnvCtx*)user_data;
-    
-    // Limpar estado de autenticação
-    ctx->logged_in = FALSE;
-    
-    // Desabilitar controles da interface
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->ds_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->model_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->algo_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_refresh_ds), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_train), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_validate), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_test), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->x_feat), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->y_feat), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->scale_chk), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->impute_chk), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->train_spn), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->val_spn), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(ctx->test_spn), FALSE);
-    
-    // Limpar dados sensíveis
-    gtk_entry_set_text(ctx->x_feat, "");
-    gtk_entry_set_text(ctx->y_feat, "");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), -1);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->model_combo), -1);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), -1);
-    
-    // Limpar visualizações
-    gtk_list_store_clear(ctx->preview_store);
-    gtk_image_clear(ctx->plot_img);
-    
-    GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->logs_view);
-    gtk_text_buffer_set_text(buf, "", -1);
-    
-    // Mostrar mensagem de status
-    set_status(ctx, "Desconectado. Faça login para continuar.");
-    
-    // Esconder botão de logout
-    gtk_widget_hide(GTK_WIDGET(ctx->btn_logout));
-    
-    // Esconder janela principal
-    gtk_widget_hide(ctx->main_window);
-    
-    // Recriar e mostrar a janela de login
-    LoginData login_data = {0};
-    login_data.main_window = ctx->main_window;
-    login_data.env_ctx = ctx;
-    
-    GtkWidget *login_window = create_login_window(&login_data);
-    gtk_widget_show_all(login_window);
-}
-/* ---- Datasets refresh (no flicker, preserves selection) ---- */
-/* Force-aware core refresh */
-static gboolean refresh_datasets_tab_core(TabCtx *ctx, gboolean force) {
-    if (!ctx) return TRUE;
-
-    size_t nbytes = 0;
-    char *raw = backend_request(ctx->dump_cmd, &nbytes);
-    if (!raw || nbytes == 0) { g_free(raw); return TRUE; }
-
-    /* Safe, NUL-terminated copy for string APIs */
-    gchar *csv = g_strndup(raw, nbytes);
-    g_free(raw);
-
-    /* Skip if identical data unless forced */
-    guint h_data = g_str_hash(csv);
-    if (!force && ctx->last_data_hash == h_data) { g_free(csv); return TRUE; }
-
-    /* Parse CSV */
-    char *buf = csv;
-    char *save = NULL;
-    char *line = strtok_r(buf, "\n", &save);
-    if (!line) { g_free(csv); return TRUE; }
-
-    /* header */
-    GPtrArray *headers = csv_parse_line_all(line);
-    if (!headers || headers->len == 0) {
-        if (headers) g_ptr_array_free(headers, TRUE);
-        g_free(csv);
-        return TRUE;
-    }
-
-    /* Rebuild columns ONLY if header changed */
-    GString *hcat = g_string_new(NULL);
-    for (guint i = 0; i < headers->len; ++i) {
-        g_string_append(hcat, (const char*)headers->pdata[i]);
-        g_string_append_c(hcat, '\n');
-    }
-    guint h_head = g_str_hash(hcat->str);
-    g_string_free(hcat, TRUE);
-
-    if (!ctx->store || ctx->last_header_hash != h_head) {
-        if (ctx->store) g_object_unref(ctx->store);
-        ctx->store = create_model_with_n_cols((gint)headers->len);
-        gtk_tree_view_set_model(ctx->view, GTK_TREE_MODEL(ctx->store));
-        build_columns_from_headers(ctx->view, headers);
-        ctx->n_cols = (int)headers->len;
-
-        /* probe for an "id" column to key selection */
-        ctx->id_col = -1;
-        for (guint i = 0; i < headers->len; ++i) {
-            const char *hn = (const char*)headers->pdata[i];
-            if (g_ascii_strcasecmp(hn, "id") == 0) { ctx->id_col = (int)i; break; }
-        }
-        ctx->last_header_hash = h_head;
-    }
-
-    /* Preserve selection key & refill rows */
-    gchar *sel_key = get_selected_key(ctx);
-    gtk_list_store_clear(ctx->store);
-    const char *needle = gtk_entry_get_text(ctx->entry);
-
-    for (line = strtok_r(NULL, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-        if (line[0] == '\0') continue;
-        GPtrArray *fields = csv_parse_line_all(line);
-        if (fields && fields->len >= headers->len) {
-            if (row_matches_filter(fields, needle)) {
-                GtkTreeIter it;
-                gtk_list_store_append(ctx->store, &it);
-                for (guint i = 0; i < headers->len; ++i) {
-                    const char *v = (const char*)fields->pdata[i];
-                    gtk_list_store_set(ctx->store, &it, (gint)i, v ? v : "", -1);
-                }
-            }
-        }
-        if (fields) g_ptr_array_free(fields, TRUE);
-    }
-
-    if (sel_key) { restore_selection_by_key(ctx, sel_key); g_free(sel_key); }
-    g_ptr_array_free(headers, TRUE);
-    g_free(csv);
-
-    ctx->last_data_hash = h_data;
-    return TRUE;
-}
-
-/* Wrappers keep your existing signatures/uses clean */
-static gboolean refresh_timer_cb(gpointer data) {
-    return refresh_datasets_tab_core((TabCtx*)data, FALSE);
-}
-
-static void on_entry_changed(GtkEditable *e, gpointer data) {
-    (void)e;
-    refresh_datasets_tab_core((TabCtx*)data, FALSE);
-}
-
-static void on_refresh_clicked(GtkButton *b, gpointer data) {
-    (void)b;
-    /* Force a repaint regardless of last hash */
-    refresh_datasets_tab_core((TabCtx*)data, TRUE);
-}
-
-static gboolean refresh_datasets_tab(gpointer data) {
-    if (!data) return TRUE;
-
-    TabCtx *ctx = (TabCtx*)data;
-
-    size_t nbytes = 0;
-    char *csv = backend_request(ctx->dump_cmd, &nbytes);
-    if (!csv || nbytes == 0) { g_free(csv); return TRUE; }
-
-    /* Skip if identical data */
-    guint h_data = g_str_hash(csv);
-    if (ctx->last_data_hash == h_data) { g_free(csv); return TRUE; }
-
-    /* Parse CSV */
-    char *buf = g_strdup(csv);
-    g_free(csv);
-    char *save = NULL;
-    char *line = strtok_r(buf, "\n", &save);
-    if (!line) { g_free(buf); return TRUE; }
-
-    /* header */
-    GPtrArray *headers = csv_parse_line_all(line);
-    if (!headers || headers->len == 0) {
-        if (headers) g_ptr_array_free(headers, TRUE);
-        g_free(buf);
-        return TRUE;
-    }
-
-    /* Rebuild columns ONLY if header changed */
-    GString *hcat = g_string_new(NULL);
-    for (guint i = 0; i < headers->len; ++i) {
-        g_string_append(hcat, (const char*)headers->pdata[i]);
-        g_string_append_c(hcat, '\n');
-    }
-    guint h_head = g_str_hash(hcat->str);
-    g_string_free(hcat, TRUE);
-
-    if (!ctx->store || ctx->last_header_hash != h_head) {
-        if (ctx->store) g_object_unref(ctx->store);
-        ctx->store = create_model_with_n_cols((gint)headers->len);
-        gtk_tree_view_set_model(ctx->view, GTK_TREE_MODEL(ctx->store));
-        build_columns_from_headers(ctx->view, headers);
-        ctx->n_cols = (int)headers->len;
-
-        /* probe for an "id" column to key selection */
-        ctx->id_col = -1;
-        for (guint i = 0; i < headers->len; ++i) {
-            const char *hn = (const char*)headers->pdata[i];
-            if (g_ascii_strcasecmp(hn, "id") == 0) { ctx->id_col = (int)i; break; }
-        }
-        ctx->last_header_hash = h_head;
-    }
-
-    /* Preserve selection key & refill rows */
-    gchar *sel_key = get_selected_key(ctx);
-
-    gtk_list_store_clear(ctx->store);
-    const char *needle = gtk_entry_get_text(ctx->entry);
-
-    line = strtok_r(NULL, "\n", &save);
-    while (line) {
-        if (line[0] != 'I' && line[0] != '-') {
-            GPtrArray *fields = csv_parse_line_all(line);
-            if (fields && fields->len >= headers->len) {
-                if (row_matches_filter(fields, needle)) {
-                    GtkTreeIter it;
-                    gtk_list_store_append(ctx->store, &it);
-                    for (guint i = 0; i < headers->len; ++i) {
-                        const char *v = (const char*)fields->pdata[i];
-                        gtk_list_store_set(ctx->store, &it, (gint)i, v ? v : "", -1);
-                    }
-                }
-            }
-            if (fields) g_ptr_array_free(fields, TRUE);
-        }
-        line = strtok_r(NULL, "\n", &save);
-    }
-
-    if (sel_key) { restore_selection_by_key(ctx, sel_key); g_free(sel_key); }
-    g_ptr_array_free(headers, TRUE);
-    g_free(buf);
-
-    ctx->last_data_hash = h_data;
-    return TRUE;
-}
-
-/* ---- helpers: load png from the EXE folder (Windows) or CWD (others) ---- */
-
-static gchar* build_asset_path_utf8(const char *basename) {
-#ifdef _WIN32
-    WCHAR exePath[MAX_PATH], exeDir[MAX_PATH];
-    GetModuleFileNameW(NULL, exePath, _countof(exePath));
-    wcscpy(exeDir, exePath);
-    WCHAR *slash = wcsrchr(exeDir, L'\\'); if (slash) *slash = 0;
-
-    int need = WideCharToMultiByte(CP_UTF8, 0, exeDir, -1, NULL, 0, NULL, NULL);
-    char *dir_utf8 = (char*)g_malloc(need);
-    WideCharToMultiByte(CP_UTF8, 0, exeDir, -1, dir_utf8, need, NULL, NULL);
-    gchar *full = g_build_filename(dir_utf8, basename, NULL);
-    g_free(dir_utf8);
-    return full;
-#else
-    gchar *cwd = g_get_current_dir();
-    gchar *full = g_build_filename(cwd, basename, NULL);
-    g_free(cwd);
-    return full;
+#define ENVCTX_DEFINED
 #endif
-}
+/* ---------- novo callback de refresh que popula o TreeView ---------- */
+static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
+    TabCtx *ctx = (TabCtx*)user_data;
+    char *resp = NULL;
 
-/* ---- Refresh button and callbacks (pure C) ---- */
-
-
-static GtkWidget* make_refresh_button(TabCtx *ctx) {
-    GtkWidget *btn = NULL;
-
-    gchar *imgpath = build_asset_path_utf8("assets/refresh_button.png");
-    GError *err = NULL;
-    GdkPixbuf *pix = gdk_pixbuf_new_from_file(imgpath, &err);
-    if (pix) {
-        /* scale to a comfortable size */
-        GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 20, 20, GDK_INTERP_BILINEAR);
-        g_object_unref(pix);
-        GtkWidget *image = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
-        if (scaled) g_object_unref(scaled);
-        btn = gtk_button_new();
-        gtk_button_set_image(GTK_BUTTON(btn), image);
-        gtk_widget_set_tooltip_text(btn, "Refresh datasets");
-    } else {
-        /* fallback: text button */
-        btn = gtk_button_new_with_label("Refresh");
+    if (!api_dump_table("dataset", &resp) || !resp) {
+        fprintf(stderr, "Erro: api_dump_table retornou NULL\n");
+        if (resp) free(resp);
+        return;
     }
-    if (err) g_error_free(err);
-    g_free(imgpath);
 
-    g_signal_connect(btn, "clicked", G_CALLBACK(on_refresh_clicked), ctx);
-    return btn;
+    cJSON *root = cJSON_Parse(resp);
+    free(resp);
+    if (!root) {
+        fprintf(stderr, "Erro: JSON inválido da API\n");
+        return;
+    }
+
+    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+    if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0) {
+        cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
+        fprintf(stderr, "API retornou erro: %s\n", cJSON_IsString(msg) ? msg->valuestring : "(sem mensagem)");
+        cJSON_Delete(root);
+        return;
+    }
+
+    cJSON *columns = cJSON_GetObjectItemCaseSensitive(root, "columns");
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
+    if (!cJSON_IsArray(columns) || !cJSON_IsArray(data)) {
+        fprintf(stderr, "Resposta sem 'columns' ou 'data' corretos\n");
+        cJSON_Delete(root);
+        return;
+    }
+
+    int ncols = cJSON_GetArraySize(columns);
+    if (ncols <= 0) { cJSON_Delete(root); return; }
+
+    /* cria um array de tipos (usar strings para exibição simples) */
+    GType *types = g_new0(GType, ncols);
+    for (int i = 0; i < ncols; ++i) types[i] = G_TYPE_STRING;
+
+    /* cria novo store (ou substitui o anterior) */
+    GtkListStore *new_store = gtk_list_store_newv(ncols, types);
+    g_free(types);
+
+    /* preenche as linhas (cada row é um array no JSON) */
+    cJSON *row;
+    cJSON_ArrayForEach(row, data) {
+        if (!cJSON_IsArray(row)) continue;
+        GtkTreeIter iter;
+        gtk_list_store_append(new_store, &iter);
+
+        int colidx = 0;
+        cJSON *cell;
+        cJSON_ArrayForEach(cell, row) {
+            char buf[1024];
+            if (cJSON_IsString(cell)) {
+                snprintf(buf, sizeof(buf), "%s", cell->valuestring);
+            } else if (cJSON_IsNumber(cell)) {
+                /* imprime inteiro quando possível, senão double */
+                if (cell->valuedouble == cell->valueint)
+                    snprintf(buf, sizeof(buf), "%d", cell->valueint);
+                else
+                    snprintf(buf, sizeof(buf), "%g", cell->valuedouble);
+            } else if (cJSON_IsBool(cell)) {
+                snprintf(buf, sizeof(buf), "%s", cJSON_IsTrue(cell) ? "1" : "0");
+            } else if (cJSON_IsNull(cell)) {
+                snprintf(buf, sizeof(buf), "");
+            } else {
+                snprintf(buf, sizeof(buf), "");
+            }
+            gtk_list_store_set(new_store, &iter, colidx, buf, -1);
+            colidx++;
+        }
+    }
+
+    /* troca o modelo no TreeView */
+    if (ctx->store) {
+        /* desconecta model antigo e libera */
+        gtk_tree_view_set_model(ctx->view, NULL);
+        g_object_unref(ctx->store);
+        ctx->store = NULL;
+    }
+    ctx->store = new_store;
+    gtk_tree_view_set_model(ctx->view, GTK_TREE_MODEL(ctx->store));
+
+    /* cria colunas do TreeView se ainda não existirem (nomeadas conforme 'columns') */
+    if (gtk_tree_view_get_n_columns(GTK_TREE_VIEW(ctx->view)) == 0) {
+        int colidx = 0;
+        cJSON *col;
+        cJSON_ArrayForEach(col, columns) {
+            const char *colname = cJSON_IsString(col) ? col->valuestring : "col";
+            GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
+            gtk_tree_view_insert_column_with_attributes(GTK_TREE_VIEW(ctx->view),
+                                                       -1,
+                                                       colname,
+                                                       renderer,
+                                                       "text", colidx,
+                                                       NULL);
+            colidx++;
+        }
+    }
+
+    cJSON_Delete(root);
 }
 
-/* ---- UI building ---- */
-
+/* ---------- ajuste no add_datasets_tab: ligar o botão ao novo callback ---------- */
 static TabCtx* add_datasets_tab(GtkNotebook *nb) {
-    /* Outer with padding */
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
 
-    /* Top bar: refresh + filter */
     GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Filter (matches any column)...");
-    GtkWidget *top_left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
-    /* Context FIRST */
-    TabCtx *ctx = g_new0(TabCtx, 1);
-    ctx->entry   = GTK_ENTRY(entry);
-    GtkWidget *tree = gtk_tree_view_new();
-    ctx->view    = GTK_TREE_VIEW(tree);
-    ctx->store   = NULL;
-    ctx->dump_cmd= g_strdup_printf("DUMP %s\n", TABLE_NAME);
-    ctx->n_cols  = 0;
-    ctx->id_col  = -1;
-
-    GtkWidget *btn = make_refresh_button(ctx);
-    gtk_box_pack_start(GTK_BOX(top_left), btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(top), top_left, FALSE, FALSE, 0);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Filtrar dataset...");
     gtk_box_pack_start(GTK_BOX(top), entry, TRUE, TRUE, 0);
 
-    /* Tree in scroller */
+    GtkWidget *btn_refresh = gtk_button_new_with_label("🔄 Atualizar");
+    gtk_box_pack_start(GTK_BOX(top), btn_refresh, FALSE, FALSE, 0);
+
+    GtkWidget *tree = gtk_tree_view_new();
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scroll), tree);
 
-    /* Wrap both in panels for depth */
-    GtkWidget *top_panel   = metal_wrap(top,   "ds-top-bar");
-    GtkWidget *table_panel = metal_wrap(scroll,"ds-table");
-
-    gtk_box_pack_start(GTK_BOX(outer), top_panel,   FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), table_panel, TRUE,  TRUE,  0);
+    gtk_box_pack_start(GTK_BOX(outer), metal_wrap(top, "env_top"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), metal_wrap(scroll, "env_scroll"), TRUE, TRUE, 0);
 
     GtkWidget *lbl = gtk_label_new("Datasets");
     gtk_notebook_append_page(nb, outer, lbl);
 
-    /* signals */
-    g_signal_connect(entry, "changed", G_CALLBACK(on_entry_changed), ctx);
+    TabCtx *ctx = g_new0(TabCtx, 1);
+    ctx->entry = GTK_ENTRY(entry);
+    ctx->view  = GTK_TREE_VIEW(tree);
+    ctx->store = NULL;
+
+    /* conectar ao novo callback */
+    g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
 
     gtk_widget_show_all(outer);
 
-    /* initial fill + periodic refresh */
-    refresh_datasets_tab_core(ctx, TRUE);
-    g_timeout_add(2000, refresh_timer_cb, ctx);
+    /* opcional: faz o primeiro refresh automático */
+    refresh_datasets_cb(NULL, ctx);
 
     return ctx;
 }
 
+static GtkWidget* group_panel(const char *title, GtkWidget *content) {
+    GtkWidget *frame = gtk_frame_new(title);               // título do “box”
+    gtk_frame_set_label_align(GTK_FRAME(frame), 0.02, 0.5); // título à esquerda
+    gtk_container_set_border_width(GTK_CONTAINER(frame), 6);
 
-/* Environment */
+    // põe sua moldura “metal” por dentro, pra dar padding e relevo
+    GtkWidget *inner = metal_wrap(content, NULL);
+    gtk_container_add(GTK_CONTAINER(frame), inner);
 
-
-// Environment | Datasets
-
-// Pre-processing | Regress | View
-
-// ┌──────┬───────────┬────┐
-// │ File │ Import DB |    |
-// └──────┴───────────┴────┘
-
-
-
-//communicate with Python backend
-//| open/create dropdown menu "trainees"
-//| attempt to fetch already existing models (python/models/*)
-//| |   if doesn't exist, form an empty list of "trainees"
-//| |   if exists, retrieve and form a list of available "trainees"
-//| 
-
-/* --- small helpers --- */
-
-static void log_append(EnvCtx *ctx, const char *line) {
-    GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->logs_view);
-    GtkTextIter end; gtk_text_buffer_get_end_iter(buf, &end);
-    gtk_text_buffer_insert(buf, &end, line, -1);
-    gtk_text_buffer_insert(buf, &end, "\n", -1);
+    // um respiro externo
+    gtk_widget_set_margin_top   (frame, 4);
+    gtk_widget_set_margin_bottom(frame, 4);
+    return frame;
 }
 
-static void set_status(EnvCtx *ctx, const char *s) {
-    gtk_label_set_text(ctx->status, s);
-}
+static void populate_ds_combo_from_api(EnvCtx *ctx) {
+    if (!ctx || !ctx->ds_combo) return;
 
-/* render PNG (base64) string into GtkImage */
-static void set_plot_png_b64(EnvCtx *ctx, const char *b64) {
-    if (!b64 || !*b64) { gtk_image_clear(ctx->plot_img); return; }
-    gsize out_len = 0;
-    guchar *bytes = g_base64_decode(b64, &out_len);
-    if (!bytes) { gtk_image_clear(ctx->plot_img); return; }
-    GInputStream *ms = g_memory_input_stream_new_from_data(bytes, out_len, g_free);
-    GdkPixbuf *pix = gdk_pixbuf_new_from_stream(ms, NULL, NULL);
-    g_object_unref(ms);
-    if (pix) {
-        gtk_image_set_from_pixbuf(ctx->plot_img, pix);
-        g_object_unref(pix);
-    } else {
-        gtk_image_clear(ctx->plot_img);
-    }
-}
-
-/* Minimal CSV->TreeView (head + up to 200 rows) */
-static void preview_from_csv_into(GtkTreeView *view, const char *csv) {
-    if (!csv) return;
-    char *dup = g_strdup(csv), *save = NULL;
-    char *line = strtok_r(dup, "\n", &save);
-    if (!line) { g_free(dup); return; }
-
-    // parse header
-    GPtrArray *hdr = csv_parse_line_all(line);
-    if (!hdr || hdr->len == 0) { if (hdr) g_ptr_array_free(hdr, TRUE); g_free(dup); return; }
-
-    // model
-    gint n = (gint)hdr->len;
-    GType *types = g_new0(GType, n); for (gint i=0;i<n;++i) types[i]=G_TYPE_STRING;
-    GtkListStore *store = gtk_list_store_newv(n, types);
-    g_free(types);
-    gtk_tree_view_set_model(view, GTK_TREE_MODEL(store));
-    g_object_unref(store);
-
-    // columns
-    GList *cols = gtk_tree_view_get_columns(view);
-    for (GList *l=cols;l;l=l->next) gtk_tree_view_remove_column(view, GTK_TREE_VIEW_COLUMN(l->data));
-    g_list_free(cols);
-    for (guint i=0;i<hdr->len;++i) {
-        GtkCellRenderer *r = gtk_cell_renderer_text_new();
-        GtkTreeViewColumn *c = gtk_tree_view_column_new_with_attributes((const char*)hdr->pdata[i], r, "text", i, NULL);
-        gtk_tree_view_append_column(view, c);
+    char *resp = NULL;
+    if (!api_dump_table("dataset", &resp) || !resp) {
+        fprintf(stderr, "populate_ds_combo_from_api: api_dump_table failed\n");
+        if (resp) free(resp);
+        return;
     }
 
-    // rows
-    int count = 0;
-    while ((line = strtok_r(NULL, "\n", &save)) && count < 200) {
-        GPtrArray *row = csv_parse_line_all(line);
-        if (row && row->len >= hdr->len) {
-            GtkTreeIter it; gtk_list_store_append(store, &it);
-            for (guint i=0;i<hdr->len;++i) {
-                gtk_list_store_set(store, &it, (gint)i, (const char*)row->pdata[i], -1);
-            }
-        }
-        if (row) g_ptr_array_free(row, TRUE);
-        ++count;
+    cJSON *root = cJSON_Parse(resp);
+    free(resp);
+    if (!root) { fprintf(stderr, "populate_ds_combo_from_api: invalid JSON\n"); return; }
+
+    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+    if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0) {
+        cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
+        fprintf(stderr, "API error: %s\n", cJSON_IsString(msg) ? msg->valuestring : "(no message)");
+        cJSON_Delete(root);
+        return;
     }
-    g_ptr_array_free(hdr, TRUE);
-    g_free(dup);
-}
 
-/* --- backend roundtrips (UI-safe) --------------------------------------- */
+    cJSON *columns = cJSON_GetObjectItemCaseSensitive(root, "columns");
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
+    if (!cJSON_IsArray(columns) || !cJSON_IsArray(data)) { cJSON_Delete(root); return; }
 
-static char* req(const char *cmd) {
-    size_t n=0; return backend_request(cmd, &n); /* returns malloc'ed; free with g_free */
-}
+    /* find 'nome' column index */
+    int nome_idx = -1;
+    int ncols = cJSON_GetArraySize(columns);
+    for (int i = 0; i < ncols; ++i) {
+        cJSON *col = cJSON_GetArrayItem(columns, i);
+        if (cJSON_IsString(col) && strcmp(col->valuestring, "nome") == 0) { nome_idx = i; break; }
+    }
 
-static void on_refresh_datasets(GtkButton *b, gpointer user) {
-    (void)b;
-    EnvCtx *ctx = user;
-    char *js = req("LIST_DATASETS\n");
-    if (!js) { set_status(ctx, "No datasets"); return; }
-    // naive parse: look for "datasets":["a","b",...]
+    /* clear and append */
     gtk_combo_box_text_remove_all(ctx->ds_combo);
-    const char *p = strstr(js, "\"datasets\"");
-    if (p) {
-        const char *lb = strchr(p, '['), *rb = lb ? strchr(lb, ']') : NULL;
-        if (lb && rb && rb>lb) {
-            char *arr = g_strndup(lb+1, (gsize)(rb-lb-1));
-            char *tok = strtok(arr, ",");
-            while (tok) {
-                while (*tok==' '||*tok=='\"') ++tok;
-                char *end = tok + strlen(tok);
-                while (end>tok && (end[-1]=='\"'||end[-1]==' ')) *--end = 0;
-                if (*tok) gtk_combo_box_text_append_text(ctx->ds_combo, tok);
-                tok = strtok(NULL, ",");
-            }
-            g_free(arr);
-        }
+    cJSON *row;
+    cJSON_ArrayForEach(row, data) {
+        if (!cJSON_IsArray(row)) continue;
+        cJSON *cell = (nome_idx >= 0) ? cJSON_GetArrayItem(row, nome_idx) : NULL;
+        if (cell && cJSON_IsString(cell)) gtk_combo_box_text_append_text(ctx->ds_combo, cell->valuestring);
     }
-    g_free(js);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), 0);
-    set_status(ctx, "Datasets refreshed");
+
+    cJSON_Delete(root);
 }
 
-static void on_load_dataset(GtkButton *b, gpointer user) {
-    (void)b;
-    EnvCtx *ctx = user;
-    const char *ds = gtk_combo_box_text_get_active_text(ctx->ds_combo);
-    if (!ds) { set_status(ctx, "Select a dataset"); return; }
-    GString *cmd = g_string_new("LOAD_DATASET ");
-    g_string_append(cmd, ds);
-    g_string_append_c(cmd, '\n');
-    char *js = req(cmd->str);
-    g_string_free(cmd, TRUE);
-    if (js) { set_status(ctx, "Dataset loaded"); g_free(js); }
-    char *csv = req("PREVIEW 200\n");
-    if (csv) { preview_from_csv_into(ctx->preview_view, csv); g_free(csv); }
+/* callbacks (minimal, non-functional as requested) */
+static void on_refresh_datasets(GtkButton *btn, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (!ctx) return;
+    populate_ds_combo_from_api(ctx);
+    gtk_label_set_text(GTK_LABEL(ctx->status), "Datasets refreshed");
 }
 
-static void on_plot_update(GtkButton *b, gpointer user) {
-    (void)b;
-    EnvCtx *ctx = user;
-    const char *x = gtk_entry_get_text(ctx->x_feat);
-    const char *y = gtk_entry_get_text(ctx->y_feat);
-    if (!*x || !*y) { set_status(ctx, "Enter X and Y"); return; }
-    GString *j = g_string_new("{\"type\":\"scatter\",\"x\":\"");
-    g_string_append(j, x); g_string_append(j, "\",\"y\":\"");
-    g_string_append(j, y); g_string_append(j, "\"}");
-    GString *cmd = g_string_new("PLOT ");
-    g_string_append(cmd, j->str); g_string_append_c(cmd, '\n');
-    char *resp = req(cmd->str);
-    g_string_free(cmd, TRUE); g_string_free(j, TRUE);
-    if (!resp) { set_status(ctx, "Plot error"); return; }
-    const char *k = strstr(resp, "\"data\":\"");
-    if (k) {
-        k += 8; const char *end = strchr(k, '"');
-        if (end) { char *b64 = g_strndup(k, (gsize)(end-k)); set_plot_png_b64(ctx, b64); g_free(b64); }
+static void on_load_dataset(GtkButton *btn, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (!ctx) return;
+    const char *sel = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+    if (!sel) {
+        gtk_label_set_text(GTK_LABEL(ctx->status), "No dataset selected");
+        return;
     }
-    g_free(resp);
-    gtk_notebook_set_current_page(ctx->right_nb, 1); // Plot tab
+    char buf[256];
+    snprintf(buf, sizeof(buf), "Loaded dataset: %s", sel);
+    gtk_label_set_text(GTK_LABEL(ctx->status), buf);
+    g_free((gpointer)sel);
 }
+
+/* show "not implemented" dialog (optional) */
+static void not_impl_cb(GtkButton *b, gpointer ud) {
+    GtkWidget *dlg = gtk_message_dialog_new(NULL,
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_INFO, GTK_BUTTONS_OK,
+        "Função não implementada ainda.");
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+}
+
+static void set_split_ui(EnvCtx *ctx, double train) {
+    if (!ctx) return;
+    if (train < 0) { train = 0; }; if (train > 100) { train = 100; };
+    ctx->split_lock = TRUE;
+
+    gtk_range_set_value(GTK_RANGE(ctx->split_scale), train);
+
+    char lbuf[32], ebuf[16];
+    g_snprintf(lbuf, sizeof lbuf, "Train %.1f%%", train);
+    gtk_label_set_text(ctx->split_train_lbl, lbuf);
+    g_snprintf(lbuf, sizeof lbuf, "Test %.1f%%", 100.0 - train);
+    gtk_label_set_text(ctx->split_test_lbl, lbuf);
+
+    g_snprintf(ebuf, sizeof ebuf, "%.1f", train);
+    for (char *p=ebuf; *p; ++p) if (*p=='.') *p=',';          /* ponto -> vírgula */
+    gtk_entry_set_text(GTK_ENTRY(ctx->split_entry), ebuf);
+
+    ctx->split_lock = FALSE;
+}
+
+static gboolean parse_percent_entry(const char *txt, double *out) {
+    if (!txt) return FALSE;
+    char buf[32]; g_strlcpy(buf, txt, sizeof buf);
+    for (char *p=buf; *p; ++p) if (*p==',') *p='.';           /* vírgula -> ponto */
+    char *end=NULL; double v = g_ascii_strtod(buf, &end);
+    if (end==buf) return FALSE;
+    if (v < 0) { v = 0; }; if (v > 100) { v = 100; };
+    *out=v; return TRUE;
+}
+
+
+/* Entry mudou -> aplica no slider (aceita vírgula) */
+static void on_split_entry_changed(GtkEditable *editable, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (!ctx) return;
+    if (ctx->split_lock) return;
+    double train;
+    if (!parse_percent_entry(gtk_entry_get_text(GTK_ENTRY(editable)), &train)) return;
+    set_split_ui(ctx, train);
+}
+
+/* add_environment_tab implementation (style preserved) */
+/* Converte texto com vírgula/ponto para double 0..100 */
+
+/* Mantém slider, labels e entry sincronizados (com trava) */
+
+/* Slider mudou -> atualiza labels e entry */
+static void on_split_changed(GtkRange *range, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (ctx->split_lock) return;
+    set_split_ui(ctx, gtk_range_get_value(range));
+}
+
+/* Entry mudou -> aplica no slider (aceita vírgula) */
+
 
 static void on_train_clicked(GtkButton *b, gpointer user) {
     (void)b;
-    EnvCtx *ctx = user;
-    const char *ds = gtk_combo_box_text_get_active_text(ctx->ds_combo);
-    const char *algo = gtk_combo_box_text_get_active_text(ctx->algo_combo);
-    if (!ds || !algo) { set_status(ctx, "Pick dataset & algo"); return; }
-    int tr = (int)gtk_spin_button_get_value(ctx->train_spn);
-    int va = (int)gtk_spin_button_get_value(ctx->val_spn);
-    int te = (int)gtk_spin_button_get_value(ctx->test_spn);
-
-    GString *cfg = g_string_new("{\"algo\":\"");
-    g_string_append(cfg, algo);
-    g_string_append(cfg, "\",\"dataset\":\"");
-    g_string_append(cfg, ds);
-    g_string_append(cfg, "\",\"split\":{\"train\":");
-    g_string_append_printf(cfg, "%.2f,\"val\":%.2f,\"test\":%.2f",
-                           tr/100.0, va/100.0, te/100.0);
-    g_string_append(cfg, "},\"preproc\":{");
-    g_string_append(cfg, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ctx->impute_chk)) ? "\"impute\":\"median\"" : "\"impute\":null");
-    g_string_append(cfg, ",");
-    g_string_append(cfg, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ctx->scale_chk)) ? "\"scale\":\"standard\"" : "\"scale\":null");
-    g_string_append(cfg, "}}");
-
-    GString *cmd = g_string_new("TRAIN ");
-    g_string_append(cmd, cfg->str);
-    g_string_append_c(cmd, '\n');
-
-    set_status(ctx, "Training…");
-    gtk_progress_bar_pulse(ctx->progress);
-
-    char *resp = req(cmd->str);  // simple: wait for final JSON; for streaming progress, switch to incremental read
-    g_string_free(cfg, TRUE); g_string_free(cmd, TRUE);
-
-    if (resp) {
-        log_append(ctx, resp);
-        // naive metrics scrape
-        const char *r2 = strstr(resp, "\"r2\":");
-        if (r2) set_status(ctx, "Training complete");
-        else set_status(ctx, "Training done (no metrics?)");
-        g_free(resp);
-    } else {
-        set_status(ctx, "Training failed");
-    }
-    gtk_progress_bar_set_fraction(ctx->progress, 0.0);
-}
-// Função para processar o cadastro de novo usuário
-static void on_register_clicked(GtkButton *b, gpointer user_data) {
-    (void)b;
-    LoginData *login_data = (LoginData*)user_data;
-    
-    // Obter dados dos campos de cadastro
-    const char *name = gtk_entry_get_text(login_data->register_name_entry);
-    const char *email = gtk_entry_get_text(login_data->register_email_entry);
-    const char *pass = gtk_entry_get_text(login_data->register_pass_entry);
-    const char *confirm_pass = gtk_entry_get_text(login_data->register_confirm_entry);
-
-    // Validações básicas
-    if (!name || !*name || !email || !*email || !pass || !*pass || !confirm_pass || !*confirm_pass) {
-        gtk_label_set_text(login_data->status_label, "Preencha todos os campos");
-        return;
+    EnvCtx *ctx = (EnvCtx*)user;
+    /* Atualiza o label de status, se existir */
+    if (ctx && ctx->status) {
+        gtk_label_set_text(GTK_LABEL(ctx->status), "Em desenvolvimento");
     }
 
-    if (strcmp(pass, confirm_pass) != 0) {
-        gtk_label_set_text(login_data->status_label, "Senhas não coincidem");
-        return;
+    /* Determina janela-pai (se disponível) para modal */
+    GtkWindow *parent = NULL;
+    if (ctx && ctx->main_window && GTK_IS_WINDOW(ctx->main_window)) {
+        parent = GTK_WINDOW(ctx->main_window);
+    } else if (ctx && ctx->status) {
+        GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(ctx->status));
+        if (toplevel && GTK_IS_WINDOW(toplevel)) parent = GTK_WINDOW(toplevel);
     }
 
-    // Montar JSON para cadastro
-    GString *j = g_string_new("{\"nome\":\"");
-    g_string_append(j, name);
-    g_string_append(j, "\",\"email\":\"");
-    g_string_append(j, email);
-    g_string_append(j, "\",\"password\":\"");
-    g_string_append(j, pass);
-    g_string_append(j, "\"}");
-    
-    GString *cmd = g_string_new("CREATE_USER ");
-    g_string_append(cmd, j->str);
-    g_string_append_c(cmd, '\n');
-
-    char *resp = req(cmd->str);
-    g_string_free(j, TRUE);
-    g_string_free(cmd, TRUE);
-
-    if (!resp) {
-        gtk_label_set_text(login_data->status_label, "Sem resposta do backend");
-        return;
-    }
-
-    // Processar resposta
-    if (strncmp(resp, "OK ", 3) == 0) {
-        gtk_label_set_text(login_data->status_label, "Usuário criado com sucesso!");
-        // Limpar campos
-        gtk_entry_set_text(login_data->register_name_entry, "");
-        gtk_entry_set_text(login_data->register_email_entry, "");
-        gtk_entry_set_text(login_data->register_pass_entry, "");
-        gtk_entry_set_text(login_data->register_confirm_entry, "");
-        // Voltar para aba de login
-        gtk_notebook_set_current_page(GTK_NOTEBOOK(login_data->notebook), 0);
-    } else {
-        const char *error_msg = strstr(resp, "ERR ") ? resp + 4 : resp;
-        gtk_label_set_text(login_data->status_label, error_msg);
-    }
-
-    g_free(resp);
-}
-
-// Função para criar a janela de login com abas
-static GtkWidget* create_login_window(LoginData *login_data) {
-    /* Window */
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "AI For Dummies – Login/Cadastro");
-    gtk_window_set_default_size(GTK_WINDOW(window), 460, 400);
-    gtk_window_set_modal(GTK_WINDOW(window), TRUE);
-    gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-
-    /* Outer center box */
-    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add(GTK_CONTAINER(window), outer);
-    gtk_widget_set_halign(outer, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(outer, GTK_ALIGN_CENTER);
-
-    /* Title */
-    GtkWidget *title = gtk_label_new("AI For Dummies");
-    PangoAttrList *attrs = pango_attr_list_new();
-    pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
-    pango_attr_list_insert(attrs, pango_attr_size_new(14 * PANGO_SCALE));
-    gtk_label_set_attributes(GTK_LABEL(title), attrs);
-    pango_attr_list_unref(attrs);
-    gtk_box_pack_start(GTK_BOX(outer), title, FALSE, FALSE, 0);
-
-    /* Notebook para abas de Login e Cadastro */
-    GtkWidget *notebook = gtk_notebook_new();
-    gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_TOP);
-    login_data->notebook = GTK_NOTEBOOK(notebook);
-    gtk_box_pack_start(GTK_BOX(outer), notebook, TRUE, TRUE, 0);
-
-    /* ========== ABA DE LOGIN ========== */
-    GtkWidget *login_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_container_set_border_width(GTK_CONTAINER(login_box), 16);
-    
-    /* Grid para formulário de login */
-    GtkWidget *login_grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(login_grid), 8);
-    gtk_grid_set_column_spacing(GTK_GRID(login_grid), 8);
-    gtk_box_pack_start(GTK_BOX(login_box), login_grid, TRUE, TRUE, 0);
-
-    /* Email */
-    GtkWidget *lbl_email = gtk_label_new("Email:");
-    gtk_widget_set_halign(lbl_email, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(login_grid), lbl_email, 0, 0, 1, 1);
-
-    login_data->email_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->email_entry, "Digite seu email");
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->email_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(login_grid), GTK_WIDGET(login_data->email_entry), 1, 0, 2, 1);
-
-    /* Senha */
-    GtkWidget *lbl_pass = gtk_label_new("Senha:");
-    gtk_widget_set_halign(lbl_pass, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(login_grid), lbl_pass, 0, 1, 1, 1);
-
-    login_data->pass_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->pass_entry, "Digite sua senha");
-    gtk_entry_set_visibility(login_data->pass_entry, FALSE);
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->pass_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(login_grid), GTK_WIDGET(login_data->pass_entry), 1, 1, 1, 1);
-
-    GtkWidget *reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
-    g_signal_connect(reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->pass_entry);
-    gtk_grid_attach(GTK_GRID(login_grid), reveal_btn, 2, 1, 1, 1);
-
-    /* Botão de login */
-    GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
-    gtk_widget_set_hexpand(btn_login, TRUE);
-    gtk_grid_attach(GTK_GRID(login_grid), btn_login, 1, 2, 2, 1);
-
-    /* Adicionar aba de login */
-    GtkWidget *login_label = gtk_label_new("Login");
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, login_label);
-
-    /* ========== ABA DE CADASTRO ========== */
-    GtkWidget *register_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_container_set_border_width(GTK_CONTAINER(register_box), 16);
-    
-    /* Grid para formulário de cadastro */
-    GtkWidget *register_grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(register_grid), 8);
-    gtk_grid_set_column_spacing(GTK_GRID(register_grid), 8);
-    gtk_box_pack_start(GTK_BOX(register_box), register_grid, TRUE, TRUE, 0);
-
-    /* Nome */
-    GtkWidget *lbl_name = gtk_label_new("Nome:");
-    gtk_widget_set_halign(lbl_name, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(register_grid), lbl_name, 0, 0, 1, 1);
-
-    login_data->register_name_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->register_name_entry, "Digite seu nome completo");
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_name_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_name_entry), 1, 0, 2, 1);
-
-    /* Email */
-    GtkWidget *lbl_reg_email = gtk_label_new("Email:");
-    gtk_widget_set_halign(lbl_reg_email, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(register_grid), lbl_reg_email, 0, 1, 1, 1);
-
-    login_data->register_email_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->register_email_entry, "Digite seu email");
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_email_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_email_entry), 1, 1, 2, 1);
-
-    /* Senha */
-    GtkWidget *lbl_reg_pass = gtk_label_new("Senha:");
-    gtk_widget_set_halign(lbl_reg_pass, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(register_grid), lbl_reg_pass, 0, 2, 1, 1);
-
-    login_data->register_pass_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->register_pass_entry, "Crie uma senha");
-    gtk_entry_set_visibility(login_data->register_pass_entry, FALSE);
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_pass_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_pass_entry), 1, 2, 1, 1);
-
-    GtkWidget *reg_reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
-    g_signal_connect(reg_reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->register_pass_entry);
-    gtk_grid_attach(GTK_GRID(register_grid), reg_reveal_btn, 2, 2, 1, 1);
-
-    /* Confirmar Senha */
-    GtkWidget *lbl_confirm = gtk_label_new("Confirmar:");
-    gtk_widget_set_halign(lbl_confirm, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(register_grid), lbl_confirm, 0, 3, 1, 1);
-
-    login_data->register_confirm_entry = GTK_ENTRY(gtk_entry_new());
-    gtk_entry_set_placeholder_text(login_data->register_confirm_entry, "Confirme sua senha");
-    gtk_entry_set_visibility(login_data->register_confirm_entry, FALSE);
-    gtk_widget_set_hexpand(GTK_WIDGET(login_data->register_confirm_entry), TRUE);
-    gtk_grid_attach(GTK_GRID(register_grid), GTK_WIDGET(login_data->register_confirm_entry), 1, 3, 1, 1);
-
-    GtkWidget *confirm_reveal_btn = gtk_toggle_button_new_with_label("Mostrar");
-    g_signal_connect(confirm_reveal_btn, "toggled", G_CALLBACK(on_toggle_password_visibility), login_data->register_confirm_entry);
-    gtk_grid_attach(GTK_GRID(register_grid), confirm_reveal_btn, 2, 3, 1, 1);
-
-    /* Botão de cadastro */
-    GtkWidget *btn_register = gtk_button_new_with_label("Cadastrar");
-    gtk_widget_set_hexpand(btn_register, TRUE);
-    gtk_grid_attach(GTK_GRID(register_grid), btn_register, 1, 4, 2, 1);
-
-    /* Adicionar aba de cadastro */
-    GtkWidget *register_label = gtk_label_new("Cadastro");
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), register_box, register_label);
-
-    /* Status e footer */
-    login_data->status_label = GTK_LABEL(gtk_label_new(""));
-    gtk_box_pack_start(GTK_BOX(outer), GTK_WIDGET(login_data->status_label), FALSE, FALSE, 0);
-
-    GtkWidget *footer = gtk_label_new("Enter para entrar • ESC para sair");
-    gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
-
-    /* Conectar sinais */
-    g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_clicked), login_data);
-    g_signal_connect(btn_register, "clicked", G_CALLBACK(on_register_clicked), login_data);
-    g_signal_connect(window, "key-press-event", G_CALLBACK(on_login_key_press), login_data);
-
-    return window;
+    /* Dialog simples informando que está em desenvolvimento */
+    GtkWidget *dlg = gtk_message_dialog_new(parent,
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_INFO,
+        GTK_BUTTONS_OK,
+        "Em desenvolvimento — recurso ainda não implementado.");
+    gtk_window_set_title(GTK_WINDOW(dlg), "Aviso");
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
 }
 
 
-// Função para alternar a visibilidade da senha
-static void on_toggle_password_visibility(GtkButton *button, gpointer user_data) {
-    GtkEntry *entry = GTK_ENTRY(user_data);
-    gboolean visible = gtk_entry_get_visibility(entry);
-    gtk_entry_set_visibility(entry, !visible);
-    
-    // Alterar o ícone baseado no estado
-    const gchar *icon_name = visible ? "view-conceal-symbolic" : "view-reveal-symbolic";
-    GtkWidget *new_icon = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
-    gtk_button_set_image(GTK_BUTTON(button), new_icon);
-}
-
-// Função para lidar com eventos de teclado
-static gboolean on_login_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data) {
-    LoginData *login_data = (LoginData*)user_data;
-    
-    if (event->keyval == GDK_KEY_Escape) {
-        gtk_widget_hide(login_data->login_window);
-        return TRUE;
-    }
-    
-    if (event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter) {
-        on_login_clicked(NULL, login_data);
-        return TRUE;
-    }
-    
-    return FALSE;
-}
-
-static void on_login_clicked(GtkButton *b, gpointer user_data) {
-    (void)b;
-    LoginData *login_data = (LoginData*)user_data;
-    const char *email = gtk_entry_get_text(login_data->email_entry);
-    const char *pass = gtk_entry_get_text(login_data->pass_entry);
-
-    if (!email || !*email || !pass || !*pass) {
-        gtk_label_set_text(login_data->status_label, "Digite email e senha");
-        return;
-    }
-
-    /* Montar JSON de autenticação */
-    GString *j = g_string_new("{\"email\":\"");
-    g_string_append(j, email);
-    g_string_append(j, "\",\"password\":\"");
-    g_string_append(j, pass);
-    g_string_append(j, "\"}");
-    
-    GString *cmd = g_string_new("LOGIN ");
-    g_string_append(cmd, j->str);
-    g_string_append_c(cmd, '\n');
-
-    char *resp = req(cmd->str);
-    g_string_free(j, TRUE);
-    g_string_free(cmd, TRUE);
-
-    if (!resp) {
-        gtk_label_set_text(login_data->status_label, "Sem resposta do backend");
-        return;
-    }
-
-    /* Processar resposta */
-    if (strncmp(resp, "OK ", 3) == 0) {
-        /* Login bem-sucedido - extrair informações do usuário */
-        const char *payload = resp + 3;
-        char *dup = g_strdup(payload);
-        char *tok = strtok(dup, "|");
-        const char *uid = tok ? tok : "";
-        tok = strtok(NULL, "|");
-        const char *name = tok ? tok : "";
-
-        /* Fechar janela de login e mostrar janela principal */
-        gtk_widget_destroy(login_data->login_window);
-        gtk_widget_show_all(login_data->main_window);
-
-        /* Habilitar controles na interface principal */
-        EnvCtx *ctx = login_data->env_ctx;
-        if (ctx) {
-            set_status(ctx, name && *name ? name : "Logado com sucesso");
-            ctx->logged_in = TRUE;
-
-            /* Habilitar componentes da interface */
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->ds_combo), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->model_combo), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->algo_combo), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_refresh_ds), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_train), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_validate), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->btn_test), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->x_feat), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->y_feat), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->scale_chk), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->impute_chk), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->train_spn), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->val_spn), TRUE);
-            gtk_widget_set_sensitive(GTK_WIDGET(ctx->test_spn), TRUE);
-            
-            // Mostrar botão de logout
-            gtk_widget_show_all(GTK_WIDGET(ctx->btn_logout));
-        }
-
-        g_free(dup);
-    } else {
-        /* Exibir mensagem de erro */
-        const char *error_msg = strstr(resp, "ERR ") ? resp + 4 : resp;
-        gtk_label_set_text(login_data->status_label, error_msg);
-    }
-
-    g_free(resp);
-}
-
-/* Build the Environment tab */
 /* Build the Environment tab */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -1185,8 +528,6 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_logout), "Sair da conta");
     gtk_widget_hide(GTK_WIDGET(ctx->btn_logout));
     
-    // Conectar o sinal do botão de logout
-    g_signal_connect(ctx->btn_logout, "clicked", G_CALLBACK(on_logout_clicked), ctx);
     /* dataset row + refresh + load */
     GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->ds_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1201,9 +542,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
     gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
-    gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new("Trainee:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new(""), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left_content), tr_row, FALSE, FALSE, 0);
+    /* ERA: gtk_box_pack_start(GTK_BOX(left_content), tr_row, FALSE, FALSE, 0); */
+    gtk_box_pack_start(GTK_BOX(left_content), group_panel("Trainee", tr_row), FALSE, FALSE, 0);
 
     /* algo + params */
     GtkWidget *algo_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -1212,23 +554,52 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_combo_box_text_append_text(ctx->algo_combo, "ridge");
     gtk_combo_box_text_append_text(ctx->algo_combo, "lasso");
     gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), 0);
-    gtk_box_pack_start(GTK_BOX(algo_row), gtk_label_new("Regressor:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(algo_row), gtk_label_new(""), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(algo_row), GTK_WIDGET(ctx->algo_combo), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left_content), algo_row, FALSE, FALSE, 0);
+    /* ERA: gtk_box_pack_start(GTK_BOX(left_content), algo_row, FALSE, FALSE, 0); */
+    gtk_box_pack_start(GTK_BOX(left_content), group_panel("Regressor", algo_row), FALSE, FALSE, 0);
 
     /* split sliders */
-    GtkAdjustment *adj1 = gtk_adjustment_new(70, 1, 98, 1, 5, 0);
-    GtkAdjustment *adj2 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
-    GtkAdjustment *adj3 = gtk_adjustment_new(15, 1, 98, 1, 5, 0);
-    ctx->train_spn = GTK_SPIN_BUTTON(gtk_spin_button_new(adj1, 1, 0));
-    ctx->val_spn   = GTK_SPIN_BUTTON(gtk_spin_button_new(adj2, 1, 0));
-    ctx->test_spn  = GTK_SPIN_BUTTON(gtk_spin_button_new(adj3, 1, 0));
-    GtkWidget *split_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_pack_start(GTK_BOX(split_row), gtk_label_new("Split (T/V/S %)"), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->train_spn), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->val_spn),   FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(split_row), GTK_WIDGET(ctx->test_spn),  FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left_content), split_row, FALSE, FALSE, 0);
+    /* split slider (Train/Test) – soma sempre 100% */
+/* === Split (Train/Test) com entry central + slider ===================== */
+GtkWidget *split_box    = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+
+/* linha superior: [Train ...] [ entry ] [ ... Test] */
+GtkWidget *split_labels = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+GtkWidget *lab_tr       = gtk_label_new("Train 70,0%");
+GtkWidget *entry        = gtk_entry_new();
+gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
+gtk_widget_set_size_request(entry, 70, -1);
+gtk_entry_set_alignment(GTK_ENTRY(entry), 0.5);
+gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "70,0");
+GtkWidget *lab_te       = gtk_label_new("Test 30,0%");
+
+ctx->split_train_lbl = GTK_LABEL(lab_tr);
+ctx->split_test_lbl  = GTK_LABEL(lab_te);
+ctx->split_entry     = GTK_ENTRY(entry);
+
+gtk_box_pack_start(GTK_BOX(split_labels), lab_tr, FALSE, FALSE, 0);
+gtk_box_pack_end  (GTK_BOX(split_labels), lab_te, FALSE, FALSE, 0);
+gtk_box_set_center_widget(GTK_BOX(split_labels), entry);
+
+/* slider (0..100) = Train% com passo 0.1 */
+GtkAdjustment *split_adj = gtk_adjustment_new(70.0, 0.0, 100.0, 0.1, 1.0, 0.0);
+GtkWidget     *split_scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, split_adj);
+ctx->split_scale = GTK_SCALE(split_scale);
+gtk_scale_set_draw_value(GTK_SCALE(split_scale), FALSE);
+gtk_scale_add_mark(GTK_SCALE(split_scale), 50.0, GTK_POS_BOTTOM, NULL);
+gtk_widget_set_hexpand(split_scale, TRUE);
+
+g_signal_connect(split_scale, "value-changed", G_CALLBACK(on_split_changed), ctx);
+g_signal_connect(entry,       "changed",       G_CALLBACK(on_split_entry_changed), ctx);
+
+/* monta painel e inicializa em 70/30 */
+gtk_box_pack_start(GTK_BOX(split_box), split_labels, FALSE, FALSE, 0);
+gtk_box_pack_start(GTK_BOX(split_box), split_scale,  FALSE, FALSE, 0);
+gtk_box_pack_start(GTK_BOX(left_content),
+                   group_panel("Split (Train%/Test%)", split_box),
+                   FALSE, FALSE, 0);
+set_split_ui(ctx, 70.0);
 
     /* features + preproc */
     GtkWidget *xy_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -1246,16 +617,13 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(left_content), GTK_WIDGET(ctx->scale_chk),  FALSE, FALSE, 0);
 
     /* action buttons */
+    /* === Botão único Play =================================================== */
     GtkWidget *act_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    ctx->btn_train    = GTK_BUTTON(gtk_button_new_with_label("Train"));
-    GtkWidget *btn_plot = gtk_button_new_with_label("Plot");
-    ctx->btn_validate = GTK_BUTTON(gtk_button_new_with_label("Validate"));
-    ctx->btn_test     = GTK_BUTTON(gtk_button_new_with_label("Test"));
-    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_train), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(act_row), btn_plot, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_validate), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(act_row), GTK_WIDGET(ctx->btn_test), FALSE, FALSE, 0);
+    GtkWidget *btn_play = gtk_button_new_with_label("▶ Run");
+    ctx->btn_play = GTK_BUTTON(btn_play);
+    gtk_box_pack_start(GTK_BOX(act_row), btn_play, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(left_content), act_row, FALSE, FALSE, 0);
+
 
     /* Wrap left in metal panel and pack into paned */
     GtkWidget *left_panel = metal_wrap(left_content, "env-left-panel");
@@ -1309,9 +677,8 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* signals */
     g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_datasets), ctx);
-    g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_dataset),     ctx);
-    g_signal_connect(btn_plot,            "clicked", G_CALLBACK(on_plot_update),      ctx);
-    g_signal_connect(ctx->btn_train,      "clicked", G_CALLBACK(on_train_clicked),    ctx);
+    g_signal_connect(btn_load,       "clicked", G_CALLBACK(on_load_dataset),     ctx);
+    g_signal_connect(btn_play,       "clicked", G_CALLBACK(on_train_clicked),    ctx);
 
     /* mount into notebook */
     GtkWidget *tab_lbl = gtk_label_new("Environment");
@@ -1322,79 +689,23 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     on_refresh_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
 }
 
-/* ---- destroy ---- */
-static void on_destroy(GtkWidget *w, gpointer data) {
-    (void)w; (void)data;
-#ifdef _WIN32
-    backend_stop();
-#endif
-    gtk_main_quit();
-}
-
-/* ---- main ---- */
-// Modifique a função main para usar o sistema de login
-int main(int argc, char *argv[]) {
+// ==== Main Window ====
+int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
-
     apply_metal_theme();
 
-    /* EDIT credentials (or load from env) */
-    const WCHAR *DB   = L"AIForDummies";
-    const WCHAR *USER = L"root";
-    const WCHAR *PASS = L"hhzpIxzAuLBiDBPLELofDfZzDklgpVHD";
-    const WCHAR *HOST = L"hopper.proxy.rlwy.net";
-    const int    PORT = 39703;
+    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(win), "Metal API Client");
+    gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
+    g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-#ifdef _WIN32
-    if (!backend_start(DB, USER, PASS, HOST, PORT)) {
-        /* Show a message and keep GUI up; manual refresh will keep failing until fixed */
-        MessageBoxW(NULL,
-            L"Failed to start the Python backend.\n\n"
-            L"Check python\\venv and DB connectivity.",
-            L"AI-for-dummies", MB_OK | MB_ICONERROR);
-    }
-#endif
+    GtkWidget *nb = gtk_notebook_new();
+    gtk_container_add(GTK_CONTAINER(win), nb);
 
-    GtkWidget *main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(main_window), "AI For Dummies");
-    gtk_window_set_default_size(GTK_WINDOW(main_window), 1100, 700);
-    g_signal_connect(main_window, "destroy", G_CALLBACK(on_destroy), NULL);
+    add_datasets_tab(GTK_NOTEBOOK(nb));
+    add_environment_tab(GTK_NOTEBOOK(nb), g_new0(EnvCtx,1));
 
-    GtkWidget *notebook = gtk_notebook_new();
-    gtk_container_add(GTK_CONTAINER(main_window), notebook);
-
-
-    // Criar contexto da interface
-    EnvCtx *env_ctx = g_new0(EnvCtx, 1);
-    env_ctx->main_window = main_window;  // Armazenar referência à janela principal
-    add_environment_tab(GTK_NOTEBOOK(notebook), env_ctx);
-    add_datasets_tab(GTK_NOTEBOOK(notebook));
-
-    // Configurar sistema de login
-    LoginData login_data = {0};
-    login_data.main_window = main_window;
-    login_data.env_ctx = env_ctx;
-    
-    // Criar e mostrar janela de login
-    login_data.login_window = create_login_window(&login_data);
-    gtk_widget_show_all(login_data.login_window);
-
-    // Inicialmente desabilitar controles da interface principal
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->ds_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->model_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->algo_combo), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_refresh_ds), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_train), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_validate), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->btn_test), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->x_feat), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->y_feat), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->scale_chk), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->impute_chk), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->train_spn), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->val_spn), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(env_ctx->test_spn), FALSE);
-
+    gtk_widget_show_all(win);
     gtk_main();
     return 0;
 }

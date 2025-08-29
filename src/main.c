@@ -215,8 +215,51 @@ typedef struct {
     GtkWidget *email_entry;
     GtkWidget *pass_entry;
     GtkWidget *status_label;
+
+     // aba cadastro
+    GtkWidget *reg_nome_entry;
+    GtkWidget *reg_email_entry;
+    GtkWidget *reg_pass_entry;
+    GtkWidget *reg_status_label;
 } LoginCtx;
 
+static void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
+    const char *nome = gtk_entry_get_text(GTK_ENTRY(ctx->reg_nome_entry));
+    const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->reg_email_entry));
+    const char *password = gtk_entry_get_text(GTK_ENTRY(ctx->reg_pass_entry));
+
+    if(strlen(nome)==0 || strlen(email)==0 || strlen(password)==0) {
+        gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Preencha todos os campos!");
+        return;
+    }
+
+    CURL *curl = curl_easy_init();
+    if(curl) {
+        CURLcode res;
+        char data[512];
+        snprintf(data, sizeof(data),
+                 "{\"nome\":\"%s\",\"email\":\"%s\",\"password\":\"%s\"}",
+                 nome, email, password);
+
+        curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/user");
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        res = curl_easy_perform(curl);
+        if(res != CURLE_OK) {
+            gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Erro ao criar usuário!");
+        } else {
+            gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Usuário criado com sucesso!");
+            gtk_entry_set_text(GTK_ENTRY(ctx->reg_nome_entry), "");
+            gtk_entry_set_text(GTK_ENTRY(ctx->reg_email_entry), "");
+            gtk_entry_set_text(GTK_ENTRY(ctx->reg_pass_entry), "");
+        }
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+}
 
 
 
@@ -331,114 +374,135 @@ static void apply_login_css(void) {
 }
 
 static GtkWidget* create_login_window(void) {
-    /* garante que o METAL_CSS já foi aplicado globalmente */
     apply_metal_theme();
-    /* aplica apenas os ajustes de login (tipografia + tamanhos) */
-    apply_login_css();
+    apply_login_css();  // CSS extra do login
 
     LoginCtx *ctx = g_new0(LoginCtx, 1);
 
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(win), "Login");
-    /* calcula tamanho baseado na tela (aprox 45% largura x 35% altura, com limites) */
+    gtk_window_set_title(GTK_WINDOW(win), "Login / Cadastro");
+
+    // Tela cheia proporcional
     GdkScreen *screen = gdk_screen_get_default();
     gint sw = gdk_screen_get_width(screen);
     gint sh = gdk_screen_get_height(screen);
-    gint w = (int)CLAMP(sw * 0.45, 420, 1200);
-    gint h = (int)CLAMP(sh * 0.35, 320, 900);
-    gtk_window_set_default_size(GTK_WINDOW(win), w, h);
-    gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(win),
+        CLAMP(sw*0.45, 420, 1200), CLAMP(sh*0.4, 320, 900));
     gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
-
     gtk_container_set_border_width(GTK_CONTAINER(win), 12);
-    gtk_widget_set_name(win, "login-window"); /* usado no CSS */
+    gtk_widget_set_name(win, "login-window");
 
-    /* Outer centering box: ocupa todo o espaço e centra o painel */
-    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add(GTK_CONTAINER(win), outer);
-    gtk_widget_set_halign(outer, GTK_ALIGN_FILL);
-    gtk_widget_set_valign(outer, GTK_ALIGN_FILL);
+    // Notebook para abas
+    GtkWidget *notebook = gtk_notebook_new();
+    gtk_container_add(GTK_CONTAINER(win), notebook);
 
-    GtkWidget *align = gtk_alignment_new(0.5, 0.5, 0.0, 0.0); /* centro */
-    gtk_box_pack_start(GTK_BOX(outer), align, TRUE, TRUE, 0);
+    // ================= LOGIN TAB =================
+    GtkWidget *login_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(login_grid), 12);
+    gtk_grid_set_column_spacing(GTK_GRID(login_grid), 12);
 
-    /* painel central (aplica metal_wrap para aparência consistente) */
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-    gtk_widget_set_halign(grid, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(grid, GTK_ALIGN_CENTER);
+    GtkWidget *lbl_login_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(lbl_login_title),
+                         "<span size='xx-large' weight='bold'>Login</span>");
+    gtk_grid_attach(GTK_GRID(login_grid), lbl_login_title, 0, 0, 2, 1);
+    gtk_widget_set_halign(lbl_login_title, GTK_ALIGN_CENTER);
 
-    /* título maior */
-    GtkWidget *lbl_title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(lbl_title), "<span size='xx-large' weight='bold'>Bem-vindo</span>");
-    gtk_widget_set_name(lbl_title, "login-title"); /* não obrigatório */
-    gtk_widget_set_halign(lbl_title, GTK_ALIGN_CENTER);
-    gtk_grid_attach(GTK_GRID(grid), lbl_title, 0, 0, 2, 1);
-
-    /* subtítulo / instrução */
-    GtkWidget *lbl_sub = gtk_label_new("Entre com sua conta para continuar");
-    gtk_widget_set_halign(lbl_sub, GTK_ALIGN_CENTER);
-    gtk_grid_attach(GTK_GRID(grid), lbl_sub, 0, 1, 2, 1);
-
-    /* email */
     GtkWidget *lbl_email = gtk_label_new("Email:");
-    gtk_widget_set_halign(lbl_email, GTK_ALIGN_END);
     ctx->email_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->email_entry), "seu@email.com");
     gtk_widget_set_hexpand(ctx->email_entry, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), lbl_email, 0, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), ctx->email_entry, 1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), lbl_email, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), ctx->email_entry, 1, 1, 1, 1);
 
-    /* senha */
     GtkWidget *lbl_pass = gtk_label_new("Senha:");
-    gtk_widget_set_halign(lbl_pass, GTK_ALIGN_END);
     ctx->pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->pass_entry), FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->pass_entry), "••••••••");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->pass_entry), "••••••");
     gtk_widget_set_hexpand(ctx->pass_entry, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), lbl_pass, 0, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), ctx->pass_entry, 1, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), lbl_pass, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), ctx->pass_entry, 1, 2, 1, 1);
 
-    /* login button (maior) */
     GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
     gtk_widget_set_name(btn_login, "login-btn");
     gtk_widget_set_hexpand(btn_login, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), btn_login, 0, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), btn_login, 0, 3, 2, 1);
 
-    /* status label */
     ctx->status_label = gtk_label_new("");
     gtk_widget_set_name(ctx->status_label, "status");
-    gtk_widget_set_halign(ctx->status_label, GTK_ALIGN_CENTER);
-    gtk_grid_attach(GTK_GRID(grid), ctx->status_label, 0, 5, 2, 1);
+    gtk_grid_attach(GTK_GRID(login_grid), ctx->status_label, 0, 4, 2, 1);
 
-    /* empacota grid dentro do painel metal (com espaçamento) */
-    GtkWidget *panel = metal_wrap(grid, "login-panel");
-    gtk_container_add(GTK_CONTAINER(align), panel);
+    GtkWidget *login_panel = metal_wrap(login_grid, "login-panel");
 
-    /* faz o painel ter um máximo relativo (width already em CSS min/max), centralizado */
-    gtk_widget_set_size_request(panel, -1, -1);
-    gtk_widget_set_halign(panel, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(panel, GTK_ALIGN_CENTER);
+    // Centralizar a aba
+    GtkWidget *login_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(login_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(login_box, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(login_box), login_panel);
 
-    /* guarda contexto */
-    ctx->window = win;
-    ctx->email_entry = ctx->email_entry;
-    ctx->pass_entry = ctx->pass_entry;
-    ctx->status_label = ctx->status_label;
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, gtk_label_new("Login"));
 
-    /* signals */
+    // ================= REGISTER TAB =================
+    GtkWidget *reg_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(reg_grid), 12);
+    gtk_grid_set_column_spacing(GTK_GRID(reg_grid), 12);
+
+    GtkWidget *lbl_reg_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(lbl_reg_title),
+                         "<span size='xx-large' weight='bold'>Cadastro</span>");
+    gtk_grid_attach(GTK_GRID(reg_grid), lbl_reg_title, 0, 0, 2, 1);
+    gtk_widget_set_halign(lbl_reg_title, GTK_ALIGN_CENTER);
+
+    GtkWidget *reg_nome_label = gtk_label_new("Nome:");
+    ctx->reg_nome_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_nome_entry), "Seu nome completo");
+    gtk_widget_set_hexpand(ctx->reg_nome_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(reg_grid), reg_nome_label, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_nome_entry, 1, 1, 1, 1);
+
+    GtkWidget *reg_email_label = gtk_label_new("Email:");
+    ctx->reg_email_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_email_entry), "email@dominio.com");
+    gtk_widget_set_hexpand(ctx->reg_email_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(reg_grid), reg_email_label, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_email_entry, 1, 2, 1, 1);
+
+    GtkWidget *reg_pass_label = gtk_label_new("Senha:");
+    ctx->reg_pass_entry = gtk_entry_new();
+    gtk_entry_set_visibility(GTK_ENTRY(ctx->reg_pass_entry), FALSE);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_pass_entry), "••••••");
+    gtk_widget_set_hexpand(ctx->reg_pass_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(reg_grid), reg_pass_label, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_pass_entry, 1, 3, 1, 1);
+
+    GtkWidget *btn_register = gtk_button_new_with_label("Cadastrar");
+    gtk_widget_set_hexpand(btn_register, TRUE);
+    gtk_grid_attach(GTK_GRID(reg_grid), btn_register, 0, 4, 2, 1);
+
+    ctx->reg_status_label = gtk_label_new("");
+    gtk_widget_set_name(ctx->reg_status_label, "status");
+    gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_status_label, 0, 5, 2, 1);
+
+    GtkWidget *reg_panel = metal_wrap(reg_grid, "login-panel");
+
+    GtkWidget *reg_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(reg_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(reg_box, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(reg_box), reg_panel);
+
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, gtk_label_new("Cadastro"));
+
+    // ================= SIGNALS =================
     g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_button_clicked), ctx);
     g_signal_connect(ctx->pass_entry, "activate", G_CALLBACK(on_login_button_clicked), ctx);
+    g_signal_connect(btn_register, "clicked", G_CALLBACK(on_register_button_clicked), ctx);
 
-    /* NÃO conecta destroy a gtk_main_quit aqui:
-       isso evita que a criação/remoção da janela de login feche o app
-       (o gtk_main_quit deve ficar ligado ao main window). */
-    /* g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL); */
+    // Fecha app ao fechar janela
+    g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     gtk_widget_show_all(win);
     return win;
 }
+
 
 
 

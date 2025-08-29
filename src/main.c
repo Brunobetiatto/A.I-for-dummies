@@ -177,6 +177,271 @@ typedef struct {
 } EnvCtx;
 #define ENVCTX_DEFINED
 #endif
+
+/* Forward declarations of your existing functions (if not already visible) */
+static TabCtx* add_datasets_tab(GtkNotebook *nb);
+void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx);
+
+
+static GtkWidget* create_main_window(void) {
+    /* apply metal theme for main window (already defined in your file) */
+    apply_metal_theme();
+
+    EnvCtx *env = g_new0(EnvCtx, 1);
+
+    GtkWidget *main_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(main_win), "Metal API Client");
+    gtk_window_set_default_size(GTK_WINDOW(main_win), 800, 600);
+    g_signal_connect(main_win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+
+    env->main_window = main_win;
+
+    GtkWidget *nb = gtk_notebook_new();
+    gtk_container_add(GTK_CONTAINER(main_win), nb);
+
+    /* Datasets tab creates its own TabCtx internally */
+    add_datasets_tab(GTK_NOTEBOOK(nb));
+    /* Environment gets the EnvCtx pointer so callbacks can access main_window, status, etc. */
+    add_environment_tab(GTK_NOTEBOOK(nb), env);
+
+    gtk_widget_show_all(main_win);
+    return main_win;
+}
+
+
+/* Simple login context */
+typedef struct {
+    GtkWidget *window;
+    GtkWidget *email_entry;
+    GtkWidget *pass_entry;
+    GtkWidget *status_label;
+} LoginCtx;
+
+
+
+
+/* Build and show login window. On success it creates the main window and destroys the login window. */
+static void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    LoginCtx *ctx = (LoginCtx*)user_data;
+    const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->email_entry));
+    const char *pass  = gtk_entry_get_text(GTK_ENTRY(ctx->pass_entry));
+
+    if (!email || !*email || !pass || !*pass) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Preencha email e senha");
+        return;
+    }
+
+    /* build JSON payload */
+    char payload[512];
+    snprintf(payload, sizeof(payload), "{\"email\":\"%s\",\"password\":\"%s\"}", email, pass);
+
+    char cmd_utf8[600];
+    snprintf(cmd_utf8, sizeof(cmd_utf8), "LOGIN %s", payload);
+
+    /* convert to WCHAR */
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
+    WCHAR *wcmd = (WCHAR*)malloc(wlen * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
+
+    /* run communicator */
+    WCHAR *wresp = run_api_command(wcmd);
+    free(wcmd);
+
+    if (!wresp) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Erro: sem resposta do servidor");
+        return;
+    }
+
+    /* convert back to UTF-8 */
+    int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
+    char *resp = (char*)malloc(rlen);
+    WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
+    free(wresp);
+
+    /* communicator/process_api_response returns a string starting with "OK" on success */
+    if (strncmp(resp, "OK", 2) == 0) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app...");
+
+        /* create main window and show it */
+        GtkWidget *main_win = create_main_window();
+        gtk_widget_show_all(main_win);
+
+        /* hide (não destruir) a janela de login para não disparar gtk_main_quit */
+        gtk_widget_hide(ctx->window);
+
+        /* OBS: não fazemos g_free(ctx) aqui para evitar dangling pointer de signals ainda ligados
+           (poderíamos desconectar sinais e liberar); se quiser, eu mostro a versão que desconecta e libera */
+        free(resp);
+        return;
+    }
+
+    /* otherwise parse error message (starts with ERR ...) */
+    if (strncmp(resp, "ERR", 3) == 0) {
+        const char *p = resp + 3;
+        while (*p == ' ' || *p == '\t') ++p;
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), p);
+    } else {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Credenciais inválidas");
+    }
+
+    free(resp);
+}
+
+
+/* CSS extra para a tela de login (melhor tipografia, painel centralizado, botão maior) */
+static const char *LOGIN_CSS =
+"#login-window { background-image: linear-gradient(to bottom, #d8d8d8, #cfcfcf); }"
+"#login-panel {"
+"  border-radius: 6px;"
+"  padding: 20px;"
+"  min-width: 420px;"
+"  max-width: 720px;"
+"  box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+"}"
+"#login-window label.title {"
+"  font-size: 20px;"
+"  font-weight: bold;"
+"  margin-bottom: 8px;"
+"}"
+"#login-window entry {"
+"  min-height: 28px;"
+"  padding: 6px;"
+"}"
+"#login-window button#login-btn {"
+"  min-height: 36px;"
+"  padding: 6px 14px;"
+"  font-size: 14px;"
+"}"
+"#login-window label.status {"
+"  color: #4a4a4a;"
+"  font-size: 12px;"
+"  margin-top: 6px;"
+"}";
+
+/* aplica somente o CSS extra para a tela de login (chame dentro create_login_window) */
+static void apply_login_css(void) {
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(prov, LOGIN_CSS, -1, NULL);
+    GdkScreen *scr = gdk_screen_get_default();
+    gtk_style_context_add_provider_for_screen(scr,
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER + 5);
+    g_object_unref(prov);
+}
+
+static GtkWidget* create_login_window(void) {
+    /* garante que o METAL_CSS já foi aplicado globalmente */
+    apply_metal_theme();
+    /* aplica apenas os ajustes de login (tipografia + tamanhos) */
+    apply_login_css();
+
+    LoginCtx *ctx = g_new0(LoginCtx, 1);
+
+    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(win), "Login");
+    /* calcula tamanho baseado na tela (aprox 45% largura x 35% altura, com limites) */
+    GdkScreen *screen = gdk_screen_get_default();
+    gint sw = gdk_screen_get_width(screen);
+    gint sh = gdk_screen_get_height(screen);
+    gint w = (int)CLAMP(sw * 0.45, 420, 1200);
+    gint h = (int)CLAMP(sh * 0.35, 320, 900);
+    gtk_window_set_default_size(GTK_WINDOW(win), w, h);
+    gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
+    gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
+
+    gtk_container_set_border_width(GTK_CONTAINER(win), 12);
+    gtk_widget_set_name(win, "login-window"); /* usado no CSS */
+
+    /* Outer centering box: ocupa todo o espaço e centra o painel */
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(win), outer);
+    gtk_widget_set_halign(outer, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(outer, GTK_ALIGN_FILL);
+
+    GtkWidget *align = gtk_alignment_new(0.5, 0.5, 0.0, 0.0); /* centro */
+    gtk_box_pack_start(GTK_BOX(outer), align, TRUE, TRUE, 0);
+
+    /* painel central (aplica metal_wrap para aparência consistente) */
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+    gtk_widget_set_halign(grid, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(grid, GTK_ALIGN_CENTER);
+
+    /* título maior */
+    GtkWidget *lbl_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(lbl_title), "<span size='xx-large' weight='bold'>Bem-vindo</span>");
+    gtk_widget_set_name(lbl_title, "login-title"); /* não obrigatório */
+    gtk_widget_set_halign(lbl_title, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(grid), lbl_title, 0, 0, 2, 1);
+
+    /* subtítulo / instrução */
+    GtkWidget *lbl_sub = gtk_label_new("Entre com sua conta para continuar");
+    gtk_widget_set_halign(lbl_sub, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(grid), lbl_sub, 0, 1, 2, 1);
+
+    /* email */
+    GtkWidget *lbl_email = gtk_label_new("Email:");
+    gtk_widget_set_halign(lbl_email, GTK_ALIGN_END);
+    ctx->email_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->email_entry), "seu@email.com");
+    gtk_widget_set_hexpand(ctx->email_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), lbl_email, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), ctx->email_entry, 1, 2, 1, 1);
+
+    /* senha */
+    GtkWidget *lbl_pass = gtk_label_new("Senha:");
+    gtk_widget_set_halign(lbl_pass, GTK_ALIGN_END);
+    ctx->pass_entry = gtk_entry_new();
+    gtk_entry_set_visibility(GTK_ENTRY(ctx->pass_entry), FALSE);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->pass_entry), "••••••••");
+    gtk_widget_set_hexpand(ctx->pass_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), lbl_pass, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), ctx->pass_entry, 1, 3, 1, 1);
+
+    /* login button (maior) */
+    GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
+    gtk_widget_set_name(btn_login, "login-btn");
+    gtk_widget_set_hexpand(btn_login, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), btn_login, 0, 4, 2, 1);
+
+    /* status label */
+    ctx->status_label = gtk_label_new("");
+    gtk_widget_set_name(ctx->status_label, "status");
+    gtk_widget_set_halign(ctx->status_label, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(grid), ctx->status_label, 0, 5, 2, 1);
+
+    /* empacota grid dentro do painel metal (com espaçamento) */
+    GtkWidget *panel = metal_wrap(grid, "login-panel");
+    gtk_container_add(GTK_CONTAINER(align), panel);
+
+    /* faz o painel ter um máximo relativo (width already em CSS min/max), centralizado */
+    gtk_widget_set_size_request(panel, -1, -1);
+    gtk_widget_set_halign(panel, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(panel, GTK_ALIGN_CENTER);
+
+    /* guarda contexto */
+    ctx->window = win;
+    ctx->email_entry = ctx->email_entry;
+    ctx->pass_entry = ctx->pass_entry;
+    ctx->status_label = ctx->status_label;
+
+    /* signals */
+    g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_button_clicked), ctx);
+    g_signal_connect(ctx->pass_entry, "activate", G_CALLBACK(on_login_button_clicked), ctx);
+
+    /* NÃO conecta destroy a gtk_main_quit aqui:
+       isso evita que a criação/remoção da janela de login feche o app
+       (o gtk_main_quit deve ficar ligado ao main window). */
+    /* g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL); */
+
+    gtk_widget_show_all(win);
+    return win;
+}
+
+
+
 /* ---------- novo callback de refresh que popula o TreeView ---------- */
 static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
     TabCtx *ctx = (TabCtx*)user_data;
@@ -692,20 +957,12 @@ set_split_ui(ctx, 70.0);
 // ==== Main Window ====
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
-    apply_metal_theme();
 
-    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(win), "Metal API Client");
-    gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
-    g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    /* NOTA: aplicamos tema metal na criação da main window; o login tem CSS próprio */
+    /* show login first */
+    GtkWidget *login = create_login_window();
+    gtk_widget_show_all(login);
 
-    GtkWidget *nb = gtk_notebook_new();
-    gtk_container_add(GTK_CONTAINER(win), nb);
-
-    add_datasets_tab(GTK_NOTEBOOK(nb));
-    add_environment_tab(GTK_NOTEBOOK(nb), g_new0(EnvCtx,1));
-
-    gtk_widget_show_all(win);
     gtk_main();
     return 0;
 }

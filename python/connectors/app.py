@@ -90,6 +90,8 @@ def create_user_route():
     except Exception as e:
         return jsonify({'status': 'ERROR', 'message': str(e)}), 500
 
+import traceback
+
 @app.route('/login', methods=['POST'])
 def login_route():
     try:
@@ -99,12 +101,18 @@ def login_route():
         
         conn = get_db_connection()
         user = verify_login(conn, data['email'], data['password'])
+        
         if user:
             return jsonify({'status': 'OK', 'user': user})
         else:
             return jsonify({'status': 'ERROR', 'message': 'Invalid credentials'}), 401
+            
     except Exception as e:
-        return jsonify({'status': 'ERROR', 'message': str(e)}), 500
+        print("Login error:", str(e))
+        traceback.print_exc()   # <--- mostra stack trace completo no console
+        print("Request data:", data)
+        return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

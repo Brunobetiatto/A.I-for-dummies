@@ -178,8 +178,30 @@ typedef struct {
 #define ENVCTX_DEFINED
 #endif
 
+typedef struct {
+    GtkWidget *window;
+    GtkWidget *email_entry;
+    GtkWidget *pass_entry;
+    GtkWidget *status_label;
+
+     // aba cadastro
+    GtkWidget *reg_nome_entry;
+    GtkWidget *reg_email_entry;
+    GtkWidget *reg_pass_entry;
+    GtkWidget *reg_status_label;
+
+    // aba recuperação
+    GtkWidget *recovery_email_entry;
+    GtkWidget *recovery_code_entry;
+    GtkWidget *recovery_new_pass_entry;
+    GtkWidget *recovery_status_label;
+    char *recovery_token;
+} LoginCtx;
+
 /* Forward declarations of your existing functions (if not already visible) */
 static TabCtx* add_datasets_tab(GtkNotebook *nb);
+static void on_recovery_request(GtkButton *btn, LoginCtx *ctx);
+static void on_recovery_verify(GtkButton *btn, LoginCtx *ctx);
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx);
 
 
@@ -210,18 +232,7 @@ static GtkWidget* create_main_window(void) {
 
 
 /* Simple login context */
-typedef struct {
-    GtkWidget *window;
-    GtkWidget *email_entry;
-    GtkWidget *pass_entry;
-    GtkWidget *status_label;
 
-     // aba cadastro
-    GtkWidget *reg_nome_entry;
-    GtkWidget *reg_email_entry;
-    GtkWidget *reg_pass_entry;
-    GtkWidget *reg_status_label;
-} LoginCtx;
 
 static void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
     const char *nome = gtk_entry_get_text(GTK_ENTRY(ctx->reg_nome_entry));
@@ -260,7 +271,11 @@ static void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
         curl_easy_cleanup(curl);
     }
 }
-
+static gboolean destroy_login_window(gpointer data) {
+    GtkWidget *window = (GtkWidget *)data;
+    gtk_widget_destroy(window);
+    return G_SOURCE_REMOVE;
+}
 
 
 /* Build and show login window. On success it creates the main window and destroys the login window. */
@@ -275,19 +290,16 @@ static void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    /* build JSON payload */
     char payload[512];
     snprintf(payload, sizeof(payload), "{\"email\":\"%s\",\"password\":\"%s\"}", email, pass);
 
     char cmd_utf8[600];
     snprintf(cmd_utf8, sizeof(cmd_utf8), "LOGIN %s", payload);
 
-    /* convert to WCHAR */
     int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
     WCHAR *wcmd = (WCHAR*)malloc(wlen * sizeof(WCHAR));
     MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
 
-    /* run communicator */
     WCHAR *wresp = run_api_command(wcmd);
     free(wcmd);
 
@@ -296,30 +308,29 @@ static void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    /* convert back to UTF-8 */
     int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
     char *resp = (char*)malloc(rlen);
     WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
     free(wresp);
 
-    /* communicator/process_api_response returns a string starting with "OK" on success */
     if (strncmp(resp, "OK", 2) == 0) {
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app...");
 
-        /* create main window and show it */
+        // Processar eventos pendentes para atualizar a interface
+        while (gtk_events_pending())
+            gtk_main_iteration();
+
+        // Criar janela principal
         GtkWidget *main_win = create_main_window();
         gtk_widget_show_all(main_win);
 
-        /* hide (não destruir) a janela de login para não disparar gtk_main_quit */
-        gtk_widget_hide(ctx->window);
+        // Destruir janela de login imediatamente
+        gtk_widget_destroy(ctx->window);
 
-        /* OBS: não fazemos g_free(ctx) aqui para evitar dangling pointer de signals ainda ligados
-           (poderíamos desconectar sinais e liberar); se quiser, eu mostro a versão que desconecta e libera */
         free(resp);
         return;
     }
 
-    /* otherwise parse error message (starts with ERR ...) */
     if (strncmp(resp, "ERR", 3) == 0) {
         const char *p = resp + 3;
         while (*p == ' ' || *p == '\t') ++p;
@@ -330,8 +341,6 @@ static void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
 
     free(resp);
 }
-
-
 /* CSS extra para a tela de login (melhor tipografia, painel centralizado, botão maior) */
 static const char *LOGIN_CSS =
 "#login-window { background-image: linear-gradient(to bottom, #d8d8d8, #cfcfcf); }"
@@ -373,28 +382,35 @@ static void apply_login_css(void) {
     g_object_unref(prov);
 }
 
+static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
+    LoginCtx *ctx = (LoginCtx *)user_data;
+    g_free(ctx);
+}
+
 static GtkWidget* create_login_window(void) {
     apply_metal_theme();
-    apply_login_css();  // CSS extra do login
+    apply_login_css();
 
     LoginCtx *ctx = g_new0(LoginCtx, 1);
 
-    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(win), "Login / Cadastro");
+    GtkWidget *login_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    ctx->window = login_win;  // Atribuir a janela ao contexto
+
+    gtk_window_set_title(GTK_WINDOW(login_win), "Login / Cadastro");
 
     // Tela cheia proporcional
     GdkScreen *screen = gdk_screen_get_default();
     gint sw = gdk_screen_get_width(screen);
     gint sh = gdk_screen_get_height(screen);
-    gtk_window_set_default_size(GTK_WINDOW(win),
+    gtk_window_set_default_size(GTK_WINDOW(login_win),
         CLAMP(sw*0.45, 420, 1200), CLAMP(sh*0.4, 320, 900));
-    gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
-    gtk_container_set_border_width(GTK_CONTAINER(win), 12);
-    gtk_widget_set_name(win, "login-window");
+    gtk_window_set_position(GTK_WINDOW(login_win), GTK_WIN_POS_CENTER);
+    gtk_container_set_border_width(GTK_CONTAINER(login_win), 12);
+    gtk_widget_set_name(login_win, "login-window");
 
     // Notebook para abas
     GtkWidget *notebook = gtk_notebook_new();
-    gtk_container_add(GTK_CONTAINER(win), notebook);
+    gtk_container_add(GTK_CONTAINER(login_win), notebook);
 
     // ================= LOGIN TAB =================
     GtkWidget *login_grid = gtk_grid_new();
@@ -491,20 +507,409 @@ static GtkWidget* create_login_window(void) {
 
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, gtk_label_new("Cadastro"));
 
+    // ================= RECOVERY TAB =================
+    GtkWidget *recovery_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(recovery_grid), 12);
+    gtk_grid_set_column_spacing(GTK_GRID(recovery_grid), 12);
+    
+    GtkWidget *lbl_recovery_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(lbl_recovery_title),
+                         "<span size='xx-large' weight='bold'>Recuperar Senha</span>");
+    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_title, 0, 0, 2, 1);
+    gtk_widget_set_halign(lbl_recovery_title, GTK_ALIGN_CENTER);
+    
+    // Email para recuperação
+    GtkWidget *lbl_recovery_email = gtk_label_new("Email:");
+    ctx->recovery_email_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_email_entry), "seu@email.com");
+    gtk_widget_set_hexpand(ctx->recovery_email_entry, TRUE);
+    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_email, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_email_entry, 1, 1, 1, 1);
+    
+    // Botão para solicitar código
+    GtkWidget *btn_recovery_request = gtk_button_new_with_label("Enviar Código");
+    gtk_widget_set_hexpand(btn_recovery_request, TRUE);
+    gtk_grid_attach(GTK_GRID(recovery_grid), btn_recovery_request, 0, 2, 2, 1);
+    
+    // Código de verificação
+    GtkWidget *lbl_recovery_code = gtk_label_new("Código:");
+    ctx->recovery_code_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_code_entry), "Código recebido por email");
+    gtk_widget_set_hexpand(ctx->recovery_code_entry, TRUE);
+    gtk_widget_hide(ctx->recovery_code_entry); // Inicialmente escondido
+    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_code, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_code_entry, 1, 3, 1, 1);
+    gtk_widget_hide(lbl_recovery_code); // Inicialmente escondido
+    
+    // Nova senha
+    GtkWidget *lbl_recovery_new_pass = gtk_label_new("Nova Senha:");
+    ctx->recovery_new_pass_entry = gtk_entry_new();
+    gtk_entry_set_visibility(GTK_ENTRY(ctx->recovery_new_pass_entry), FALSE);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "Nova senha");
+    gtk_widget_set_hexpand(ctx->recovery_new_pass_entry, TRUE);
+    gtk_widget_hide(ctx->recovery_new_pass_entry); // Inicialmente escondido
+    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_new_pass, 0, 4, 1, 1);
+    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_new_pass_entry, 1, 4, 1, 1);
+    gtk_widget_hide(lbl_recovery_new_pass); // Inicialmente escondido
+    
+    // Botão para verificar código e redefinir senha
+    GtkWidget *btn_recovery_verify = gtk_button_new_with_label("Redefinir Senha");
+    gtk_widget_set_hexpand(btn_recovery_verify, TRUE);
+    gtk_widget_hide(btn_recovery_verify); // Inicialmente escondido
+    gtk_grid_attach(GTK_GRID(recovery_grid), btn_recovery_verify, 0, 5, 2, 1);
+    
+    // Status
+    ctx->recovery_status_label = gtk_label_new("");
+    gtk_widget_set_name(ctx->recovery_status_label, "status");
+    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_status_label, 0, 6, 2, 1);
+    
+    GtkWidget *recovery_panel = metal_wrap(recovery_grid, "login-panel");
+    
+    GtkWidget *recovery_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(recovery_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(recovery_box, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(recovery_box), recovery_panel);
+    
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), recovery_box, gtk_label_new("Recuperar Senha"));
+    
+
     // ================= SIGNALS =================
+    g_signal_connect(btn_recovery_request, "clicked", G_CALLBACK(on_recovery_request), ctx);
+    g_signal_connect(btn_recovery_verify, "clicked", G_CALLBACK(on_recovery_verify), ctx);
+
     g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_button_clicked), ctx);
     g_signal_connect(ctx->pass_entry, "activate", G_CALLBACK(on_login_button_clicked), ctx);
     g_signal_connect(btn_register, "clicked", G_CALLBACK(on_register_button_clicked), ctx);
+    
+    // Conectar o sinal destroy para liberar o contexto
+    g_signal_connect(login_win, "destroy", G_CALLBACK(on_login_window_destroy), ctx);
 
-    // Fecha app ao fechar janela
-    g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_widget_show_all(login_win);
+    return login_win;
+}
 
-    gtk_widget_show_all(win);
-    return win;
+
+// Função para solicitar código de recuperação
+static void on_recovery_request(GtkButton *btn, LoginCtx *ctx) {
+    (void)btn;
+    const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->recovery_email_entry));
+    
+    if (!email || !*email) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Email é obrigatório");
+        return;
+    }
+    
+    // Construir payload para API
+    char payload[512];
+    snprintf(payload, sizeof(payload), "{\"email\":\"%s\"}", email);
+    
+    char cmd_utf8[600];
+    snprintf(cmd_utf8, sizeof(cmd_utf8), "FORGOT_PASSWORD %s", payload);
+    
+    // Converter para wide char
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
+    WCHAR *wcmd = (WCHAR*)malloc(wlen * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
+    
+    // Executar comando
+    WCHAR *wresp = run_api_command(wcmd);
+    free(wcmd);
+    
+    if (!wresp) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro: sem resposta do servidor");
+        return;
+    }
+    
+    // Converter resposta para UTF-8
+    int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
+    if (rlen <= 0) {
+        free(wresp);
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro na conversão da resposta");
+        return;
+    }
+
+    char *resp = (char*)malloc(rlen);
+    WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
+    free(wresp);
+
+    if (!resp || strlen(resp) == 0) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro: resposta vazia do servidor");
+        free(resp);
+        return;
+    }
+
+    // ----- Clean: remove caracteres de controle indesejáveis e trim -----
+    size_t resp_len = strlen(resp);
+    char *clean = (char*)malloc(resp_len + 1);
+    size_t ci = 0;
+    for (size_t i = 0; i < resp_len; ++i) {
+        unsigned char c = (unsigned char)resp[i];
+        if (c >= 32 || c == '\n' || c == '\r' || c == '\t') {
+            clean[ci++] = resp[i];
+        } else {
+            clean[ci++] = ' ';
+        }
+    }
+    while (ci > 0 && (clean[ci-1] == ' ' || clean[ci-1] == '\n' || clean[ci-1] == '\r' || clean[ci-1] == '\t'))
+        ci--;
+    clean[ci] = '\0';
+
+    char *clean_start = clean;
+    while (*clean_start && (*clean_start == ' ' || *clean_start == '\n' || *clean_start == '\r' || *clean_start == '\t'))
+        clean_start++;
+
+    size_t max_show = 1024;
+    char *san = (char*)malloc(max_show + 1);
+    strncpy(san, clean_start, max_show);
+    san[max_show] = '\0';
+
+    // ----- Tentar parsear JSON primeiro -----
+    cJSON *root = cJSON_Parse(clean_start);
+
+    const char *status_str = NULL;
+    const char *message_str = NULL;
+
+    if (root) {
+        cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+        cJSON *message = cJSON_GetObjectItemCaseSensitive(root, "message");
+        if (cJSON_IsString(status) && status->valuestring) status_str = status->valuestring;
+        if (cJSON_IsString(message) && message->valuestring) message_str = message->valuestring;
+        cJSON_Delete(root);
+    } else {
+        // Fallback para formato legado "OK <mensagem>" ou "ERROR <mensagem>"
+        if (strncmp(clean_start, "OK ", 3) == 0) {
+            status_str = "OK";
+            message_str = clean_start + 3;
+        } else if (strncmp(clean_start, "ERROR ", 6) == 0) {
+            status_str = "ERROR";
+            message_str = clean_start + 6;
+        } else if (strncmp(clean_start, "ERR ", 4) == 0) {
+            status_str = "ERROR";
+            message_str = clean_start + 4;
+        } else if (strcmp(clean_start, "OK") == 0) {
+            status_str = "OK";
+            message_str = NULL;
+        } else {
+            // não reconhecido: mostrar raw para debug
+            char shown_label[1400];
+            snprintf(shown_label, sizeof(shown_label), "Recebido (raw): %s", san);
+            gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), shown_label);
+            fprintf(stderr, "DEBUG: resposta não JSON nem formato legado: '%s'\n", clean_start);
+            free(clean);
+            free(san);
+            free(resp);
+            return;
+        }
+    }
+
+    // ----- Se status == OK: mostrar "Código enviado" (solicitado) -----
+    if (status_str && strcmp(status_str, "OK") == 0) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Código enviado");
+        gtk_widget_show(ctx->recovery_code_entry);
+        gtk_widget_show(ctx->recovery_new_pass_entry);
+    } else {
+        // Monta label informativa para outros casos (raw + parsed)
+        char final_label[2048];
+        snprintf(final_label, sizeof(final_label), "Recebido (raw): %s\nStatus: %s", san, status_str ? status_str : "(n/a)");
+        if (message_str && message_str[0] != '\0') {
+            strncat(final_label, "\nMessage: ", sizeof(final_label) - strlen(final_label) - 1);
+            strncat(final_label, message_str, sizeof(final_label) - strlen(final_label) - 1);
+        }
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), final_label);
+    }
+
+    free(clean);
+    free(san);
+    free(resp);
 }
 
 
 
+// Função para verificar o código e redefinir a senha
+static void on_recovery_verify(GtkButton *btn, LoginCtx *ctx) {
+    (void)btn;
+    const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->recovery_email_entry));
+    const char *code = gtk_entry_get_text(GTK_ENTRY(ctx->recovery_code_entry));
+    const char *new_pass = gtk_entry_get_text(GTK_ENTRY(ctx->recovery_new_pass_entry));
+    
+    if (!email || !*email || !code || !*code || !new_pass || !*new_pass) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Todos os campos são obrigatórios");
+        return;
+    }
+    
+    // Construir payload para API
+    char payload[512];
+    snprintf(payload, sizeof(payload), "{\"email\":\"%s\",\"code\":\"%s\"}", email, code);
+    
+    char cmd_utf8[700];
+    snprintf(cmd_utf8, sizeof(cmd_utf8), "VERIFY_RESET_CODE %s", payload);
+    fprintf(stderr, "DEBUG: sending command: %s\n", cmd_utf8);
+    
+    // Converter para wide char
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
+    WCHAR *wcmd = (WCHAR*)malloc((size_t)wlen * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
+    
+    // Executar comando
+    WCHAR *wresp = run_api_command(wcmd);
+    free(wcmd);
+    
+    if (!wresp) {
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro: sem resposta do servidor");
+        fprintf(stderr, "DEBUG: run_api_command returned NULL\n");
+        return;
+    }
+    
+    // Converter resposta para UTF-8
+    int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
+    if (rlen <= 0) {
+        free(wresp);
+        gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro na conversão da resposta");
+        fprintf(stderr, "DEBUG: WideCharToMultiByte rlen <= 0\n");
+        return;
+    }
+
+    char *resp = (char*)malloc((size_t)rlen);
+    WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
+    free(wresp);
+
+    // sanitize: remove control chars que quebram a label (ex: \x04)
+    size_t resp_len = strlen(resp);
+    char *clean = (char*)malloc(resp_len + 1);
+    size_t ci = 0;
+    for (size_t i = 0; i < resp_len; ++i) {
+        unsigned char c = (unsigned char)resp[i];
+        if (c >= 32 || c == '\n' || c == '\r' || c == '\t')
+            clean[ci++] = resp[i];
+        else
+            clean[ci++] = ' ';
+    }
+    while (ci > 0 && (clean[ci-1] == ' ' || clean[ci-1] == '\n' || clean[ci-1] == '\r' || clean[ci-1] == '\t')) ci--;
+    clean[ci] = '\0';
+
+    // Mostra raw (sanitized) na label e no stderr pra debug
+    char shown_label[1200];
+    snprintf(shown_label, sizeof(shown_label), "Recebido (raw): %s", clean);
+    gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), shown_label);
+    fprintf(stderr, "DEBUG: verify resp raw: '%s'\n", clean);
+
+    // Tenta parsear JSON
+    cJSON *root = cJSON_Parse(clean);
+    const char *reset_token_str = NULL;
+    const char *status_str = NULL;
+    const char *message_str = NULL;
+
+    if (root) {
+        cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+        cJSON *reset_token = cJSON_GetObjectItemCaseSensitive(root, "reset_token");
+        cJSON *message = cJSON_GetObjectItemCaseSensitive(root, "message");
+        if (cJSON_IsString(status) && status->valuestring) status_str = status->valuestring;
+        if (cJSON_IsString(reset_token) && reset_token->valuestring) reset_token_str = reset_token->valuestring;
+        if (cJSON_IsString(message) && message->valuestring) message_str = message->valuestring;
+        cJSON_Delete(root);
+    } else {
+        // fallback: formato legado "OK <token>" ou "ERROR <mensagem>"
+        if (strncmp(clean, "OK ", 3) == 0) {
+            status_str = "OK";
+            // token pode vir após "OK "
+            reset_token_str = clean + 3;
+        } else if (strncmp(clean, "ERROR ", 6) == 0 || strncmp(clean, "ERR ", 4) == 0) {
+            status_str = "ERROR";
+            message_str = (strstr(clean, "ERROR ") == clean) ? (clean + 6) : (clean + 4);
+        }
+    }
+
+    // Se obtivemos token -> prosseguir com RESET_PASSWORD
+    if (status_str && strcmp(status_str, "OK") == 0 && reset_token_str && reset_token_str[0] != '\0') {
+        fprintf(stderr, "DEBUG: got reset_token: %s\n", reset_token_str);
+        // Salva token no contexto (cópia)
+        if (ctx->recovery_token) g_free(ctx->recovery_token);
+        ctx->recovery_token = g_strdup(reset_token_str);
+
+        // Agora faz RESET_PASSWORD
+        char reset_payload[700];
+        snprintf(reset_payload, sizeof(reset_payload), "{\"reset_token\":\"%s\",\"new_password\":\"%s\"}", reset_token_str, new_pass);
+        char reset_cmd_utf8[900];
+        snprintf(reset_cmd_utf8, sizeof(reset_cmd_utf8), "RESET_PASSWORD %s", reset_payload);
+        fprintf(stderr, "DEBUG: sending reset command: %s\n", reset_cmd_utf8);
+
+        // converter e enviar
+        int rwlen = MultiByteToWideChar(CP_UTF8, 0, reset_cmd_utf8, -1, NULL, 0);
+        WCHAR *rwcmd = (WCHAR*)malloc((size_t)rwlen * sizeof(WCHAR));
+        MultiByteToWideChar(CP_UTF8, 0, reset_cmd_utf8, -1, rwcmd, rwlen);
+        WCHAR *rwresp = run_api_command(rwcmd);
+        free(rwcmd);
+
+        if (!rwresp) {
+            gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro: sem resposta do servidor ao reset");
+            fprintf(stderr, "DEBUG: run_api_command reset returned NULL\n");
+            free(clean);
+            free(resp);
+            return;
+        }
+
+        int rrlen = WideCharToMultiByte(CP_UTF8, 0, rwresp, -1, NULL, 0, NULL, NULL);
+        char *rresp = (char*)malloc((size_t)rrlen);
+        WideCharToMultiByte(CP_UTF8, 0, rwresp, -1, rresp, rrlen, NULL, NULL);
+        free(rwresp);
+
+        // sanitize reset response
+        size_t rresp_len = strlen(rresp);
+        char *rclean = (char*)malloc(rresp_len + 1);
+        size_t rci = 0;
+        for (size_t i = 0; i < rresp_len; ++i) {
+            unsigned char c = (unsigned char)rresp[i];
+            if (c >= 32 || c == '\n' || c == '\r' || c == '\t') rclean[rci++] = rresp[i];
+            else rclean[rci++] = ' ';
+        }
+        while (rci > 0 && (rclean[rci-1] == ' ' || rclean[rci-1] == '\n' || rclean[rci-1] == '\r' || rclean[rci-1] == '\t')) rci--;
+        rclean[rci] = '\0';
+        fprintf(stderr, "DEBUG: reset response raw: '%s'\n", rclean);
+
+        cJSON *rroot = cJSON_Parse(rclean);
+        if (rroot) {
+            cJSON *rstatus = cJSON_GetObjectItemCaseSensitive(rroot, "status");
+            cJSON *rmessage = cJSON_GetObjectItemCaseSensitive(rroot, "message");
+            const char *rstatus_str = (cJSON_IsString(rstatus) && rstatus->valuestring) ? rstatus->valuestring : NULL;
+            const char *rmessage_str = (cJSON_IsString(rmessage) && rmessage->valuestring) ? rmessage->valuestring : NULL;
+
+            if (rstatus_str && strcmp(rstatus_str, "OK") == 0) {
+                gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Senha redefinida com sucesso");
+                gtk_entry_set_text(GTK_ENTRY(ctx->recovery_email_entry), "");
+                gtk_entry_set_text(GTK_ENTRY(ctx->recovery_code_entry), "");
+                gtk_entry_set_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "");
+                gtk_widget_hide(ctx->recovery_code_entry);
+                gtk_widget_hide(ctx->recovery_new_pass_entry);
+            } else {
+                gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), rmessage_str ? rmessage_str : "Erro ao redefinir senha");
+            }
+            cJSON_Delete(rroot);
+        } else {
+            // fallback: se reset retornou "OK" legada
+            if (strncmp(rclean, "OK", 2) == 0) {
+                gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Senha redefinida com sucesso");
+            } else {
+                // mostra resposta bruta
+                char tmp[1200];
+                snprintf(tmp, sizeof(tmp), "Resposta reset (raw): %s", rclean);
+                gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), tmp);
+            }
+        }
+
+        free(rclean);
+        free(rresp);
+    } else {
+        // não obteve token -> mostra a mensagem de erro do verify
+        if (message_str && message_str[0] != '\0') {
+            gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), message_str);
+        } else {
+            gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Erro ao verificar código");
+        }
+    }
+
+    free(clean);
+    free(resp);
+}
 
 /* ---------- novo callback de refresh que popula o TreeView ---------- */
 static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
@@ -890,45 +1295,45 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* split sliders */
     /* split slider (Train/Test) – soma sempre 100% */
-/* === Split (Train/Test) com entry central + slider ===================== */
-GtkWidget *split_box    = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    /* === Split (Train/Test) com entry central + slider ===================== */
+    GtkWidget *split_box    = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 
-/* linha superior: [Train ...] [ entry ] [ ... Test] */
-GtkWidget *split_labels = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-GtkWidget *lab_tr       = gtk_label_new("Train 70,0%");
-GtkWidget *entry        = gtk_entry_new();
-gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
-gtk_widget_set_size_request(entry, 70, -1);
-gtk_entry_set_alignment(GTK_ENTRY(entry), 0.5);
-gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "70,0");
-GtkWidget *lab_te       = gtk_label_new("Test 30,0%");
+    /* linha superior: [Train ...] [ entry ] [ ... Test] */
+    GtkWidget *split_labels = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *lab_tr       = gtk_label_new("Train 70,0%");
+    GtkWidget *entry        = gtk_entry_new();
+    gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
+    gtk_widget_set_size_request(entry, 70, -1);
+    gtk_entry_set_alignment(GTK_ENTRY(entry), 0.5);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "70,0");
+    GtkWidget *lab_te       = gtk_label_new("Test 30,0%");
 
-ctx->split_train_lbl = GTK_LABEL(lab_tr);
-ctx->split_test_lbl  = GTK_LABEL(lab_te);
-ctx->split_entry     = GTK_ENTRY(entry);
+    ctx->split_train_lbl = GTK_LABEL(lab_tr);
+    ctx->split_test_lbl  = GTK_LABEL(lab_te);
+    ctx->split_entry     = GTK_ENTRY(entry);
 
-gtk_box_pack_start(GTK_BOX(split_labels), lab_tr, FALSE, FALSE, 0);
-gtk_box_pack_end  (GTK_BOX(split_labels), lab_te, FALSE, FALSE, 0);
-gtk_box_set_center_widget(GTK_BOX(split_labels), entry);
+    gtk_box_pack_start(GTK_BOX(split_labels), lab_tr, FALSE, FALSE, 0);
+    gtk_box_pack_end  (GTK_BOX(split_labels), lab_te, FALSE, FALSE, 0);
+    gtk_box_set_center_widget(GTK_BOX(split_labels), entry);
 
-/* slider (0..100) = Train% com passo 0.1 */
-GtkAdjustment *split_adj = gtk_adjustment_new(70.0, 0.0, 100.0, 0.1, 1.0, 0.0);
-GtkWidget     *split_scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, split_adj);
-ctx->split_scale = GTK_SCALE(split_scale);
-gtk_scale_set_draw_value(GTK_SCALE(split_scale), FALSE);
-gtk_scale_add_mark(GTK_SCALE(split_scale), 50.0, GTK_POS_BOTTOM, NULL);
-gtk_widget_set_hexpand(split_scale, TRUE);
+    /* slider (0..100) = Train% com passo 0.1 */
+    GtkAdjustment *split_adj = gtk_adjustment_new(70.0, 0.0, 100.0, 0.1, 1.0, 0.0);
+    GtkWidget     *split_scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, split_adj);
+    ctx->split_scale = GTK_SCALE(split_scale);
+    gtk_scale_set_draw_value(GTK_SCALE(split_scale), FALSE);
+    gtk_scale_add_mark(GTK_SCALE(split_scale), 50.0, GTK_POS_BOTTOM, NULL);
+    gtk_widget_set_hexpand(split_scale, TRUE);
 
-g_signal_connect(split_scale, "value-changed", G_CALLBACK(on_split_changed), ctx);
-g_signal_connect(entry,       "changed",       G_CALLBACK(on_split_entry_changed), ctx);
+    g_signal_connect(split_scale, "value-changed", G_CALLBACK(on_split_changed), ctx);
+    g_signal_connect(entry,       "changed",       G_CALLBACK(on_split_entry_changed), ctx);
 
-/* monta painel e inicializa em 70/30 */
-gtk_box_pack_start(GTK_BOX(split_box), split_labels, FALSE, FALSE, 0);
-gtk_box_pack_start(GTK_BOX(split_box), split_scale,  FALSE, FALSE, 0);
-gtk_box_pack_start(GTK_BOX(left_content),
-                   group_panel("Split (Train%/Test%)", split_box),
-                   FALSE, FALSE, 0);
-set_split_ui(ctx, 70.0);
+    /* monta painel e inicializa em 70/30 */
+    gtk_box_pack_start(GTK_BOX(split_box), split_labels, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(split_box), split_scale,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_content),
+                    group_panel("Split (Train%/Test%)", split_box),
+                    FALSE, FALSE, 0);
+    set_split_ui(ctx, 70.0);
 
     /* features + preproc */
     GtkWidget *xy_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);

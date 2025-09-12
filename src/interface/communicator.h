@@ -103,6 +103,45 @@ BOOL api_dump_table(const char *table_name, char **response) {
     return (*response != NULL);
 }
 
+// Adicione estas funções para os novos endpoints de recuperação de senha
+BOOL api_forgot_password(const char *email, char **response) {
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "email", email);
+    
+    char *data = cJSON_PrintUnformatted(json);
+    *response = api_request("POST", "/forgot-password", data);
+    
+    cJSON_Delete(json);
+    free(data);
+    return (*response != NULL);
+}
+
+BOOL api_verify_reset_code(const char *email, const char *code, char **response) {
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "email", email);
+    cJSON_AddStringToObject(json, "code", code);
+    
+    char *data = cJSON_PrintUnformatted(json);
+    *response = api_request("POST", "/verify-reset-code", data);
+    
+    cJSON_Delete(json);
+    free(data);
+    return (*response != NULL);
+}
+
+BOOL api_reset_password(const char *reset_token, const char *new_password, char **response) {
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "reset_token", reset_token);
+    cJSON_AddStringToObject(json, "new_password", new_password);
+    
+    char *data = cJSON_PrintUnformatted(json);
+    *response = api_request("POST", "/reset-password", data);
+    
+    cJSON_Delete(json);
+    free(data);
+    return (*response != NULL);
+}
+
 BOOL api_describe_table(const char *table_name, char **response) {
     char endpoint[256];
     snprintf(endpoint, sizeof(endpoint), "/schema/%s", table_name);
@@ -178,7 +217,7 @@ char* process_api_response(const char *api_response) {
         }
         else if (columns && data && cJSON_IsArray(columns) && cJSON_IsArray(data)) {
             // Table data response
-            GString *result = g_string_new("OK ");
+            GString *result = g_string_new("OK");
             
             // Add columns
             cJSON *column;
@@ -225,6 +264,26 @@ char* process_api_response(const char *api_response) {
                     id->valueint, nome->valuestring, email->valuestring);
             cJSON_Delete(json);
             return result;
+        }
+        else if (cJSON_GetObjectItemCaseSensitive(json, "reset_token")) {
+            // Verify reset code response
+            cJSON *reset_token = cJSON_GetObjectItemCaseSensitive(json, "reset_token");
+            if (cJSON_IsString(reset_token)) {
+                char *result = malloc(strlen(reset_token->valuestring) + 10);
+                snprintf(result, strlen(reset_token->valuestring) + 10, "OK %s\n\x04\n", reset_token->valuestring);
+                cJSON_Delete(json);
+                return result;
+            }
+        }
+        else if (cJSON_GetObjectItemCaseSensitive(json, "message")) {
+            // Simple success message response
+            cJSON *message = cJSON_GetObjectItemCaseSensitive(json, "message");
+            if (cJSON_IsString(message)) {
+                char *result = malloc(strlen(message->valuestring) + 10);
+                snprintf(result, strlen(message->valuestring) + 10, "OK %s\n\x04\n", message->valuestring);
+                cJSON_Delete(json);
+                return result;
+            }
         }
         else if (schema && cJSON_IsArray(schema)) {
             // Schema response
@@ -320,32 +379,69 @@ WCHAR* run_api_command(const WCHAR *command) {
         }
     }
     else if (token && strcmp(token, "LOGIN") == 0) {
-        // Parse JSON data from command (rest of command is JSON)
+        // Parse JSON data from command
         token = strtok(NULL, "");
         if (token) {
             cJSON *json = cJSON_Parse(token);
             if (json) {
                 cJSON *email = cJSON_GetObjectItemCaseSensitive(json, "email");
                 cJSON *password = cJSON_GetObjectItemCaseSensitive(json, "password");
-
+                
                 if (cJSON_IsString(email) && cJSON_IsString(password)) {
-                    char *resp = NULL;
-                    api_login(email->valuestring, password->valuestring, &resp);
-
-                    // 'response' deve ser a variável que seu código espera enviar de volta.
-                    // Aqui assumo que existe `char *response = NULL;` no escopo externo.
-                    if (resp) {
-                        response = resp; // ownership transferido (libera-se depois onde for apropriado)
-                    } else {
-                        // fallback: erro gerado localmente
-                        response = strdup("{\"status\":\"ERROR\",\"message\":\"no_response_from_api\"}");
-                    }
+                    api_login(email->valuestring, password->valuestring, &response);
                 }
                 cJSON_Delete(json);
             }
         }
     }
-        
+    else if (token && strcmp(token, "FORGOT_PASSWORD") == 0) {
+        // Parse JSON data from command
+        token = strtok(NULL, "");
+        if (token) {
+            cJSON *json = cJSON_Parse(token);
+            if (json) {
+                cJSON *email = cJSON_GetObjectItemCaseSensitive(json, "email");
+                
+                if (cJSON_IsString(email)) {
+                    api_forgot_password(email->valuestring, &response);
+                }
+                cJSON_Delete(json);
+            }
+        }
+    }
+    else if (token && strcmp(token, "VERIFY_RESET_CODE") == 0) {
+        // Parse JSON data from command
+        token = strtok(NULL, "");
+        if (token) {
+            cJSON *json = cJSON_Parse(token);
+            if (json) {
+                cJSON *email = cJSON_GetObjectItemCaseSensitive(json, "email");
+                cJSON *code = cJSON_GetObjectItemCaseSensitive(json, "code");
+                
+                if (cJSON_IsString(email) && cJSON_IsString(code)) {
+                    api_verify_reset_code(email->valuestring, code->valuestring, &response);
+                }
+                cJSON_Delete(json);
+            }
+        }
+    }
+    else if (token && strcmp(token, "RESET_PASSWORD") == 0) {
+        // Parse JSON data from command
+        token = strtok(NULL, "");
+        if (token) {
+            cJSON *json = cJSON_Parse(token);
+            if (json) {
+                cJSON *reset_token = cJSON_GetObjectItemCaseSensitive(json, "reset_token");
+                cJSON *new_password = cJSON_GetObjectItemCaseSensitive(json, "new_password");
+                
+                if (cJSON_IsString(reset_token) && cJSON_IsString(new_password)) {
+                    api_reset_password(reset_token->valuestring, new_password->valuestring, &response);
+                }
+                cJSON_Delete(json);
+            }
+        }
+    }
+    
     free(utf8_command);
     
     if (response) {

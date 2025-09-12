@@ -1,6 +1,12 @@
 from flask import Flask, request, jsonify
 import pymysql
 import os, sys
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import secrets
+import datetime
+from datetime import timedelta
 
 # Adiciona o diretório pai ao sys.path para permitir imports absolutos como "database.*"
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../connectors
@@ -11,6 +17,7 @@ if PARENT not in sys.path:
 
 from database.CRUD.create import create_user
 from database.CRUD.read import verify_login
+from database.CRUD.update import reset_user_password
 
 app = Flask(__name__)
 
@@ -112,6 +119,187 @@ def login_route():
         traceback.print_exc()   # <--- mostra stack trace completo no console
         print("Request data:", data)
         return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+    
+
+
+#--------------------------------email------------------------------------------------
+
+# Configurações de email (substitua com suas credenciais)
+MAIL_CONFIG = {
+    'MAIL_SERVER': 'smtp.gmail.com',
+    'MAIL_PORT': 587,
+    'MAIL_USE_TLS': True,
+    'MAIL_USERNAME': 'betiattobruno@gmail.com',
+    'MAIL_PASSWORD': 'stqh iblc eehx fnyv'  # Use senha de aplicativo
+}
+
+# Rota para solicitar recuperação de senha
+@app.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        
+        if not email:
+            return jsonify({'status': 'ERROR', 'message': 'Email é obrigatório'}), 400
+        
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Verificar se o email existe
+            cur.execute("SELECT idusuario, nome FROM usuario WHERE email = %s", (email))
+            user = cur.fetchone()
+            print("User found:", user)
+            
+            if not user:
+                # Por segurança, não revelamos se o email existe ou não
+                return jsonify({'status': 'OK', 'message': 'Se o email existir, um código de recuperação será enviado'})
+            
+            # Gerar código numérico de 6 dígitos
+            reset_code = ''.join(secrets.choice('0123456789') for _ in range(6))
+            expiration = datetime.datetime.now() + timedelta(minutes=15)  # Código válido por 15 minutos
+            
+            # Salvar código no banco de dados
+            cur.execute(
+                "INSERT INTO password_reset_codes (user_id, code, expiration, used) VALUES (%s, %s, NOW() + INTERVAL 15 MINUTE, FALSE)",
+                (user['idusuario'], reset_code)
+            )
+
+            conn.commit()
+        
+        # Enviar email com o código
+        send_reset_code_email(email, user['nome'], reset_code)
+        
+        return jsonify({'status': 'OK', 'message': 'Se o email existir, um código de recuperação será enviado'})
+    
+    except Exception as e:
+        print("Error in forgot_password:", str(e))
+        return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
+
+# Rota para verificar o código de recuperação
+@app.route('/verify-reset-code', methods=['POST'])
+def verify_reset_code():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        code = data.get('code')
+        print("Received code:", code)
+        print("Received email:", email)
+        
+        if not email or not code:
+            return jsonify({'status': 'ERROR', 'message': 'Email e código são obrigatórios'}), 400
+        
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Verificar se o código é válido e não expirou
+            cur.execute("""
+                SELECT prc.id 
+                FROM password_reset_codes prc
+                JOIN usuario u ON prc.user_id = u.idusuario
+                WHERE u.email = %s AND prc.code = %s AND prc.expiration > NOW() AND prc.used = FALSE
+            """, (email, code))
+            code_data = cur.fetchone()
+            
+            if not code_data:
+                return jsonify({'status': 'ERROR', 'message': 'Código inválido ou expirado'}), 400
+            
+            # Gerar token de redefinição 
+            reset_token = secrets.token_urlsafe(32)
+            token_expiration = datetime.datetime.now() + timedelta(minutes=15)
+            
+            # Atualizar o código com o token
+            cur.execute(
+                "UPDATE password_reset_codes SET reset_token = %s, token_expiration = %s WHERE id = %s",
+                (reset_token, token_expiration, code_data['id'])
+            )
+            print("Reset token generated:", reset_token)
+            conn.commit()
+        
+        return jsonify({'status': 'OK', 'reset_token': reset_token})
+    
+    except Exception as e:
+        print("Error in verify_reset_code:", str(e))
+        return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
+
+# Rota para redefinir a senha com token válido
+@app.route('/reset-password', methods=['POST'])
+def reset_password():
+    try:
+        data = request.get_json()
+        code = data.get('reset_token')  
+        new_password = data.get('new_password')
+        print("Reset password code:", code)
+        print("New password:", new_password)
+        
+        if not code or not new_password:
+            return jsonify({'status': 'ERROR', 'message': 'Código e nova senha são obrigatórios'}), 400
+        
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Verificar código válido e não expirado
+            cur.execute("""
+                SELECT user_id FROM password_reset_codes 
+                WHERE reset_token = %s AND expiration > NOW() AND used = FALSE
+            """, (code,))
+            token_data = cur.fetchone()
+            print("Token data fetched:", token_data)
+            
+            if not token_data:
+                print("Token data:", code)
+                return jsonify({'status': 'ERROR', 'message': 'Código inválido ou expirado'}), 400
+            
+            # Atualizar a senha
+            reset_user_password(conn, token_data['user_id'], new_password)
+
+            # Marcar código como usado
+            cur.execute(
+                "UPDATE password_reset_codes SET used = TRUE WHERE reset_token = %s",
+                (code,)
+            )
+
+            conn.commit()
+        
+        return jsonify({'status': 'OK', 'message': 'Senha redefinida com sucesso'})
+    
+    except Exception as e:
+        print("Error in reset_password:", str(e))
+        return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
+
+
+# Função para enviar email com o código
+def send_reset_code_email(to_email, user_name, reset_code):
+    msg = MIMEMultipart()
+    msg['From'] = MAIL_CONFIG['MAIL_USERNAME']
+    msg['To'] = to_email
+    msg['Subject'] = 'Código de Recuperação de Senha - AIForDummies'
+    
+    body = f"""
+    <h2>Recuperação de Senha</h2>
+    <p>Olá {user_name},</p>
+    <p>Você solicitou a recuperação de senha para sua conta no AIForDummies.</p>
+    <p>Seu código de verificação é: <strong>{reset_code}</strong></p>
+    <p>Este código expirará em 15 minutos.</p>
+    <p>Se você não solicitou esta recuperação, ignore este email.</p>
+    """
+    
+    msg.attach(MIMEText(body, 'html'))
+    
+    try:
+        server = smtplib.SMTP(MAIL_CONFIG['MAIL_SERVER'], MAIL_CONFIG['MAIL_PORT'])
+        server.starttls()
+        server.login(MAIL_CONFIG['MAIL_USERNAME'], MAIL_CONFIG['MAIL_PASSWORD'])
+        server.send_message(msg)
+        server.quit()
+    except Exception as e:
+        print("Error sending email:", str(e))
+        raise
+
+# Função para fazer hash da senha (se ainda não existir)
+def hash_password(password):
+    import hashlib
+    import os
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return salt + key
 
 
 if __name__ == '__main__':

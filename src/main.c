@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <windows.h>
+#include <time.h>
 
 // ====== incluir seu comunicador (o código que você passou) ======
 #include "interface/communicator.h"
@@ -180,21 +181,35 @@ typedef struct {
 
 typedef struct {
     GtkWidget *window;
+    GtkWidget *login_grid;         // guardar grid para anexar recovery_box dinamicamente
     GtkWidget *email_entry;
     GtkWidget *pass_entry;
     GtkWidget *status_label;
 
-     // aba cadastro
+    // aba cadastro
     GtkWidget *reg_nome_entry;
     GtkWidget *reg_email_entry;
     GtkWidget *reg_pass_entry;
     GtkWidget *reg_status_label;
 
-    // aba recuperação
+    // recuperação
+    GtkWidget *recovery_box;           // toda a caixa (criada mas não anexada)
     GtkWidget *recovery_email_entry;
+    GtkWidget *btn_recovery_request;
+    GtkWidget *lbl_recovery_code;
     GtkWidget *recovery_code_entry;
+    GtkWidget *lbl_recovery_new_pass;
     GtkWidget *recovery_new_pass_entry;
+    GtkWidget *btn_recovery_verify;
     GtkWidget *recovery_status_label;
+
+    // progress bar 
+
+    GtkWidget *recovery_progress;
+    guint      recovery_timer_id;
+    time_t     recovery_expiry;          /* epoch seconds do fim */
+    gint       recovery_total_seconds;   /* duração total (ex: 15*60) */
+
     char *recovery_token;
 } LoginCtx;
 
@@ -387,6 +402,132 @@ static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
     g_free(ctx);
 }
 
+static void on_forgot_clicked(GtkButton *btn, gpointer user_data) {
+    LoginCtx *ctx = (LoginCtx*) user_data;
+    if (!ctx) return;
+
+    /* se o recovery_box ainda não tem parent, anexa no grid */
+    if (gtk_widget_get_parent(ctx->recovery_box) == NULL) {
+        if (ctx->login_grid != NULL) {
+            gtk_grid_attach(GTK_GRID(ctx->login_grid), ctx->recovery_box, 0, 6, 2, 1);
+            /* força o GTK a recalcular / mostrar o que foi anexado */
+            gtk_widget_show_all(ctx->login_grid);
+        } else {
+            /* fallback: anexa à janela para não perder o widget */
+            gtk_container_add(GTK_CONTAINER(ctx->window), ctx->recovery_box);
+            gtk_widget_show_all(ctx->window);
+        }
+    } else {
+        /* se já anexado, só alterna visibilidade */
+        if (gtk_widget_get_visible(ctx->recovery_box))
+            gtk_widget_hide(ctx->recovery_box);
+        else
+            gtk_widget_show(ctx->recovery_box);
+    }
+
+    /* garantir que apenas o email + botão aparecem (campos ocultos) */
+    if (ctx->lbl_recovery_code) gtk_widget_hide(ctx->lbl_recovery_code);
+    if (ctx->recovery_code_entry) gtk_widget_hide(ctx->recovery_code_entry);
+    if (ctx->lbl_recovery_new_pass) gtk_widget_hide(ctx->lbl_recovery_new_pass);
+    if (ctx->recovery_new_pass_entry) gtk_widget_hide(ctx->recovery_new_pass_entry);
+    if (ctx->btn_recovery_verify) gtk_widget_hide(ctx->btn_recovery_verify);
+    if (ctx->recovery_progress) gtk_widget_hide(ctx->recovery_progress);
+
+    /* foco no email */
+    if (ctx->recovery_email_entry) gtk_widget_grab_focus(ctx->recovery_email_entry);
+}
+
+
+/* Remove timer se existir */
+static void stop_recovery_timer(LoginCtx *ctx) {
+    if (!ctx) return;
+    if (ctx->recovery_timer_id != 0) {
+        g_source_remove(ctx->recovery_timer_id);
+        ctx->recovery_timer_id = 0;
+    }
+    if (ctx->recovery_progress) {
+        gtk_widget_hide(ctx->recovery_progress);
+    }
+    ctx->recovery_expiry = 0;
+    ctx->recovery_total_seconds = 0;
+}
+
+/* Callback chamado a cada segundo para atualizar a barra */
+static gboolean recovery_timer_cb(gpointer data) {
+    LoginCtx *ctx = (LoginCtx*)data;
+    if (!ctx) return G_SOURCE_CONTINUE;
+
+    time_t now = time(NULL);
+    gint remaining = (gint)(ctx->recovery_expiry - now);
+    if (remaining < 0) remaining = 0;
+
+    /* Fração decrescente: remaining / total */
+    double fraction = 0.0;
+    if (ctx->recovery_total_seconds > 0) {
+        fraction = (double)remaining / (double)ctx->recovery_total_seconds;
+    }
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(ctx->recovery_progress), fraction);
+
+    /* Mostrar time text MM:SS */
+    int mm = remaining / 60;
+    int ss = remaining % 60;
+    char text[64];
+    snprintf(text, sizeof(text), "%02d:%02d restante", mm, ss);
+    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(ctx->recovery_progress), text);
+
+    if (remaining <= 0) {
+        /* expirou: parar timer e atualizar UI */
+        stop_recovery_timer(ctx);
+        if (ctx->recovery_status_label)
+            gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Código expirado");
+        /* esconder inputs de recovery (ajuste conforme sua função hide_recovery_ui) */
+        if (ctx->lbl_recovery_code) gtk_widget_hide(ctx->lbl_recovery_code);
+        if (ctx->recovery_code_entry) gtk_widget_hide(ctx->recovery_code_entry);
+        if (ctx->lbl_recovery_new_pass) gtk_widget_hide(ctx->lbl_recovery_new_pass);
+        if (ctx->recovery_new_pass_entry) gtk_widget_hide(ctx->recovery_new_pass_entry);
+        if (ctx->btn_recovery_verify) gtk_widget_hide(ctx->btn_recovery_verify);
+        /* opcional: mostrar novamente email + botão para pedir novo código */
+        if (ctx->recovery_email_entry) gtk_widget_show(ctx->recovery_email_entry);
+        if (ctx->btn_recovery_request) gtk_widget_show(ctx->btn_recovery_request);
+
+        /* Stop repeating */
+        return G_SOURCE_REMOVE;
+    }
+
+    return G_SOURCE_CONTINUE; /* keep running */
+}
+
+/* Inicia o timer por X segundos (ex: 15*60) */
+static void start_recovery_timer(LoginCtx *ctx, gint seconds) {
+    if (!ctx) return;
+    stop_recovery_timer(ctx); /* garante reinício */
+
+    ctx->recovery_total_seconds = seconds;
+    ctx->recovery_expiry = time(NULL) + seconds;
+
+    /* mostrar a progressbar e inicializar */
+    if (ctx->recovery_progress) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(ctx->recovery_progress), 1.0);
+        gtk_progress_bar_set_text(GTK_PROGRESS_BAR(ctx->recovery_progress), "15:00 restante");
+        gtk_widget_show(ctx->recovery_progress);
+    }
+
+    /* Esconder o email + botão de pedido, mostrar os inputs de código/senha */
+    if (ctx->recovery_email_entry) gtk_widget_hide(ctx->recovery_email_entry);
+    if (ctx->btn_recovery_request) gtk_widget_hide(ctx->btn_recovery_request);
+    if (ctx->lbl_recovery_code) gtk_widget_show(ctx->lbl_recovery_code);
+    if (ctx->recovery_code_entry) gtk_widget_show(ctx->recovery_code_entry);
+    if (ctx->lbl_recovery_new_pass) gtk_widget_show(ctx->lbl_recovery_new_pass);
+    if (ctx->recovery_new_pass_entry) gtk_widget_show(ctx->recovery_new_pass_entry);
+    if (ctx->btn_recovery_verify) gtk_widget_show(ctx->btn_recovery_verify);
+
+    /* agendar callback a cada 1 segundo */
+    ctx->recovery_timer_id = g_timeout_add_seconds(1, recovery_timer_cb, ctx);
+}
+
+
+
+
 static GtkWidget* create_login_window(void) {
     apply_metal_theme();
     apply_login_css();
@@ -416,6 +557,8 @@ static GtkWidget* create_login_window(void) {
     GtkWidget *login_grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(login_grid), 12);
     gtk_grid_set_column_spacing(GTK_GRID(login_grid), 12);
+
+    ctx->login_grid = login_grid;
 
     GtkWidget *lbl_login_title = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(lbl_login_title),
@@ -507,75 +650,68 @@ static GtkWidget* create_login_window(void) {
 
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, gtk_label_new("Cadastro"));
 
-    // ================= RECOVERY TAB =================
-    GtkWidget *recovery_grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(recovery_grid), 12);
-    gtk_grid_set_column_spacing(GTK_GRID(recovery_grid), 12);
-    
-    GtkWidget *lbl_recovery_title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(lbl_recovery_title),
-                         "<span size='xx-large' weight='bold'>Recuperar Senha</span>");
-    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_title, 0, 0, 2, 1);
-    gtk_widget_set_halign(lbl_recovery_title, GTK_ALIGN_CENTER);
-    
-    // Email para recuperação
+    // BOTÃO "Esqueci minha senha"
+    GtkWidget *forgot_btn = gtk_button_new_with_label("Esqueci minha senha");
+    gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_name(forgot_btn, "link-like-button");
+    gtk_grid_attach(GTK_GRID(login_grid), forgot_btn, 0, 5, 2, 1);
+    gtk_widget_set_halign(forgot_btn, GTK_ALIGN_CENTER);
+
+    // ----- Criar a caixa de recuperação, mas NÃO anexar ao grid ainda -----
+    ctx->recovery_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_margin_top(ctx->recovery_box, 10);
+
+    // Email
     GtkWidget *lbl_recovery_email = gtk_label_new("Email:");
     ctx->recovery_email_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_email_entry), "seu@email.com");
-    gtk_widget_set_hexpand(ctx->recovery_email_entry, TRUE);
-    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_email, 0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_email_entry, 1, 1, 1, 1);
-    
-    // Botão para solicitar código
-    GtkWidget *btn_recovery_request = gtk_button_new_with_label("Enviar Código");
-    gtk_widget_set_hexpand(btn_recovery_request, TRUE);
-    gtk_grid_attach(GTK_GRID(recovery_grid), btn_recovery_request, 0, 2, 2, 1);
-    
-    // Código de verificação
-    GtkWidget *lbl_recovery_code = gtk_label_new("Código:");
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), lbl_recovery_email, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_email_entry, FALSE, FALSE, 0);
+
+    // Botão pedir código (guarde no ctx)
+    ctx->btn_recovery_request = gtk_button_new_with_label("Enviar Código");
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->btn_recovery_request, FALSE, FALSE, 0);
+
+    // Código e nova senha (crie e guarde no ctx)
+    ctx->lbl_recovery_code = gtk_label_new("Código:");
     ctx->recovery_code_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_code_entry), "Código recebido por email");
-    gtk_widget_set_hexpand(ctx->recovery_code_entry, TRUE);
-    gtk_widget_hide(ctx->recovery_code_entry); // Inicialmente escondido
-    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_code, 0, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_code_entry, 1, 3, 1, 1);
-    gtk_widget_hide(lbl_recovery_code); // Inicialmente escondido
-    
-    // Nova senha
-    GtkWidget *lbl_recovery_new_pass = gtk_label_new("Nova Senha:");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_code_entry), "Código recebido");
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->lbl_recovery_code, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_code_entry, FALSE, FALSE, 0);
+
+    ctx->lbl_recovery_new_pass = gtk_label_new("Nova senha:");
     ctx->recovery_new_pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->recovery_new_pass_entry), FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "Nova senha");
-    gtk_widget_set_hexpand(ctx->recovery_new_pass_entry, TRUE);
-    gtk_widget_hide(ctx->recovery_new_pass_entry); // Inicialmente escondido
-    gtk_grid_attach(GTK_GRID(recovery_grid), lbl_recovery_new_pass, 0, 4, 1, 1);
-    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_new_pass_entry, 1, 4, 1, 1);
-    gtk_widget_hide(lbl_recovery_new_pass); // Inicialmente escondido
-    
-    // Botão para verificar código e redefinir senha
-    GtkWidget *btn_recovery_verify = gtk_button_new_with_label("Redefinir Senha");
-    gtk_widget_set_hexpand(btn_recovery_verify, TRUE);
-    gtk_widget_hide(btn_recovery_verify); // Inicialmente escondido
-    gtk_grid_attach(GTK_GRID(recovery_grid), btn_recovery_verify, 0, 5, 2, 1);
-    
-    // Status
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "••••••");
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->lbl_recovery_new_pass, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_new_pass_entry, FALSE, FALSE, 0);
+
+    ctx->btn_recovery_verify = gtk_button_new_with_label("Redefinir Senha");
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->btn_recovery_verify, FALSE, FALSE, 0);
+
+    // Status da recuperação
     ctx->recovery_status_label = gtk_label_new("");
-    gtk_widget_set_name(ctx->recovery_status_label, "status");
-    gtk_grid_attach(GTK_GRID(recovery_grid), ctx->recovery_status_label, 0, 6, 2, 1);
-    
-    GtkWidget *recovery_panel = metal_wrap(recovery_grid, "login-panel");
-    
-    GtkWidget *recovery_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_halign(recovery_box, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(recovery_box, GTK_ALIGN_CENTER);
-    gtk_container_add(GTK_CONTAINER(recovery_box), recovery_panel);
-    
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), recovery_box, gtk_label_new("Recuperar Senha"));
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_status_label, FALSE, FALSE, 0);
+
+    // Barra de progresso do token (inicialmente escondida)
+    ctx->recovery_progress = gtk_progress_bar_new();
+    gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(ctx->recovery_progress), TRUE);
+    gtk_widget_set_hexpand(ctx->recovery_progress, TRUE);
+    gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_progress, FALSE, FALSE, 0);
+    gtk_widget_hide(ctx->recovery_progress);
+
+    // Esconder os inputs de código/senha nova inicialmente
+    gtk_widget_hide(ctx->lbl_recovery_code);
+    gtk_widget_hide(ctx->recovery_code_entry);
+    gtk_widget_hide(ctx->lbl_recovery_new_pass);
+    gtk_widget_hide(ctx->recovery_new_pass_entry);
+    gtk_widget_hide(ctx->btn_recovery_verify);
     
 
     // ================= SIGNALS =================
-    g_signal_connect(btn_recovery_request, "clicked", G_CALLBACK(on_recovery_request), ctx);
-    g_signal_connect(btn_recovery_verify, "clicked", G_CALLBACK(on_recovery_verify), ctx);
+    g_signal_connect(forgot_btn, "clicked", G_CALLBACK(on_forgot_clicked), ctx);
+    g_signal_connect(ctx->btn_recovery_request, "clicked", G_CALLBACK(on_recovery_request), ctx);
+    g_signal_connect(ctx->btn_recovery_verify, "clicked", G_CALLBACK(on_recovery_verify), ctx);
 
     g_signal_connect(btn_login, "clicked", G_CALLBACK(on_login_button_clicked), ctx);
     g_signal_connect(ctx->pass_entry, "activate", G_CALLBACK(on_login_button_clicked), ctx);
@@ -584,7 +720,7 @@ static GtkWidget* create_login_window(void) {
     // Conectar o sinal destroy para liberar o contexto
     g_signal_connect(login_win, "destroy", G_CALLBACK(on_login_window_destroy), ctx);
 
-    gtk_widget_show_all(login_win);
+    gtk_widget_show(login_win);
     return login_win;
 }
 
@@ -704,9 +840,32 @@ static void on_recovery_request(GtkButton *btn, LoginCtx *ctx) {
 
     // ----- Se status == OK: mostrar "Código enviado" (solicitado) -----
     if (status_str && strcmp(status_str, "OK") == 0) {
+        // depois de confirmar status == OK no parse da resposta
         gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Código enviado");
+
+        /* mostrar campos e iniciar timer de 15 minutos = 900s */
+        start_recovery_timer(ctx, 15 * 60);
+        /* guardar token se houver */
+        if (message_str && message_str[0] != '\0') {
+            /* caso o servidor retorne token em message, salve */
+            if (ctx->recovery_token) g_free(ctx->recovery_token);
+            ctx->recovery_token = g_strdup(message_str);
+        }
+
+        // mostrar os inputs de verificação
+        gtk_widget_show(ctx->lbl_recovery_code);
         gtk_widget_show(ctx->recovery_code_entry);
+        gtk_widget_show(ctx->lbl_recovery_new_pass);
         gtk_widget_show(ctx->recovery_new_pass_entry);
+        gtk_widget_show(ctx->btn_recovery_verify);
+
+        // esconder email + enviar se quiser evitar re-enviar
+        gtk_widget_hide(ctx->recovery_email_entry);
+        gtk_widget_hide(ctx->btn_recovery_request);
+
+        // opcional: foco no entry do código
+        gtk_widget_grab_focus(ctx->recovery_code_entry);
+
     } else {
         // Monta label informativa para outros casos (raw + parsed)
         char final_label[2048];
@@ -888,6 +1047,38 @@ static void on_recovery_verify(GtkButton *btn, LoginCtx *ctx) {
             // fallback: se reset retornou "OK" legada
             if (strncmp(rclean, "OK", 2) == 0) {
                 gtk_label_set_text(GTK_LABEL(ctx->recovery_status_label), "Senha redefinida com sucesso");
+                // Limpar entradas
+                if (ctx->recovery_email_entry) gtk_entry_set_text(GTK_ENTRY(ctx->recovery_email_entry), "");
+                if (ctx->recovery_code_entry)  gtk_entry_set_text(GTK_ENTRY(ctx->recovery_code_entry), "");
+                if (ctx->recovery_new_pass_entry) gtk_entry_set_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "");
+
+                // Esconder campos individuais (labels/entries/botões)
+                if (ctx->lbl_recovery_code)        gtk_widget_hide(ctx->lbl_recovery_code);
+                if (ctx->recovery_code_entry)      gtk_widget_hide(ctx->recovery_code_entry);
+                if (ctx->lbl_recovery_new_pass)    gtk_widget_hide(ctx->lbl_recovery_new_pass);
+                if (ctx->recovery_new_pass_entry)  gtk_widget_hide(ctx->recovery_new_pass_entry);
+                if (ctx->btn_recovery_verify)      gtk_widget_hide(ctx->btn_recovery_verify);
+                if (ctx->btn_recovery_request)     gtk_widget_hide(ctx->btn_recovery_request);
+                if (ctx->recovery_email_entry)     gtk_widget_hide(ctx->recovery_email_entry);
+                if (ctx->recovery_status_label)    gtk_widget_hide(ctx->recovery_status_label);
+
+                // Esconder toda a caixa de recuperação (se estiver anexada)
+                if (ctx->recovery_box) {
+                    if (gtk_widget_get_parent(ctx->recovery_box)) {
+                        gtk_widget_unparent(ctx->recovery_box);
+                    }
+                }
+
+                // Liberar token salvo no contexto (se existir)
+                if (ctx->recovery_token) {
+                    g_free(ctx->recovery_token);
+                    ctx->recovery_token = NULL;
+                }
+
+                // Opcional: voltar o foco para o login
+                if (ctx->email_entry) gtk_widget_grab_focus(ctx->email_entry);
+                stop_recovery_timer(ctx);
+                
             } else {
                 // mostra resposta bruta
                 char tmp[1200];

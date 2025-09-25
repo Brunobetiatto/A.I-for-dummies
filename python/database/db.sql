@@ -54,6 +54,25 @@ CREATE TABLE treino (
         FOREIGN KEY (iddataset) REFERENCES dataset(iddataset) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ============== TABELA: password_reset_codes ==============
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  idusuario INT NOT NULL,                       -- corresponde a usuario.idusuario (INT)
+  code VARCHAR(6) NOT NULL,
+  reset_token VARCHAR(128) DEFAULT NULL,
+  expiration DATETIME NOT NULL,
+  token_expiration DATETIME DEFAULT NULL,
+  used TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_idusuario (idusuario),
+  INDEX idx_code (code),
+  INDEX idx_expiration (expiration),
+  UNIQUE INDEX ux_reset_token (reset_token),
+  CONSTRAINT fk_prc_usuario FOREIGN KEY (idusuario) REFERENCES usuario(idusuario) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 -- Inserindo usuários de exemplo
 INSERT INTO usuario (nome, email, senha, salt) VALUES
 ('Alice', 'alice@example.com', 'hashed_password_1', 'salt_1'),

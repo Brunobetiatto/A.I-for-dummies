@@ -2,30 +2,33 @@
 #include <stdio.h>
 #include <string.h>
 #include <curl/curl.h>
+#include <stdbool.h>
 #include <cjson/cJSON.h>
-#include "communicator.h"
 #include <gtk/gtk.h>
 
-#ifdef _WIN32
-#include <Windows.h>
-#elif defined(_MAC) || defined(_UNIX32)
-#define GetCurrentDirectory getcwd
-#else
-#warning "Sistema operacional não reconhecido!"
-exit(EXIT_FAILURE)
-#endif
-
-// Estrutura para armazenar dados da resposta
 struct ResponseData {
     char *data;
     size_t size;
 };
 
-// flag: --DEBUG
-char *DEBUG_FLAG = "--DEBUG";
-bool DEBUG = FALSE;
 
-// Callback function for cURL to write response data
+
+bool api_list_tables(char **response);
+bool api_dump_table(const char *table_name, char **response);
+bool api_forgot_password(const char *email, char **response);
+bool api_verify_reset_code(const char *email, const char *code, char **response);
+bool api_reset_password(const char *reset_token, const char *new_password, char **response);
+bool api_describe_table(const char *table_name, char **response);
+bool api_create_user(const char *nome, const char *email, const char *password, char **response);
+bool api_login(const char *email, const char *password, char **response);
+
+
+
+char* process_api_response(const char *api_response);   // processa a resposta da API e formata para o main.c
+WCHAR* run_api_command(const WCHAR *command);           // executa comandos via API
+
+
+
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct ResponseData *mem = (struct ResponseData *)userp;
@@ -44,7 +47,6 @@ size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     return realsize;
 }
 
-// Função para fazer requisições à API
 char* api_request(const char *method, const char *endpoint, const char *data) {
     CURL *curl;
     CURLcode res;
@@ -178,7 +180,6 @@ bool api_login(const char *email, const char *password, char **response) {
     return (*response != NULL);
 }
 
-// Função para processar a resposta da API e formatar para o main.c
 char* process_api_response(const char *api_response) {
     cJSON *json = cJSON_Parse(api_response);
     if (!json) {
@@ -191,13 +192,14 @@ char* process_api_response(const char *api_response) {
         return strdup("ERR No status in response\n");
     }
     
+    // aqui processamos as respostas corretas dos arquivos recebidos 
+    // a partir da resposta da API, em formato JSON. 
     if (strcmp(status->valuestring, "OK") == 0) {
-        // Process successful response
-        cJSON *tables = cJSON_GetObjectItemCaseSensitive(json, "tables");
-        cJSON *columns = cJSON_GetObjectItemCaseSensitive(json, "columns");
-        cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
-        cJSON *user = cJSON_GetObjectItemCaseSensitive(json, "user");
-        cJSON *schema = cJSON_GetObjectItemCaseSensitive(json, "schema");
+        cJSON *tables   = cJSON_GetObjectItemCaseSensitive(json, "tables");
+        cJSON *columns  = cJSON_GetObjectItemCaseSensitive(json, "columns");
+        cJSON *data     = cJSON_GetObjectItemCaseSensitive(json, "data");
+        cJSON *user     = cJSON_GetObjectItemCaseSensitive(json, "user");
+        cJSON *schema   = cJSON_GetObjectItemCaseSensitive(json, "schema");
         
         if (tables && cJSON_IsArray(tables)) {
             // List tables response
@@ -330,14 +332,6 @@ char* process_api_response(const char *api_response) {
     return strdup("ERR Unknown response format\n\x04\n");
 }
 
-// Função principal para substituir a comunicação antiga
-DWORD connect_to_api(DWORD buff_size, WCHAR *cwd) {
-    // Esta função agora é simplificada pois a comunicação é via HTTP
-    // Mantida para compatibilidade com a interface existente
-    return 1;
-}
-
-// Função para executar comandos via API
 WCHAR* run_api_command(const WCHAR *command) {
     // Convert command to UTF-8
     int utf8_size = WideCharToMultiByte(CP_UTF8, 0, command, -1, NULL, 0, NULL, NULL);

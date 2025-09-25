@@ -1,5 +1,3 @@
-#include "login.h"
-#include "interface/communicator.h"
 #include <curl/curl.h>
 #include <cjson/cJSON.h>
 #include <string.h>
@@ -8,161 +6,62 @@
 #include <wchar.h>
 #include <windows.h>
 #include <time.h>
-#include "main.h"
 
-// CSS para a tela de login
-static const char *LOGIN_CSS =
-"#login-window { background-image: linear-gradient(to bottom, #d8d8d8, #cfcfcf); }"
-"#login-panel {"
-"  border-radius: 6px;"
-"  padding: 20px;"
-"  min-width: 420px;"
-"  max-width: 720px;"
-"  box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
-"}"
-"#login-window label.title {"
-"  font-size: 20px;"
-"  font-weight: bold;"
-"  margin-bottom: 8px;"
-"}"
-"#login-window entry {"
-"  min-height: 28px;"
-"  padding: 6px;"
-"}"
-"#login-window button#login-btn {"
-"  min-height: 36px;"
-"  padding: 6px 14px;"
-"  font-size: 14px;"
-"}"
-"#login-window label.status {"
-"  color: #4a4a4a;"
-"  font-size: 12px;"
-"  margin-top: 6px;"
-"}";
+#include "../css/css.h"
+#include <gtk/gtk.h>
 
+#ifndef LOGIN_H
+#define LOGIN_H
 
-static const char *METAL_CSS =
-"/* Base window background (Metal-like brushed gray) */\n"
-"window, dialog, .background {"
-"  background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));"
-"}\n"
-"\n"
-"/* Panels / frames with light bevel */\n"
-".metal-panel {"
-"  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);"
-"  border: 1px solid #7f7f7f;"
-"  box-shadow: inset 1px 1px 0px 0px #ffffff, inset -1px -1px 0px 0px #808080;"
-"  padding: 10px;"
-"  border-radius: 2px;"
-"}\n"
-"\n"
-"/* Frames (group boxes) */\n"
-"frame > label { font-weight: bold; padding: 0 4px; }\n"
-"frame > border {"
-"  border: 1px solid #7f7f7f;"
-"  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;"
-"  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);"
-"}\n"
-"/* Buttons: flat metal gradient with beveled edges */\n"
-"button {"
-"  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);"
-"  border: 1px solid #7a7a7a;"
-"  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;"
-"  padding: 4px 10px;"
-"}\n"
-"button:hover {"
-"  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);"
-"}\n"
-"button:active {"
-"  background-image: linear-gradient(to bottom, #c9c9c9, #b8b8b8);"
-"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
-"}\n"
-"button:disabled {"
-"  opacity: 0.6;"
-"}\n"
-"\n"
-"/* Text entries: sunken look */\n"
-"entry, spinbutton, combobox, combobox entry {"
-"  background: #ffffff;"
-"  border: 1px solid #7a7a7a;"
-"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
-"  padding: 4px;"
-"}\n"
-"entry:focus {"
-"  border-color: #2a5db0;"
-"}\n"
-"\n"
-"/* Notebook (tabs) */\n"
-"notebook > header {"
-"  background-image: linear-gradient(to bottom, #d2d2d2, #c2c2c2);"
-"  border-bottom: 1px solid #7a7a7a;"
-"}\n"
-"notebook tab {"
-"  background-image: linear-gradient(to bottom, #e2e2e2, #cdcdcd);"
-"  border: 1px solid #7a7a7a;"
-"  margin: 2px;"
-"  padding: 4px 8px;"
-"}\n"
-"notebook tab:checked {"
-"  background-image: linear-gradient(to bottom, #f2f2f2, #dbdbdb);"
-"}\n"
-"\n"
-"/* TreeView header */\n"
-"treeview header button {"
-"  background-image: linear-gradient(to bottom, #e3e3e3, #cfcfcf);"
-"  border: 1px solid #7a7a7a;"
-"  padding: 4px 6px;"
-"  font-weight: bold;"
-"}\n"
-"\n"
-"/* Progressbar */\n"
-"progressbar trough {"
-"  border: 1px solid #7a7a7a;"
-"  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;"
-"}\n"
-"progressbar progress {"
-"  background-image: linear-gradient(to bottom, #9fbef7, #5582d0);"
-"}\n"
-"\n"
-"/* Scrollbars a bit chunkier for desktop */\n"
-"scrollbar slider {"
-"  background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);"
-"  border: 1px solid #7a7a7a;"
-"}\n";
+typedef void (*LoginSuccessCb)(GtkWidget *login_window, gpointer user_data);
 
-// Função para aplicar o CSS do login
-void apply_login_css(void) {
-    GtkCssProvider *prov = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(prov, LOGIN_CSS, -1, NULL);
-    GdkScreen *scr = gdk_screen_get_default();
-    gtk_style_context_add_provider_for_screen(scr,
-        GTK_STYLE_PROVIDER(prov),
-        GTK_STYLE_PROVIDER_PRIORITY_USER + 5);
-    g_object_unref(prov);
-}
+typedef struct {
+    LoginSuccessCb on_success;
+    gpointer       user_data;
+} LoginHandlers;
 
-static void apply_metal_theme(void) {
-    GtkCssProvider *prov = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(prov, METAL_CSS, -1, NULL);
-    GdkScreen *scr = gdk_screen_get_default();
-    gtk_style_context_add_provider_for_screen(scr,
-        GTK_STYLE_PROVIDER(prov),
-        GTK_STYLE_PROVIDER_PRIORITY_USER);
-    g_object_unref(prov);
-}
+typedef struct {
+    GtkWidget *window;
+    GtkWidget *login_grid;         // guardar grid para anexar recovery_box dinamicamente
+    GtkWidget *email_entry;
+    GtkWidget *pass_entry;
+    GtkWidget *status_label;
 
-static GtkWidget* metal_wrap(GtkWidget *child, const char *name_opt) {
-    // container que recebe a classe .metal-panel do seu CSS
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    if (name_opt && *name_opt) {
-        gtk_widget_set_name(box, name_opt);   // opcional: dá um "name" para CSS
-    }
-    GtkStyleContext *sc = gtk_widget_get_style_context(box);
-    gtk_style_context_add_class(sc, "metal-panel"); // usa a regra já definida no METAL_CSS
-    gtk_container_set_border_width(GTK_CONTAINER(box), 6); // respiro
-    gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0); // coloca o conteúdo dentro
-    return box;
-}
+    // aba cadastro
+    GtkWidget *reg_nome_entry;
+    GtkWidget *reg_email_entry;
+    GtkWidget *reg_pass_entry;
+    GtkWidget *reg_status_label;
+
+    // recuperação
+    GtkWidget *recovery_box;           // toda a caixa (criada mas não anexada)
+    GtkWidget *recovery_email_entry;
+    GtkWidget *btn_recovery_request;
+    GtkWidget *lbl_recovery_code;
+    GtkWidget *recovery_code_entry;
+    GtkWidget *lbl_recovery_new_pass;
+    GtkWidget *recovery_new_pass_entry;
+    GtkWidget *btn_recovery_verify;
+    GtkWidget *recovery_status_label;
+
+    // progress bar 
+
+    GtkWidget *recovery_progress;
+    guint      recovery_timer_id;
+    time_t     recovery_expiry;          /* epoch seconds do fim */
+    gint       recovery_total_seconds;   /* duração total (ex: 15*60) */
+
+    char *recovery_token;
+
+    LoginHandlers handlers;
+} LoginCtx;
+
+GtkWidget* create_login_window(const LoginHandlers *handlers);
+void on_login_button_clicked(GtkButton *btn, gpointer user_data);
+void on_register_button_clicked(GtkButton *button, LoginCtx *ctx);
+void on_forgot_clicked(GtkButton *btn, gpointer user_data);
+void on_recovery_request(GtkButton *btn, LoginCtx *ctx);
+void on_recovery_verify(GtkButton *btn, LoginCtx *ctx);
 
 // Função para destruir a janela de login
 static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
@@ -259,9 +158,11 @@ static void start_recovery_timer(LoginCtx *ctx, gint seconds) {
 }
 
 // Função de login
-void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
-    (void)btn;
-    LoginCtx *ctx = (LoginCtx*)user_data;
+// LOGIN: usar communicator.h (JSON) e callback em vez de chamar main diretamente
+void on_login_button_clicked(GtkButton *button, gpointer user_data) {
+    LoginCtx *ctx = (LoginCtx*) user_data;
+    if (!ctx) return;
+
     const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->email_entry));
     const char *pass  = gtk_entry_get_text(GTK_ENTRY(ctx->pass_entry));
 
@@ -270,53 +171,46 @@ void on_login_button_clicked(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    char payload[512];
-    snprintf(payload, sizeof(payload), "{\"email\":\"%s\",\"password\":\"%s\"}", email, pass);
-
-    char cmd_utf8[600];
-    snprintf(cmd_utf8, sizeof(cmd_utf8), "LOGIN %s", payload);
-
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
-    WCHAR *wcmd = (WCHAR*)malloc(wlen * sizeof(WCHAR));
-    MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
-
-    WCHAR *wresp = run_api_command(wcmd);
-    free(wcmd);
-
-    if (!wresp) {
+    // Chama a API REST (communicator.h) e processa JSON
+    char *resp = NULL;
+    if (!api_login(email, pass, &resp) || !resp) {
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Erro: sem resposta do servidor");
+        if (resp) free(resp);
         return;
     }
 
-    int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
-    char *resp = (char*)malloc(rlen);
-    WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
-    free(wresp);
+    cJSON *root = cJSON_Parse(resp);
+    free(resp);
 
-    if (strncmp(resp, "OK", 2) == 0) {
-        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app...");
-        while (gtk_events_pending())
-            gtk_main_iteration();
-
-        // Esta função precisa ser definida no main.c
-        extern GtkWidget* create_main_window(void);
-        GtkWidget *main_win = create_main_window();
-        gtk_widget_show_all(main_win);
-
-        gtk_widget_destroy(ctx->window);
-        free(resp);
+    if (!root) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Erro: resposta inválida");
         return;
     }
 
-    if (strncmp(resp, "ERR", 3) == 0) {
-        const char *p = resp + 3;
-        while (*p == ' ' || *p == '\t') ++p;
-        gtk_label_set_text(GTK_LABEL(ctx->status_label), p);
+    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+    if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app.");
+        while (gtk_events_pending()) gtk_main_iteration();
+
+        if (ctx->handlers.on_success) {
+            ctx->handlers.on_success(ctx->window, ctx->handlers.user_data);
+        } else {
+            // fallback silencioso: só fecha a janela de login
+            gtk_widget_destroy(ctx->window);
+        }
+        cJSON_Delete(root);
+        return;
+    }
+
+    // Exibe mensagem de erro vinda da API (quando houver)
+    cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
+    if (cJSON_IsString(msg) && msg->valuestring && *msg->valuestring) {
+        gtk_label_set_text(GTK_LABEL(ctx->status_label), msg->valuestring);
     } else {
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Credenciais inválidas");
     }
 
-    free(resp);
+    cJSON_Delete(root);
 }
 
 // Função de registro
@@ -767,11 +661,12 @@ void on_recovery_verify(GtkButton *btn, LoginCtx *ctx) {
 
 
 // Criação da janela de login
-GtkWidget* create_login_window(void) {
-    apply_metal_theme();
-    apply_login_css();
+GtkWidget* create_login_window(const LoginHandlers *handlers) {
+    const char *LOGIN_CSS = parse_CSS_file("login.css");
 
     LoginCtx *ctx = g_new0(LoginCtx, 1);
+
+    if (handlers) ctx->handlers = *handlers;
 
     GtkWidget *login_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     ctx->window = login_win;  // Atribuir a janela ao contexto
@@ -829,7 +724,7 @@ GtkWidget* create_login_window(void) {
     gtk_widget_set_name(ctx->status_label, "status");
     gtk_grid_attach(GTK_GRID(login_grid), ctx->status_label, 0, 4, 2, 1);
 
-    GtkWidget *login_panel = metal_wrap(login_grid, "login-panel");
+    GtkWidget *login_panel = wrap_CSS(LOGIN_CSS, "metal-panel", login_grid, "login-panel");
 
     // Centralizar a aba
     GtkWidget *login_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -880,7 +775,7 @@ GtkWidget* create_login_window(void) {
     gtk_widget_set_name(ctx->reg_status_label, "status");
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_status_label, 0, 5, 2, 1);
 
-    GtkWidget *reg_panel = metal_wrap(reg_grid, "login-panel");
+    GtkWidget *reg_panel = wrap_CSS(LOGIN_CSS, "metal-panel", reg_grid, "login-panel");
 
     GtkWidget *reg_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_halign(reg_box, GTK_ALIGN_CENTER);
@@ -962,3 +857,5 @@ GtkWidget* create_login_window(void) {
     gtk_widget_show(login_win);
     return login_win;
 }
+
+#endif

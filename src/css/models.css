@@ -1,0 +1,87 @@
+/* Base window background (Metal-like brushed gray) */
+window, dialog, .background {
+  background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));
+}
+
+/* Panels / frames with light bevel */
+.metal-panel {
+  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
+  border: 1px solid #7f7f7f;
+  box-shadow: inset 1px 1px 0px 0px #ffffff, inset -1px -1px 0px 0px #808080;
+  padding: 10px;
+  border-radius: 2px;
+}
+
+/* Frames (group boxes) */
+frame > label { font-weight: bold; padding: 0 4px; }
+frame > border {
+  border: 1px solid #7f7f7f;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
+  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
+}
+/* Buttons: flat metal gradient with beveled edges */
+button {
+  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);
+  border: 1px solid #7a7a7a;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
+  padding: 4px 10px;
+}
+button:hover {
+  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);
+}
+button:active {
+  background-image: linear-gradient(to bottom, #c9c9c9, #b8b8b8);
+  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
+}
+button:disabled {
+  opacity: 0.6;
+}
+
+/* Text entries: sunken look */
+entry, spinbutton, combobox, combobox entry {
+  background: #ffffff;
+  border: 1px solid #7a7a7a;
+  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
+  padding: 4px;
+}
+entry:focus {
+  border-color: #2a5db0;
+}
+
+/* Notebook (tabs) */
+notebook > header {
+  background-image: linear-gradient(to bottom, #d2d2d2, #c2c2c2);
+  border-bottom: 1px solid #7a7a7a;
+}
+notebook tab {
+  background-image: linear-gradient(to bottom, #e2e2e2, #cdcdcd);
+  border: 1px solid #7a7a7a;
+  margin: 2px;
+  padding: 4px 8px;
+}
+notebook tab:checked {
+  background-image: linear-gradient(to bottom, #f2f2f2, #dbdbdb);
+}
+
+/* TreeView header */
+treeview header button {
+  background-image: linear-gradient(to bottom, #e3e3e3, #cfcfcf);
+  border: 1px solid #7a7a7a;
+  padding: 4px 6px;
+  font-weight: bold;
+}
+
+/* Progressbar */
+progressbar trough {
+  border: 1px solid #7a7a7a;
+  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
+}
+progressbar progress {
+  background-image: linear-gradient(to bottom, #9fbef7, #5582d0);
+}
+
+/* Scrollbars a bit chunkier for desktop */
+scrollbar slider {
+  background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
+  border: 1px solid #7a7a7a;
+};

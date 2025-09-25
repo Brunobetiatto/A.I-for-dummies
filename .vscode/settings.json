@@ -5,6 +5,7 @@
         "gtk.h": "c",
         "communicator.h": "c",
         "string.h": "c",
-        "interface.h": "c"
+        "interface.h": "c",
+        "login.h": "c"
     }
 }

@@ -1,4 +1,5 @@
-build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
+build/login.o: src/login.c src/login.h \
+ C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  C:/msys64/mingw64/include/gtk-3.0/gdk/gdk.h \
  C:/msys64/mingw64/include/gtk-3.0/gdk/gdkconfig.h \
  C:/msys64/mingw64/include/glib-2.0/glib.h \
@@ -667,8 +668,9 @@ build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvscale.h \
  C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvscrollbar.h \
  C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvseparator.h \
- C:/msys64/mingw64/include/gtk-3.0/gtk/gtk-autocleanups.h src/login.h \
- src/main.h src/interface/communicator.h
+ C:/msys64/mingw64/include/gtk-3.0/gtk/gtk-autocleanups.h \
+ src/interface/communicator.h src/main.h
+src/login.h:
 C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdkconfig.h:
@@ -1339,6 +1341,5 @@ C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvscale.h:
 C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvscrollbar.h:
 C:/msys64/mingw64/include/gtk-3.0/gtk/deprecated/gtkvseparator.h:
 C:/msys64/mingw64/include/gtk-3.0/gtk/gtk-autocleanups.h:
-src/login.h:
-src/main.h:
 src/interface/communicator.h:
+src/main.h:

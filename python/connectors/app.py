@@ -23,10 +23,10 @@ app = Flask(__name__)
 
 # Configurações do banco de dados
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'hopper.proxy.rlwy.net'),
-    'port': int(os.getenv('DB_PORT', 39703)),
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'hhzpIxzAuLBiDBPLELofDfZzDklgpVHD'),
+    'password': os.getenv('DB_PASSWORD', ''),
     'database': os.getenv('DB_NAME', 'AIForDummies'),
     'autocommit': True,
     'cursorclass': pymysql.cursors.DictCursor

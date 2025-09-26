@@ -418,12 +418,12 @@ def save_plot_classification(X, y_idx, model, epoch, epochs, out_path,
                              feature_names=None, device="cpu"):
     """
     Saves either a 1D or 2D classification plot:
-      - 1D: points along X and sigmoid/softmax region, red decision boundary
+      - 1D: points along X and sigmoid/softmax region, red decision boundary (binary)
       - 2D: scatter + decision surface; red contour at p=0.5 for binary
     """
     X = np.asarray(X, dtype=np.float32)
+    y_i = np.asarray(y_idx)
     d = X.shape[1]
-    C = int(getattr(model, "out_classes", 2))
 
     plt.clf()
     plt.figure(figsize=(7, 5), dpi=110)
@@ -432,30 +432,43 @@ def save_plot_classification(X, y_idx, model, epoch, epochs, out_path,
     if d == 1:
         x = X[:, 0]
         x_min, x_max = float(x.min()), float(x.max())
-        xs = np.linspace(x_min - 0.05*(x_max-x_min+1e-9),
-                         x_max + 0.05*(x_max-x_min+1e-9), 400, dtype=np.float32)
+        xs = np.linspace(
+            x_min - 0.05 * (x_max - x_min + 1e-9),
+            x_max + 0.05 * (x_max - x_min + 1e-9),
+            400, dtype=np.float32
+        )
         Xgrid = torch.from_numpy(xs.reshape(-1, 1)).to(device)
+
         with torch.no_grad():
             logits = model(Xgrid)
-            if C == 2:
-                p = torch.sigmoid(logits.view(-1)).cpu().numpy()
-            else:
-                p = torch.softmax(logits, dim=1).cpu().numpy()  # (N, C)
-                p = p.max(axis=1)
 
-        # scatter points
-        plt.scatter(x, np.zeros_like(x), c=y_idx, s=28, edgecolors="k")
+        # --- Infer class count & turn logits into probabilities ---
+        if logits.dim() == 1:
+            p = torch.sigmoid(logits).cpu().numpy()             # (N,)
+            C_eff = 2
+        elif logits.dim() == 2 and logits.shape[1] == 1:
+            p = torch.sigmoid(logits[:, 0]).cpu().numpy()       # (N,)
+            C_eff = 2
+        elif logits.dim() == 2 and logits.shape[1] > 1:
+            probs = torch.softmax(logits, dim=1).cpu().numpy()  # (N, C)
+            p = probs.max(axis=1)                                # (N,)
+            C_eff = logits.shape[1]
+        else:
+            # Fallback: treat as binary
+            p = torch.sigmoid(logits.view(-1)).cpu().numpy()
+            C_eff = 2
+
+        # scatter points on a baseline, colored by class
+        plt.scatter(x, np.zeros_like(x), c=y_i, s=28, edgecolors="k")
+
         # probability curve
-        if C == 2:
-            plt.plot(xs, p, linewidth=2)
-            # red decision boundary: p=0.5
-            plt.axhline(0.5, color="red", linewidth=2)
-            plt.ylim(-0.05, 1.05)
+        plt.plot(xs, p, linewidth=2)
+        if C_eff == 2:
+            plt.axhline(0.5, color="red", linewidth=2)          # decision threshold
             plt.ylabel("P(class=1)")
         else:
-            plt.plot(xs, p, linewidth=2)
-            plt.ylim(-0.05, 1.05)
-            plt.ylabel("Max prob")
+            plt.ylabel("Max class probability")
+        plt.ylim(-0.05, 1.05)
         plt.xlabel(feature_names[0] if feature_names else "x")
 
     elif d == 2:
@@ -465,27 +478,41 @@ def save_plot_classification(X, y_idx, model, epoch, epochs, out_path,
         x_min, x_max = float(x.min() - x_pad), float(x.max() + x_pad)
         y_min, y_max = float(y.min() - y_pad), float(y.max() + y_pad)
 
-        xx, yy = np.meshgrid(np.linspace(x_min, x_max, 300, dtype=np.float32),
-                             np.linspace(y_min, y_max, 300, dtype=np.float32))
+        xx, yy = np.meshgrid(
+            np.linspace(x_min, x_max, 300, dtype=np.float32),
+            np.linspace(y_min, y_max, 300, dtype=np.float32)
+        )
         grid = np.c_[xx.ravel(), yy.ravel()].astype(np.float32)
+
         with torch.no_grad():
             logits = model(torch.from_numpy(grid).to(device))
-            if C == 2:
-                P = torch.sigmoid(logits.view(-1)).cpu().numpy().reshape(xx.shape)
-            else:
-                P = torch.softmax(logits, dim=1).cpu().numpy().reshape(xx.shape + (C,))
-                Pcls = P.argmax(axis=2)
 
-        if C == 2:
-            # decision surface & red boundary 0.5
+        # --- Infer class count & build surface(s) ---
+        if logits.dim() == 1:
+            P = torch.sigmoid(logits).cpu().numpy().reshape(xx.shape)  # (H, W)
+            C_eff = 2
+        elif logits.dim() == 2 and logits.shape[1] == 1:
+            P = torch.sigmoid(logits[:, 0]).cpu().numpy().reshape(xx.shape)
+            C_eff = 2
+        elif logits.dim() == 2 and logits.shape[1] > 1:
+            C_eff = logits.shape[1]
+            P_all = torch.softmax(logits, dim=1).cpu().numpy() \
+                        .reshape(xx.shape + (C_eff,))                   # (H, W, C)
+            Pcls = P_all.argmax(axis=2)                                 # (H, W)
+        else:
+            P = torch.sigmoid(logits.view(-1)).cpu().numpy().reshape(xx.shape)
+            C_eff = 2
+
+        if C_eff == 2:
+            # Probability surface + 0.5 contour
             plt.contourf(xx, yy, P, levels=np.linspace(0, 1, 21), alpha=0.30)
             plt.contour(xx, yy, P, levels=[0.5], linewidths=2, colors="red")
         else:
-            # color by predicted class index
-            cmap = ListedColormap(plt.cm.tab10.colors[:C])
-            plt.contourf(xx, yy, Pcls, levels=np.arange(-0.5, C, 1), alpha=0.25, cmap=cmap)
+            cmap = ListedColormap(plt.cm.tab10.colors[:C_eff])
+            plt.contourf(xx, yy, Pcls, levels=np.arange(-0.5, C_eff, 1),
+                         alpha=0.25, cmap=cmap)
 
-        plt.scatter(x, y, c=y_idx, s=25, edgecolors="k")
+        plt.scatter(x, y, c=y_i, s=25, edgecolors="k")
         plt.xlabel(feature_names[0] if feature_names and len(feature_names) > 0 else "x1")
         plt.ylabel(feature_names[1] if feature_names and len(feature_names) > 1 else "x2")
 
@@ -504,6 +531,7 @@ def save_plot_classification(X, y_idx, model, epoch, epochs, out_path,
         os.replace(tmp, out_path)
     except Exception:
         pass
+
 
 def main():
     ap = argparse.ArgumentParser()

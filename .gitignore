@@ -3,3 +3,6 @@ CONERR
 *.tmp
 *.o
 .vscode/
+logs/
+datasets/
+cache/

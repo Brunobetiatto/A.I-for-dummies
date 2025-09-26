@@ -50,9 +50,9 @@ int main(int argc, char **argv) {
 
     gtk_init(&argc, &argv);
 
-    //backlogger_init("logs", "AI-for-dummies"); 
+    backlogger_init("logs", "AI-for-dummies"); 
 
-    //backlogger_log_line("App starting with %d args", argc);
+    backlogger_log_line("App starting with %d args", argc);
 
     LoginHandlers h = { .on_success = open_main_after_login, .user_data = NULL };
     GtkWidget *login = create_login_window(&h);

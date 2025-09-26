@@ -1,6 +1,6 @@
 /* Base window background (Metal-like brushed gray) */
 window, dialog, .background {
-  background-image: linear-gradient(to bottom, #ffffff, rgba(189, 189, 189, 1));
+  background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));
 }
 
 /* Panels / frames with light bevel */
@@ -86,30 +86,47 @@ scrollbar slider {
   border: 1px solid #7a7a7a;
 };
 
-#login-window { background-image: linear-gradient(to bottom, #d8d8d8, #cfcfcf); }
+/* Window */
+#login-window {
+  background: #c0c0c0;
+}
+
+/* Login panel as a raised dialog */
 #login-panel {
-  border-radius: 6px;
-  padding: 20px;
+  background: #c0c0c0;
+  border: 1px solid #000000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #808080;
+  padding: 10px 12px;
   min-width: 420px;
   max-width: 720px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-radius: 0;
 }
+
+/* Title label */
 #login-window label.title {
-  font-size: 20px;
   font-weight: bold;
-  margin-bottom: 8px;
+  color: #000000;
+  margin-bottom: 6px;
 }
-#login-window entry {
-  min-height: 28px;
-  padding: 6px;
-}
+
+/* Inputs & buttons already styled via base; tweak sizes here */
+#login-window entry { min-height: 22px; }
 #login-window button#login-btn {
-  min-height: 36px;
-  padding: 6px 14px;
-  font-size: 14px;
+  min-height: 26px; padding: 2px 12px; font-weight: bold;
 }
+
+/* Status line */
 #login-window label.status {
-  color: #4a4a4a;
-  font-size: 12px;
-  margin-top: 6px;
-};
+  color: #000000;
+  background: #d4d0c8;
+  padding: 2px 4px;
+  border: 1px solid #000000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #808080;
+}
+
+/* Progress bar in recovery area keeps Win98 trough */
+#login-window progressbar trough { background: #c0c0c0; }

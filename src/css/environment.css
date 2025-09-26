@@ -85,3 +85,43 @@ scrollbar slider {
   background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
   border: 1px solid #7a7a7a;
 };
+
+/* Environment-specific accents (if any) can go here.
+   Example: make the plot/metrics panes look like group boxes. */
+
+.env_top, .env_scroll, .env_right {
+  background: #c0c0c0;
+  border: 1px solid #000000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #808080;
+  border-radius: 0;
+  padding: 4px;
+}
+
+/* Status labels mimic Win98 status bar */
+.statusbar {
+  background: #d4d0c8;
+  border-top: 1px solid #ffffff;
+  box-shadow: inset 0 1px 0 #808080;
+  padding: 2px 6px;
+  color: #000000;
+}
+
+.drop-hover { box-shadow: 0 0 0 2px #3b82f6 inset; border-radius: 6px; }
+.dragging   { opacity: 0.85; }
+
+/* Bubble background + default text color */
+.tooltip {
+  background-color: #1e1e1e;
+  color: #ffffff;            /* fallback for text */
+  border-radius: 6px;
+  border: 1px solid #3a3a3a;
+  padding: 6px 8px;
+}
+
+/* Make sure any child (the label) inherits the color */
+.tooltip * {
+  color: inherit;
+  font-weight: 500;          /* optional */
+}

@@ -1,0 +1,80 @@
+=== AI-for-dummies start 2025-09-26_04-53-54 ===
+App starting with 1 args
+[04:53:54] [DEBUG] GLib-GIO: _g_io_module_get_default: Found default implementation winhttp (GWinHttpVfs) for ‘gio-vfs’
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\Applications\mrpack\shell\Shell\open does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\htmlfile\shell\Shell\Edit does not have a "command" subkey
+[04:53:54] [DEBUG] GLib-GIO: HKEY_CLASSES_ROOT\Access.MDBFile\shell\Shell\openAsReadOnly does not have a "command" subkey
+[04:53:55] [DEBUG] GLib-GIO: Unexpectedly, UWP app `Clipchamp.Clipchamp_4.3.10120.0_x64__yxz26nhyzhsrt' (AUMId `Clipchamp.Clipchamp_yxz26nhyzhsrt!App') supports 41 extensions but has no verbs
+[04:53:55] [DEBUG] GLib-GIO: Unexpectedly, UWP app `Microsoft.OutlookForWindows_1.2025.828.402_x64__8wekyb3d8bbwe' (AUMId `Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows') supports 4 extensions but has no verbs
+[04:53:55] [DEBUG] GLib-GIO: Collecting capable appnames: 0ms
+Allocating hashtables:...... 0ms
+Reading capable apps:        79ms
+Reading URL associations:... 0ms
+Reading extension assocs:    109ms
+Reading exe-only apps:...... 62ms
+Reading classes:             454ms
+Reading UWP apps:            1015ms
+Postprocessing:..............0ms
+TOTAL:                       1719ms
+[04:54:01] [CRITICAL] Gtk: gtk_container_add_with_properties: assertion '_gtk_widget_get_parent (widget) == NULL' failed
+
+[stack] CRITICAL backtrace:
+  [00] 00007ff735cd1dea
+  [01] 00007ffa0ddbd5ee
+  [02] 00007ffa0ddbd9e7
+  [03] 00007ffa0ddbf70d
+  [04] 00007ff9e1f5d9b5
+  [05] 00007ff9e20ff1d5
+  [06] 00007ff735cdeea3
+  [07] 00007ff735ce31e0
+  [08] 00007ff735ce320b
+  [09] 00007ff735cdf7e8
+  [10] 00007ffa21d6857b
+  [11] 00007ffa21d7c65b
+  [12] 00007ffa21d835bb
+  [13] 00007ff9e1f09abc
+  [14] 00007ff9e1f0a170
+  [15] 00007ff9e1f0b623
+  [16] 00007ff9e1fae5cc
+  [17] 00007ff9e1ed3474
+  [18] 00007ffa21d686b7
+  [19] 00007ffa21d7d29d
+  [20] 00007ffa21d83830
+  [21] 00007ff9e21acc4a
+  [22] 00007ff9e21d0333
+  [23] 00007ff9e21d4d8b
+  [24] 00007ff9e1ed3474
+  [25] 00007ffa21d6878d
+  [26] 00007ffa21d7d29d
+  [27] 00007ffa21d83830
+  [28] 00007ff9e21acc4a
+  [29] 00007ff9e204c1a8
+  [30] 00007ff9e204e127
+  [31] 00007ffa0eebf869
+  [32] 00007ffa0eefc393
+  [33] 00007ffa0ddb1d75
+  [34] 00007ffa0ddb4e5f
+  [35] 00007ffa0ddb58b0
+  [36] 00007ff9e204d15e
+  [37] 00007ff735ce32fc
+  [38] 00007ff735cd10c9
+  [39] 00007ff735cd13f6
+  [40] 00007ffa67ce7374
+  [41] 00007ffa6911cc91
+[04:54:03] [DEBUG] GdkPixbuf: gdk_pixbuf_from_pixdata() called on:
+[04:54:03] [DEBUG] GdkPixbuf: 	Encoding raw
+[04:54:03] [DEBUG] GdkPixbuf: 	Dimensions: 20 x 25
+[04:54:03] [DEBUG] GdkPixbuf: 	Rowstride: 80, Length: 2024
+[04:54:03] [DEBUG] GdkPixbuf: 	Copy pixels == false
+[04:54:17] [DEBUG] GdkPixbuf: gdk_pixbuf_from_pixdata() called on:
+[04:54:17] [DEBUG] GdkPixbuf: 	Encoding raw
+[04:54:17] [DEBUG] GdkPixbuf: 	Dimensions: 20 x 25
+[04:54:17] [DEBUG] GdkPixbuf: 	Rowstride: 80, Length: 2024
+[04:54:17] [DEBUG] GdkPixbuf: 	Copy pixels == false

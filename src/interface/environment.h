@@ -428,19 +428,21 @@ static void on_split_changed(GtkRange *range, gpointer user_data) {
 }
 
 static GtkWidget* group_panel(const char *title, GtkWidget *content) {
-    const char *ENV_CSS = parse_CSS_file("environment.css");
+    // OUTER frame = the only visible box (e.g., "Regressor")
+    GtkWidget *frame = gtk_frame_new(title);
+    gtk_frame_set_label_align(GTK_FRAME(frame), 0.02, 0.5);
+    gtk_container_set_border_width(GTK_CONTAINER(frame), 6); // space between border and content
 
+    // NO metal-panel wrapper. Add the content directly and give it breathing room.
+    gtk_widget_set_margin_top(content, 4);
+    gtk_widget_set_margin_bottom(content, 4);
+    gtk_widget_set_margin_start(content, 6);
+    gtk_widget_set_margin_end(content, 6);
 
-    GtkWidget *frame = gtk_frame_new(title);               // título do “box”
-    gtk_frame_set_label_align(GTK_FRAME(frame), 0.02, 0.5); // título à esquerda
-    gtk_container_set_border_width(GTK_CONTAINER(frame), 6);
+    gtk_container_add(GTK_CONTAINER(frame), content);
 
-    // põe sua moldura “metal” por dentro, pra dar padding e relevo
-    GtkWidget *inner = wrap_CSS(ENV_CSS, "metal-panel", content, NULL);
-    gtk_container_add(GTK_CONTAINER(frame), inner);
-
-    // um respiro externo
-    gtk_widget_set_margin_top   (frame, 4);
+    // outer spacing between sibling groups
+    gtk_widget_set_margin_top(frame, 4);
     gtk_widget_set_margin_bottom(frame, 4);
     return frame;
 }
@@ -534,7 +536,6 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Regressor + epochs */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        GtkWidget *lab = gtk_label_new("Regressor:");
         ctx->algo_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         gtk_combo_box_text_append_text(ctx->algo_combo, "Linear Regression");
         gtk_combo_box_text_append_text(ctx->algo_combo, "Ridge (L2)");
@@ -549,7 +550,6 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         ctx->epochs_spin = GTK_SPIN_BUTTON(gtk_spin_button_new(ep_adj, 1, 0));
         gtk_spin_button_set_numeric(ctx->epochs_spin, TRUE);
 
-        gtk_box_pack_start(GTK_BOX(row), lab, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->algo_combo), TRUE, TRUE, 0);
         gtk_box_pack_end  (GTK_BOX(row), GTK_WIDGET(ctx->epochs_spin), FALSE, FALSE, 0);
         gtk_box_pack_end  (GTK_BOX(row), lab_ep, FALSE, FALSE, 6);
@@ -643,7 +643,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* =============== RIGHT: notebook =============== */
     GtkWidget *right_nb = gtk_notebook_new();
     ctx->right_nb = GTK_NOTEBOOK(right_nb);
-    
+
     /* Logs */
     ctx->logs_view = GTK_TEXT_VIEW(gtk_text_view_new());
     gtk_text_view_set_editable(ctx->logs_view, FALSE);

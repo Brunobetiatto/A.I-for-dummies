@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <cjson/cJSON.h>
 #include <gtk/gtk.h>
+#include "../interface/debug_window.h"
 
 struct ResponseData {
     char *data;
@@ -51,48 +52,56 @@ char* api_request(const char *method, const char *endpoint, const char *data) {
     CURL *curl;
     CURLcode res;
     struct ResponseData chunk;
-    
+
     chunk.data = malloc(1);
     chunk.size = 0;
-    
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
-    
+
     if(curl) {
         char url[256];
         snprintf(url, sizeof(url), "http://localhost:5000%s", endpoint);
-        
+
+        // 🔹 LOG de saída
+        debug_log(">> API_REQUEST: %s %s", method, url);
+        if (data) debug_log(">> Payload: %s", data);
+
         curl_easy_setopt(curl, CURLOPT_URL, url);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        
+
         if(strcmp(method, "POST") == 0) {
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
             if(data) {
                 curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
             }
         }
-        
+
         // Set headers for JSON
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, "Content-Type: application/json");
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        
+
         res = curl_easy_perform(curl);
-        
+
         if(res != CURLE_OK) {
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            debug_log("!! curl_easy_perform() failed: %s", curl_easy_strerror(res));
             free(chunk.data);
             chunk.data = NULL;
+        } else {
+            // 🔹 LOG de entrada (resposta bruta)
+            debug_log("<< API_RESPONSE: %s", chunk.data ? chunk.data : "(null)");
         }
-        
+
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
     }
-    
+
     curl_global_cleanup();
     return chunk.data;
 }
+
 
 // Funções para substituir as antigas funcionalidades
 bool api_list_tables(char **response) {
@@ -331,6 +340,9 @@ char* process_api_response(const char *api_response) {
     cJSON_Delete(json);
     return strdup("ERR Unknown response format\n\x04\n");
 }
+
+/* wrapper que converte UTF-8 -> WCHAR, chama run_api_command, converte de volta */
+
 
 WCHAR* run_api_command(const WCHAR *command) {
     // Convert command to UTF-8

@@ -6,6 +6,7 @@
         "communicator.h": "c",
         "string.h": "c",
         "interface.h": "c",
-        "login.h": "c"
+        "login.h": "c",
+        "debug_window.h": "c"
     }
 }

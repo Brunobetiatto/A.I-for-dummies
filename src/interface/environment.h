@@ -1,8 +1,10 @@
 #include "../css/css.h"
 #include "context.h"
+#include "debug_window.h"
 
 #ifndef ENV_H
 #define ENV_H
+
 
 static void set_split_ui(EnvCtx *ctx, double train) {
     if (!ctx) return;
@@ -119,12 +121,17 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     // Adicione o botão de logout na barra de ferramentas
     GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
+
+    /* botão debug - no canto esquerdo/ direito dependendo de pack_end/pack_start */
+
     
-    // Botão de logout (inicialmente escondido)
-    ctx->btn_logout = GTK_BUTTON(gtk_button_new_with_label("Logout"));
-    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_logout), FALSE, FALSE, 0);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_logout), "Sair da conta");
-    gtk_widget_hide(GTK_WIDGET(ctx->btn_logout));
+    ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));
+    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
+
+    /* Conecta o clique para abrir a janela de debug */
+
+    g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
     
     /* dataset row + refresh + load */
     GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);

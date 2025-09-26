@@ -39,7 +39,8 @@ typedef struct {
 
     GtkStack        *stack;
     GtkWidget       *main_window;
-
+    
+    GtkButton       *btn_debug;
 
     GtkScale        *split_scale;      /* slider (GtkRange) */
     GtkEntry        *split_entry;      /* text entry (accepts comma) */

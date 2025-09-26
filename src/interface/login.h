@@ -54,6 +54,8 @@ typedef struct {
     char *recovery_token;
 
     LoginHandlers handlers;
+
+    GtkButton *btn_debug;               // botão para abrir janela de debug/backlog
 } LoginCtx;
 
 GtkWidget* create_login_window(const LoginHandlers *handlers);
@@ -791,6 +793,16 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_grid_attach(GTK_GRID(login_grid), forgot_btn, 0, 5, 2, 1);
     gtk_widget_set_halign(forgot_btn, GTK_ALIGN_CENTER);
 
+    GtkWidget *debug_btn = gtk_button_new_with_label("Debug");
+    gtk_button_set_relief(GTK_BUTTON(debug_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_name(debug_btn, "link-like-button");
+    gtk_grid_attach(GTK_GRID(login_grid), debug_btn, 0, 6, 2, 1); // ← ESTA LINHA ESTÁ FALTANDO!
+    gtk_widget_set_halign(debug_btn, GTK_ALIGN_CENTER);
+
+    ctx->btn_debug = GTK_BUTTON(debug_btn);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
+    g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
+
     // ----- Criar a caixa de recuperação, mas NÃO anexar ao grid ainda -----
     ctx->recovery_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_set_margin_top(ctx->recovery_box, 10);
@@ -801,6 +813,7 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_email_entry), "seu@email.com");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), lbl_recovery_email, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_email_entry, FALSE, FALSE, 0);
+
 
     // Botão pedir código (guarde no ctx)
     ctx->btn_recovery_request = gtk_button_new_with_label("Enviar Código");
@@ -833,6 +846,9 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_hexpand(ctx->recovery_progress, TRUE);
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_progress, FALSE, FALSE, 0);
     gtk_widget_hide(ctx->recovery_progress);
+
+
+    /* Conecta o clique para abrir a janela de debug */
 
     // Esconder os inputs de código/senha nova inicialmente
     gtk_widget_hide(ctx->lbl_recovery_code);

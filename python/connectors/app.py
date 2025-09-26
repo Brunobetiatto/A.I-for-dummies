@@ -26,7 +26,7 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'pepsi@123'),
+    'password': os.getenv('DB_PASSWORD', ''),
     'database': os.getenv('DB_NAME', 'aifordummies'),
     'autocommit': True,
     'cursorclass': pymysql.cursors.DictCursor
@@ -173,7 +173,8 @@ def forgot_password():
     
     except Exception as e:
         print("Error in forgot_password:", str(e))
-        return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
+        print("Request data:", data)
+        return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidorrrrrr'}), 500
 
 # Rota para verificar o código de recuperação
 @app.route('/verify-reset-code', methods=['POST'])

@@ -180,7 +180,6 @@ static void on_load_dataset(GtkButton *btn, gpointer user_data) {
 static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     const char *DATASETS_CSS = parse_CSS_file("datasets.css");
 
-
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
 
@@ -189,8 +188,22 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Filtrar dataset...");
     gtk_box_pack_start(GTK_BOX(top), entry, TRUE, TRUE, 0);
 
-    GtkWidget *btn_refresh = gtk_button_new_with_label("🔄 Atualizar");
+    GtkWidget *btn_refresh = gtk_button_new();
+
     gtk_box_pack_start(GTK_BOX(top), btn_refresh, FALSE, FALSE, 0);
+    GError *err = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file("./assets/refresh_button.png", &err);
+    if (!pixbuf) {
+        fprintf(stderr, "Erro ao carregar a imagem: %s\n", err->message);
+        g_error_free(err);
+    } else {
+        GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, 24, 24, GDK_INTERP_BILINEAR);
+        if (scaled) {
+            gtk_button_set_image(GTK_BUTTON(btn_refresh), gtk_image_new_from_pixbuf(scaled));
+            g_object_unref(scaled);
+        }
+        g_object_unref(pixbuf);
+    }
 
     GtkWidget *tree = gtk_tree_view_new();
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
@@ -308,28 +321,17 @@ static void tv_build_from_preview(GtkTreeView *tv, CsvPreview *pv, guint max_col
     g_object_unref(store);
 }
 
-/* --- Free preview --- */
+
 static void csv_preview_free(CsvPreview *pv) {
     if (!pv) return;
-    if (pv->columns) {
-        for (guint i=0;i<pv->columns->len;i++) g_free(pv->columns->pdata[i]);
-        g_ptr_array_free(pv->columns, TRUE);
-    }
-    if (pv->rows) {
-        for (guint r=0;r<pv->rows->len;r++) {
-            GPtrArray *row = pv->rows->pdata[r];
-            for (guint c=0;c<row->len;c++) g_free(row->pdata[c]);
-            g_ptr_array_free(row, TRUE);
-        }
-        g_ptr_array_free(pv->rows, TRUE);
-    }
+    if (pv->columns) g_ptr_array_free(pv->columns, TRUE);   /* cells freed by free_func */
+    if (pv->rows)    g_ptr_array_free(pv->rows, TRUE);      /* each row unref'd; rows free their cells */
     g_free(pv);
 }
 
-/* --- Worker: lê arquivo e monta CsvPreview ---
-   Lê até ~10k linhas (preview) pra ser rápido. */
 typedef struct {
     gchar *path;
+    GtkTreeView *target_tv;   // <— add this
 } LoadTaskData;
 
 static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCancellable *canc) {
@@ -390,18 +392,19 @@ static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCa
 }
 
 /* --- Callback após worker --- */
+/* REPLACE the whole on_task_done(...) with: */
 static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
     GError *err = NULL;
     CsvPreview *pv = g_task_propagate_pointer(G_TASK(res), &err);
+    LoadTaskData *td = (LoadTaskData*)g_task_get_task_data(G_TASK(res));
 
-    /* UI: status/progress */
     if (ctx && ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
     if (ctx && ctx->status)   gtk_label_set_text(ctx->status, err ? "Load failed" : "Loaded");
 
     if (err) {
         GtkWidget *dlg = gtk_message_dialog_new(
-            ctx && ctx->main_window ? GTK_WINDOW(ctx->main_window) : NULL,
+            (ctx && ctx->main_window) ? GTK_WINDOW(ctx->main_window) : NULL,
             GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
             GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
             "Erro ao ler dataset: %s", err->message);
@@ -412,35 +415,88 @@ static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
         return;
     }
 
-    /* constrói preview */
-    if (ctx && ctx->preview_view) {
-        tv_build_from_preview(ctx->preview_view, pv, 64 /* máx colunas visíveis */);
-        /* vai para a aba Preview */
-        if (ctx->right_nb) {
-            gint idx = gtk_notebook_page_num(ctx->right_nb, gtk_widget_get_parent(GTK_WIDGET(ctx->preview_view)));
-            if (idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, idx);
-        }
+    if (td && td->target_tv) {
+        tv_build_from_preview(td->target_tv, pv, 64);
     }
+
+    //csv_preview_free(pv);
 }
 
-/* --- Inicia tarefa de load --- */
+static void free_load_task_data(LoadTaskData *td) {
+    if (!td) return;
+    g_free(td->path);
+    g_free(td);
+}
+
+/* helper: find a notebook page by visible label text */
+static gint find_notebook_page_by_label(GtkNotebook *nb, const char *label) {
+    if (!nb || !label) return -1;
+    gint n = gtk_notebook_get_n_pages(nb);
+    for (gint i=0; i<n; ++i) {
+        GtkWidget *child = gtk_notebook_get_nth_page(nb, i);
+        GtkWidget *tab   = gtk_notebook_get_tab_label(nb, child);
+        if (GTK_IS_LABEL(tab)) {
+            const gchar *txt = NULL;
+            g_object_get(tab, "label", &txt, NULL); // works in GTK3
+            if (txt && g_strcmp0(txt, label) == 0) return i;
+        }
+    }
+    return -1;
+}
+
 static void start_load_file(EnvCtx *ctx, const char *path) {
     if (!ctx || !path || !*path) return;
 
-    /* guarda caminho selecionado */
     g_free(ctx->current_dataset_path);
     ctx->current_dataset_path = g_strdup(path);
 
     if (ctx->status)   gtk_label_set_text(ctx->status, "Loading…");
     if (ctx->progress) gtk_progress_bar_pulse(ctx->progress);
 
+    // Reuse or create the singleton “Preview dataset” page
+    const char *TAB_NAME = "Preview dataset";
+    GtkTreeView *tv = ctx->ds_preview_tv;
+    gint page_idx = find_notebook_page_by_label(ctx->right_nb, TAB_NAME);
+
+    if (!tv || page_idx < 0) {
+        // first time: create
+        GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+        GtkWidget *tvw = gtk_tree_view_new();
+        gtk_container_add(GTK_CONTAINER(sc), tvw);
+        ctx->ds_preview_tv = GTK_TREE_VIEW(tvw);
+
+        gint page = gtk_notebook_append_page(ctx->right_nb, sc, gtk_label_new(TAB_NAME));
+        gtk_widget_show_all(sc);
+        gtk_notebook_set_current_page(ctx->right_nb, page);
+    } else {
+        // reuse: just switch to it (model/cols are rebuilt in on_task_done)
+        gtk_notebook_set_current_page(ctx->right_nb, page_idx);
+    }
+
+    // Launch worker and tell it where to render
     LoadTaskData *td = g_new0(LoadTaskData, 1);
     td->path = g_strdup(path);
+    td->target_tv = ctx->ds_preview_tv;
 
     GTask *t = g_task_new(NULL, NULL, on_task_done, ctx);
-    g_task_set_task_data(t, td, (GDestroyNotify)(g_free)); /* td será liberado no fim */
+    g_task_set_task_data(t, td, (GDestroyNotify)free_load_task_data);
     g_task_run_in_thread(t, task_read_preview);
     g_object_unref(t);
+}
+
+
+static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (!ctx || !ctx->ds_combo) return;
+
+    gchar *path = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+    if (!path) {
+        if (ctx->status) gtk_label_set_text(ctx->status, "No dataset selected");
+        return;
+    }
+    if (ctx->status) gtk_label_set_text(ctx->status, "Loading…");
+    start_load_file(ctx, path);
+    g_free(path);
 }
 
 /* --- File Chooser (Load) --- */
@@ -452,10 +508,6 @@ static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
     if (ctx->main_window && GTK_IS_WINDOW(ctx->main_window))
         parent = GTK_WINDOW(ctx->main_window);
 
-    /* Fallback robusto:
-       - No Windows, use sempre GtkFileChooserDialog (evita crashes do Native).
-       - Em outros SOs, tente Native; se vier DELETE_EVENT/erro, faz fallback pro Dialog.
-    */
 #if defined(G_OS_WIN32)
     GtkWidget *dlg = gtk_file_chooser_dialog_new(
         "Choose a dataset", parent, GTK_FILE_CHOOSER_ACTION_OPEN,
@@ -545,19 +597,15 @@ static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    /* Inicia leitura assíncrona + atualiza combo opcionalmente */
-    start_load_file(ctx, path);
-
     if (ctx->ds_combo) {
         gtk_combo_box_text_append_text(ctx->ds_combo, path);
-        /* Seleciona o item recém-adicionado (último) */
         GtkTreeModel *m = gtk_combo_box_get_model(GTK_COMBO_BOX(ctx->ds_combo));
         if (m) {
             gint n = gtk_tree_model_iter_n_children(m, NULL);
             if (n > 0) gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), n - 1);
         }
     }
-
+    if (ctx->status) gtk_label_set_text(ctx->status, "Ready to load");
     g_free(path);
 }
 

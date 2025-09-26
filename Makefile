@@ -47,6 +47,9 @@ CURLPKG := libcurl
 CFLAGS  += $(shell $(PKG_CONFIG) --cflags $(CURLPKG))
 LDFLAGS += $(shell $(PKG_CONFIG) --libs   $(CURLPKG)) -lcjson
 
+LDLIBS += -ldbghelp
+CFLAGS += -g -O0
+
 # Sources and objects
 SRC := $(wildcard src/*.c) $(wildcard src/*/*.c)
 OBJ := $(patsubst src/%.c,build/%.o,$(SRC))
@@ -69,7 +72,7 @@ doctor:
 	@$(PKG_CONFIG) --libs   $(GTKPKG)
 
 $(TARGET): $(OBJ) $(RES) | build
-	$(CC) $(OBJ) $(RES) -o $@ $(LDFLAGS)
+	$(CC) $(OBJ) $(RES) -o $@ $(LDFLAGS) $(LDLIBS)
 
 build/%.o: src/%.c
 	@if not exist "$(call bs,$(dir $@))" mkdir "$(call bs,$(dir $@))"

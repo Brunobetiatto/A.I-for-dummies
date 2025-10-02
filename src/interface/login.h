@@ -659,6 +659,42 @@ void on_recovery_verify(GtkButton *btn, LoginCtx *ctx) {
     free(resp);
 }
 
+/* Pequeno “hero” com logo + título grande */
+static GtkWidget* make_app_hero(void) {
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_name(v, "app-hero");
+    gtk_widget_set_halign(v, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(v, GTK_ALIGN_START);
+
+    /* tenta achar o .ico no diretório atual ou em assets/ */
+    GError *err = NULL;
+    GdkPixbuf *px = NULL;
+    const char *candidates[] = {
+        "assets/AI-for-dummies.png",
+        NULL
+    };
+    for (int i = 0; candidates[i]; ++i) {
+        px = gdk_pixbuf_new_from_file_at_scale(candidates[i], 192, 192, TRUE, &err);
+        if (px) break;
+        if (err) { g_clear_error(&err); }
+    }
+
+    if (px) {
+        GtkWidget *img = gtk_image_new_from_pixbuf(px);
+        g_object_unref(px);
+        gtk_widget_set_name(img, "app-logo");
+        gtk_box_pack_start(GTK_BOX(v), img, FALSE, FALSE, 0);
+    }
+
+    GtkWidget *title = gtk_label_new(NULL);
+    /* markup pra garantir tamanho em qualquer DPI */
+    gtk_label_set_markup(GTK_LABEL(title),
+        "<span size='xx-large' weight='ultrabold'>AI For Dummies</span>");
+    gtk_widget_set_name(title, "app-title");
+    gtk_box_pack_start(GTK_BOX(v), title, FALSE, FALSE, 0);
+
+    return v;
+}
 
 // Criação da janela de login
 GtkWidget* create_login_window(const LoginHandlers *handlers) {
@@ -724,12 +760,14 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_name(ctx->status_label, "status");
     gtk_grid_attach(GTK_GRID(login_grid), ctx->status_label, 0, 4, 2, 1);
 
-    GtkWidget *login_panel = wrap_CSS(LOGIN_CSS, "metal-panel", login_grid, "login-panel");
+    
 
     // Centralizar a aba
     GtkWidget *login_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_halign(login_box, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(login_box, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(login_box), make_app_hero(), FALSE, FALSE, 0);
+    GtkWidget *login_panel = wrap_CSS(LOGIN_CSS, "metal-panel", login_grid, "login-panel");
     gtk_container_add(GTK_CONTAINER(login_box), login_panel);
 
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, gtk_label_new("Login"));
@@ -775,13 +813,13 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_name(ctx->reg_status_label, "status");
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_status_label, 0, 5, 2, 1);
 
-    GtkWidget *reg_panel = wrap_CSS(LOGIN_CSS, "metal-panel", reg_grid, "login-panel");
 
     GtkWidget *reg_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_halign(reg_box, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(reg_box, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(reg_box), make_app_hero(), FALSE, FALSE, 0);
+    GtkWidget *reg_panel = wrap_CSS(LOGIN_CSS, "metal-panel", reg_grid, "login-panel");
     gtk_container_add(GTK_CONTAINER(reg_box), reg_panel);
-
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, gtk_label_new("Cadastro"));
 
     // BOTÃO "Esqueci minha senha"

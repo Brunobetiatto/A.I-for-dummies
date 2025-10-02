@@ -158,8 +158,9 @@ static void set_split_ui(EnvCtx *ctx, double train) {
     if (!ctx) return;
     if (train < 0) { train = 0; }; if (train > 100) { train = 100; };
     ctx->split_lock = TRUE;
-
+    
     gtk_range_set_value(GTK_RANGE(ctx->split_scale), train);
+    
 
     char lbuf[32], ebuf[16];
     g_snprintf(lbuf, sizeof lbuf, "Train %.1f%%", train);
@@ -440,7 +441,7 @@ static GtkWidget* group_panel(const char *title, GtkWidget *content) {
     gtk_widget_set_margin_end(content, 6);
 
     gtk_container_add(GTK_CONTAINER(frame), content);
-
+    
     // outer spacing between sibling groups
     gtk_widget_set_margin_top(frame, 4);
     gtk_widget_set_margin_bottom(frame, 4);
@@ -546,6 +547,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), 0);
 
         GtkWidget *lab_ep = gtk_label_new("Epochs:");
+        gtk_widget_set_name(lab_ep, "epochs-label");
         GtkAdjustment *ep_adj = gtk_adjustment_new(100, 1, 100000, 1, 10, 0);
         ctx->epochs_spin = GTK_SPIN_BUTTON(gtk_spin_button_new(ep_adj, 1, 0));
         gtk_spin_button_set_numeric(ctx->epochs_spin, TRUE);
@@ -601,6 +603,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         ctx->split_scale = GTK_SCALE(scale);
         gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
         gtk_scale_add_mark(GTK_SCALE(scale), 50.0, GTK_POS_BOTTOM, NULL);
+        gtk_widget_set_name(scale,  "split-scale");
 
         g_signal_connect(scale, "value-changed", G_CALLBACK(on_split_changed),       ctx);
         g_signal_connect(entry, "changed",       G_CALLBACK(on_split_entry_changed), ctx);
@@ -608,6 +611,8 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_start(GTK_BOX(box), labels, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(box), scale,  FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Split (Train/Test)", box), FALSE, FALSE, 0);
+        gtk_widget_set_name(lab_tr, "split-train-label");
+        gtk_widget_set_name(lab_te, "split-test-label");
         set_split_ui(ctx, 70.0);
     }
 
@@ -690,6 +695,21 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* Populate datasets combo */
     on_refresh_local_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
-}
 
+    /* Torna o CSS válido para janelas/popus globais (menus, popovers, etc.) */
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(prov, ENVIRONMENT_CSS, -1, NULL);
+    #if GTK_MAJOR_VERSION >= 4
+    gtk_style_context_add_provider_for_display(
+        gdk_display_get_default(),
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+    #else
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+    #endif
+    g_object_unref(prov);
+}
 #endif

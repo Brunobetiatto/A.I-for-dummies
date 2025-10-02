@@ -1,127 +1,237 @@
-/* Base window background (Metal-like brushed gray) */
+/* ===========================
+   Dark Frutiger Aero — Midnight Aqua
+   =========================== */
+
+:root { color-scheme: dark; }
+
+/* Base */
 window, dialog, .background {
-  background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));
+  background-color: #0b1220;
+  background-image:
+    radial-gradient(1100px 700px at 25% 0%, rgba(90,240,255,.18), rgba(90,240,255,0) 60%),
+    radial-gradient(900px 600px at 85% 5%, rgba(50,210,255,.12), rgba(50,210,255,0) 60%),
+    linear-gradient(to bottom, #0b1220, #0e1c2b 40%, #091521 100%);
+  color: #e6f5ff;
 }
 
-/* Panels / frames with light bevel */
-.metal-panel {
-  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
-  border: 1px solid #7f7f7f;
-  box-shadow: inset 1px 1px 0px 0px #ffffff, inset -1px -1px 0px 0px #808080;
-  padding: 10px;
-  border-radius: 2px;
+/* Painel vítreo (container principal) */
+.metal-panel{
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.04)),
+    linear-gradient(to bottom, rgba(22,38,58,.78), rgba(10,18,28,.85));
+  border: 1px solid rgba(110,180,255,.35);
+  border-radius: 12px;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.08),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    0 0 0 1px rgba(31,131,255,.08);
+  padding: 12px;
+  -webkit-backdrop-filter: blur(6px) saturate(115%);
+  backdrop-filter: blur(6px) saturate(115%);
 }
 
-/* Frames (group boxes) */
-frame > label { font-weight: bold; padding: 0 4px; }
-frame > border {
-  border: 1px solid #7f7f7f;
-  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
-  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
-}
-/* Buttons: flat metal gradient with beveled edges */
-button {
-  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
-  padding: 4px 10px;
-}
-button:hover {
-  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);
-}
-button:active {
-  background-image: linear-gradient(to bottom, #c9c9c9, #b8b8b8);
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
-}
-button:disabled {
-  opacity: 0.6;
+/* =========================
+   Frame (grupos)
+   ========================= */
+
+/* Moldura EXTERNA arredondada e anel fino */
+#env-left-panel frame > border,
+#env-right-panel frame > border,
+.metal-panel frame > border {
+  border-radius: 14px;
+  border: 1px solid rgba(60,110,170,.38);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
 }
 
-/* Text entries: sunken look */
-entry, spinbutton, combobox, combobox entry {
-  background: #ffffff;
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
-  padding: 4px;
-}
-entry:focus {
-  border-color: #2a5db0;
+/* Garante o mesmo raio no container do frame */
+#env-left-panel frame,
+#env-right-panel frame,
+.metal-panel frame {
+  border-radius: 14px;
+  background-clip: padding-box;
 }
 
-/* Notebook (tabs) */
-notebook > header {
-  background-image: linear-gradient(to bottom, #d2d2d2, #c2c2c2);
-  border-bottom: 1px solid #7a7a7a;
+/* Corpo INTERNO cinza-claro (fill), agora SEM contorno */
+#env-left-panel frame > *:not(label):not(border),
+#env-right-panel frame > *:not(label):not(border) {
+  border-radius: 14px;
+  background-image: linear-gradient(to bottom, rgba(255,255,255,.07), rgba(0,0,0,.06));
+  border: 0 !important;           /* <- remove o contorno interno */
+  box-shadow: none !important;     /* <- nada de “anelzinho” dentro */
 }
-notebook tab {
-  background-image: linear-gradient(to bottom, #e2e2e2, #cdcdcd);
-  border: 1px solid #7a7a7a;
-  margin: 2px;
-  padding: 4px 8px;
+
+/* =============== Controles com “anel” azul-escuro SUPER FINO =============== */
+button{
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 12px;
+  padding: 6px 14px;
+  color: #e7f6ff; font-weight: 600;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06) 55%, rgba(255,255,255,.03)),
+    linear-gradient(to bottom, #1f4d7a, #174269 60%, #143a5d);
+  box-shadow: 0 8px 18px rgba(0,0,0,.50), inset 0 1px 0 rgba(255,255,255,.08);
 }
-notebook tab:checked {
-  background-image: linear-gradient(to bottom, #f2f2f2, #dbdbdb);
+button:hover{
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05)),
+    linear-gradient(to bottom, #255c92, #1b4e7d 60%, #174469);
+  box-shadow: 0 10px 22px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.12);
+}
+button:active{
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
+    linear-gradient(to bottom, #173e64, #14375a 60%, #123251);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+}
+button:disabled{ opacity:.45; color:rgba(240,250,255,.55); }
+
+/* Entradas / combobox */
+entry, spinbutton, combobox, combobox entry{
+  background-image: linear-gradient(to bottom, rgba(10,16,25,.95), rgba(7,12,19,.92));
+  color:#fff;
+  border:1px solid rgba(60,110,170,.38);
+  border-radius:12px;
+  padding:6px 8px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.05);
+}
+entry::placeholder, combobox entry::placeholder{ color: rgba(210,235,255,.75); }
+entry:focus, spinbutton:focus, combobox:focus, combobox entry:focus{
+  border-color:#28a0ff;
+  box-shadow:0 0 0 3px rgba(40,160,255,.24), inset 0 1px 3px rgba(0,0,0,.35);
+  outline:none;
+}
+entry selection, spinbutton selection, combobox entry selection{
+  background:#28a0ff; color:#06111a;
+}
+
+/* Tabs topo (Datasets/Environment) */
+stackswitcher>button, stackswitcher>button>label{ color:#fff; font-weight:700; }
+stackswitcher>button:checked, stackswitcher>button:checked>label{ color:#fff; }
+
+/* Notebook (Logs/Plot/Metrics) */
+notebook>header{
+  background-image:linear-gradient(to bottom,#101826,#0d1521);
+  border-bottom:1px solid rgba(110,160,220,.35);
+}
+notebook tab{
+  margin:4px; padding:6px 12px;
+  border:1px solid rgba(60,110,170,.38);
+  border-radius:999px;
+  color:#eff7ff; font-weight:700;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
+    linear-gradient(to bottom, #162536, #132030);
+  box-shadow:0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
+}
+notebook tab:checked{
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
+    linear-gradient(to bottom, #1a2d42, #152636);
+  border-color:#2a6dbf; color:#fff;
+  box-shadow:0 6px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(42,109,191,.25) inset;
 }
 
 /* TreeView header */
-treeview header button {
-  background-image: linear-gradient(to bottom, #e3e3e3, #cfcfcf);
-  border: 1px solid #7a7a7a;
-  padding: 4px 6px;
-  font-weight: bold;
+treeview header button{
+  font-weight:700; padding:6px 8px;
+  border-radius:10px; color:#f3fbff;
+  border:1px solid rgba(60,110,170,.38);
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
+    linear-gradient(to bottom, #132130, #101c2a);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
 }
 
 /* Progressbar */
-progressbar trough {
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
+progressbar trough{
+  border:1px solid rgba(60,110,170,.38);
+  border-radius:12px;
+  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
 }
-progressbar progress {
-  background-image: linear-gradient(to bottom, #9fbef7, #5582d0);
+progressbar progress{
+  border-radius:12px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
+    linear-gradient(90deg,#1cc8ff,#24a3ff 45%,#22ffbb 80%);
+  box-shadow:0 0 18px rgba(50,220,255,.35), 0 0 4px rgba(34,255,187,.20);
 }
+progressbar text, progressbar progress text{ color:#07111a; font-weight:700; }
 
-/* Scrollbars a bit chunkier for desktop */
-scrollbar slider {
-  background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
-  border: 1px solid #7a7a7a;
-};
-
-/* Environment-specific accents (if any) can go here.
-   Example: make the plot/metrics panes look like group boxes. */
-
-.env_top, .env_scroll, .env_right {
-  background: #c0c0c0;
-  border: 1px solid #000000;
-  box-shadow:
-    inset 1px 1px 0 #ffffff,
-    inset -1px -1px 0 #808080;
-  border-radius: 0;
-  padding: 4px;
+/* Scrollbar */
+scrollbar slider{
+  border:1px solid rgba(60,110,170,.38);
+  border-radius:999px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06)),
+    linear-gradient(to bottom,#182636,#132030);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 10px rgba(0,0,0,.45);
 }
-
-/* Status labels mimic Win98 status bar */
-.statusbar {
-  background: #d4d0c8;
-  border-top: 1px solid #ffffff;
-  box-shadow: inset 0 1px 0 #808080;
-  padding: 2px 6px;
-  color: #000000;
+scrollbar slider:hover{
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 6px 14px rgba(0,0,0,.50), 0 0 12px rgba(50,210,255,.22);
 }
 
-.drop-hover { box-shadow: 0 0 0 2px #3b82f6 inset; border-radius: 6px; }
-.dragging   { opacity: 0.85; }
+/* Foco global */
+*:focus{ outline:none; box-shadow:0 0 0 3px rgba(40,160,255,.22); }
 
-/* Bubble background + default text color */
-.tooltip {
-  background-color: #1e1e1e;
-  color: #ffffff;            /* fallback for text */
-  border-radius: 6px;
-  border: 1px solid #3a3a3a;
-  padding: 6px 8px;
+/* ===== Só estes rótulos com “placa” atrás (sem mudar color) ===== */
+#epochs-label,
+#split-train-label,
+#split-test-label{
+  font-weight:700; letter-spacing:.2px;
+  padding:2px 6px; border-radius:8px;
+  background-image: linear-gradient(to bottom, rgba(10,16,25,.45), rgba(10,16,25,.30));
+  box-shadow: 0 1px 2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
 }
 
-/* Make sure any child (the label) inherits the color */
-.tooltip * {
-  color: inherit;
-  font-weight: 500;          /* optional */
+/* ===== Controlador do Split ===== */
+#split-scale trough{
+  min-height:8px;
+  border:1px solid rgba(60,110,170,.38);
+  border-radius:12px;
+  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
 }
+#split-scale highlight,
+#split-scale progress{
+  border-radius:12px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
+    linear-gradient(90deg,#1cc8ff,#24a3ff 45%,#22ffbb 80%);
+  box-shadow:0 0 12px rgba(50,220,255,.28);
+}
+#split-scale slider{
+  min-width:18px; min-height:18px; margin:-6px 0;
+  border:1px solid rgba(120,160,200,.55);
+  border-radius:50%;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.06)),
+    radial-gradient(14px 14px at 50% 35%, #ffffff, #e6eef7 60%, #bfd3e9 100%);
+  box-shadow:0 2px 6px rgba(0,0,0,.45), 0 0 8px rgba(40,160,255,.18);
+}
+#split-scale slider:hover{ box-shadow:0 3px 8px rgba(0,0,0,.55), 0 0 10px rgba(50,210,255,.26); }
+#split-scale:focus slider{ box-shadow:0 0 0 3px rgba(40,160,255,.28), 0 3px 8px rgba(0,0,0,.55); }
+
+/* ===== Combobox popup (dark) ===== */
+combobox .popup, combobox popover, combobox menu, popover, menu{
+  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
+  border:1px solid rgba(100,140,200,.45);
+  border-radius:12px; padding:4px;
+  box-shadow:0 12px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(31,131,255,.08);
+}
+combobox popover list row, combobox menu menuitem, menu menuitem{
+  color:#eaf6ff; background:transparent; padding:6px 10px; border-radius:8px;
+}
+combobox popover list row:selected,
+combobox popover list row:hover,
+combobox menu menuitem:hover,
+combobox menu menuitem:active,
+menu menuitem:hover,
+menu menuitem:active{
+  color:#fff;
+  background-image:linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
+                   linear-gradient(to bottom,#255c92,#174469);
+}
+combobox arrow{ -gtk-icon-filter: brightness(1.25) contrast(1.1); }
+button image, notebook tab image, combobox image{ -gtk-icon-filter: brightness(1.15) contrast(1.05); }

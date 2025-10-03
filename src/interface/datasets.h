@@ -1,4 +1,5 @@
 #include "../css/css.h"
+#include "debug_window.h"
 #include "../backend/communicator.h"
 #include "context.h"
 #include <pango/pangocairo.h>

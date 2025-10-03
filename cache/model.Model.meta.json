@@ -1,0 +1,7 @@
+{
+  "model_name": "Model",
+  "task": "regression",
+  "input_dim": 2,
+  "score_name": "r2",
+  "score_value": -2.216855714411796
+}

@@ -18,6 +18,7 @@ if PARENT not in sys.path:
 from database.CRUD.create import create_user
 from database.CRUD.read import verify_login
 from database.CRUD.update import reset_user_password
+from database.CRUD.read import get_user_by_id, get_datasets_by_user
 
 app = Flask(__name__)
 
@@ -264,6 +265,37 @@ def reset_password():
     except Exception as e:
         print("Error in reset_password:", str(e))
         return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
+
+
+@app.route('/user/<int:user_id>', methods=['GET'])
+def api_get_user(user_id):
+    cnx = get_db_connection()
+    try:
+        user = get_user_by_id(cnx, user_id)
+        if not user:
+            return jsonify({"status": "ERR", "message": "User not found"}), 404
+        # limpar campos sensíveis
+        resp = {
+            "id": user["idusuario"],
+            "nome": user.get("nome"),
+            "email": user.get("email"),
+            "dataCadastro": user.get("dataCadastro").isoformat() if user.get("dataCadastro") else None,
+            "bio": user.get("bio"),
+            "avatar_url": user.get("avatar_url")
+        }
+        return jsonify({"status":"OK","user":resp})
+    finally:
+        cnx.close()
+
+@app.route('/user/<int:user_id>/datasets', methods=['GET'])
+def api_get_user_datasets(user_id):
+    cnx = get_db_connection()
+    try:
+        datasets = get_datasets_by_user(cnx, user_id)
+        # datasets: lista de dicts com campos iddataset, nome, descricao, url, tamanho, dataCadastro
+        return jsonify({"status":"OK","datasets":datasets})
+    finally:
+        cnx.close()
 
 
 # Função para enviar email com o código

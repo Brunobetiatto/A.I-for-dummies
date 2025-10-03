@@ -1,115 +1,276 @@
-/* Base window background (Metal-like brushed gray) */
+/* ==========================================
+   Dark Frutiger Aero — LOGIN (Midnight Aqua)
+   ========================================== */
+
+:root { color-scheme: dark; }
+
+/* ───────────────────────────────
+   1) FUNDO / BASE DA JANELA
+   ─────────────────────────────── */
+#login-window,
 window, dialog, .background {
-  background-image: linear-gradient(to bottom, #ffffff, rgba(189, 189, 189, 1));
+  background-color: #0b1220;
+  background-image:
+    radial-gradient(1100px 700px at 25% 0%, rgba(90,240,255,.18), rgba(90,240,255,0) 60%),
+    radial-gradient(900px 600px at 85% 5%, rgba(50,210,255,.12), rgba(50,210,255,0) 60%),
+    linear-gradient(to bottom, #0b1220, #0e1c2b 40%, #091521 100%);
+  color: #e6f5ff;
 }
 
-/* Panels / frames with light bevel */
+/* ───────────────────────────────
+   2) CARD (PAINEL) DE LOGIN
+   ─────────────────────────────── */
+#login-panel,
 .metal-panel {
-  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
-  border: 1px solid #7f7f7f;
-  box-shadow: inset 1px 1px 0px 0px #ffffff, inset -1px -1px 0px 0px #808080;
-  padding: 10px;
-  border-radius: 2px;
-}
-
-/* Frames (group boxes) */
-frame > label { font-weight: bold; padding: 0 4px; }
-frame > border {
-  border: 1px solid #7f7f7f;
-  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
-  background-image: linear-gradient(to bottom, #cfcfcf, #b9b9b9);
-}
-/* Buttons: flat metal gradient with beveled edges */
-button {
-  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
-  padding: 4px 10px;
-}
-button:hover {
-  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);
-}
-button:active {
-  background-image: linear-gradient(to bottom, #c9c9c9, #b8b8b8);
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
-}
-button:disabled {
-  opacity: 0.6;
-}
-
-/* Text entries: sunken look */
-entry, spinbutton, combobox, combobox entry {
-  background: #ffffff;
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
-  padding: 4px;
-}
-entry:focus {
-  border-color: #2a5db0;
-}
-
-/* Notebook (tabs) */
-notebook > header {
-  background-image: linear-gradient(to bottom, #d2d2d2, #c2c2c2);
-  border-bottom: 1px solid #7a7a7a;
-}
-notebook tab {
-  background-image: linear-gradient(to bottom, #e2e2e2, #cdcdcd);
-  border: 1px solid #7a7a7a;
-  margin: 2px;
-  padding: 4px 8px;
-}
-notebook tab:checked {
-  background-image: linear-gradient(to bottom, #f2f2f2, #dbdbdb);
-}
-
-/* TreeView header */
-treeview header button {
-  background-image: linear-gradient(to bottom, #e3e3e3, #cfcfcf);
-  border: 1px solid #7a7a7a;
-  padding: 4px 6px;
-  font-weight: bold;
-}
-
-/* Progressbar */
-progressbar trough {
-  border: 1px solid #7a7a7a;
-  box-shadow: inset 1px 1px 0 0 #808080, inset -1px -1px 0 0 #ffffff;
-}
-progressbar progress {
-  background-image: linear-gradient(to bottom, #9fbef7, #5582d0);
-}
-
-/* Scrollbars a bit chunkier for desktop */
-scrollbar slider {
-  background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
-  border: 1px solid #7a7a7a;
-};
-
-#login-window { background-image: linear-gradient(to bottom, #d8d8d8, #cfcfcf); }
-#login-panel {
-  border-radius: 6px;
-  padding: 20px;
-  min-width: 420px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.04)),
+    linear-gradient(to bottom, rgba(22,38,58,.78), rgba(10,18,28,.85));
+  border: 1px solid rgba(110,180,255,.35);
+  border-radius: 16px;
+  box-shadow:
+    0 20px 38px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.08),
+    inset 0 -1px 0 rgba(255,255,255,.04),
+    0 0 0 1px rgba(31,131,255,.08);
+  padding: 16px 18px;
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+  backdrop-filter: blur(8px) saturate(115%);
   max-width: 720px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  min-width: 420px;
 }
+
+/* Título e rótulos */
 #login-window label.title {
-  font-size: 20px;
-  font-weight: bold;
+  color: #fff; font-weight: 800; letter-spacing: .2px;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6);
   margin-bottom: 8px;
 }
-#login-window entry {
-  min-height: 28px;
-  padding: 6px;
+#login-window label,
+#login-window .label { color: #f1f8ff; font-weight: 600; }
+
+/* ───────────────────────────────
+   3) CONTROLES: ENTRIES / BOTÕES
+   ─────────────────────────────── */
+#login-window entry,
+#login-window spinbutton,
+#login-window combobox,
+#login-window combobox entry {
+  background-image: linear-gradient(to bottom, rgba(10,16,25,.95), rgba(7,12,19,.92));
+  color: #fff;
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 12px;
+  padding: 6px 10px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.05);
 }
-#login-window button#login-btn {
-  min-height: 36px;
+#login-window entry::placeholder,
+#login-window combobox entry::placeholder { color: rgba(210,235,255,.70); }
+#login-window entry:focus,
+#login-window spinbutton:focus,
+#login-window combobox:focus,
+#login-window combobox entry:focus {
+  border-color: #28a0ff;
+  box-shadow: 0 0 0 3px rgba(40,160,255,.24), inset 0 1px 3px rgba(0,0,0,.35);
+  outline: none;
+}
+
+#login-window button {
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 12px;
   padding: 6px 14px;
-  font-size: 14px;
+  color: #e7f6ff; font-weight: 700;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06) 55%, rgba(255,255,255,.03)),
+    linear-gradient(to bottom, #1f4d7a, #174269 60%, #143a5d);
+  box-shadow: 0 8px 18px rgba(0,0,0,.50), inset 0 1px 0 rgba(255,255,255,.08);
 }
+#login-window button:hover {
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05)),
+    linear-gradient(to bottom, #255c92, #1b4e7d 60%, #174469);
+}
+#login-window button:active {
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
+    linear-gradient(to bottom, #173e64, #14375a 60%, #123251);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+}
+#login-window button:disabled { opacity: .45; color: rgba(240,250,255,.55); }
+#login-window button#login-btn { min-height: 32px; padding: 6px 16px; }
+
+/* Status / mensagens */
 #login-window label.status {
-  color: #4a4a4a;
-  font-size: 12px;
-  margin-top: 6px;
-};
+  color: #07111a; font-weight: 700;
+  background: linear-gradient(to bottom, #e7f6ff, #d4ecff);
+  border: 1px solid rgba(120,160,200,.55);
+  border-radius: 10px; padding: 4px 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.65);
+}
+
+/* Check / Radio (se usar) */
+checkbutton, radiobutton { color: #e8f6ff; font-weight: 600; }
+checkbutton check, radiobutton radio {
+  border: 1px solid rgba(60,110,170,.38);
+  background: linear-gradient(to bottom, #162536, #132030);
+  border-radius: 6px; box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+checkbutton check:checked { background-image: linear-gradient(180deg, #1cc8ff, #24a3ff); }
+radiobutton radio { border-radius: 50%; }
+radiobutton radio:checked {
+  background-image: radial-gradient(circle at 50% 50%, #1cc8ff 0 45%, transparent 46%);
+}
+
+/* ───────────────────────────────
+   4) POPUPS (Combobox / Menus)
+   ─────────────────────────────── */
+combobox .popup,
+combobox popover, combobox menu,
+popover, menu {
+  background-image: linear-gradient(to bottom, #0f1a25, #0b121c);
+  border: 1px solid rgba(100,140,200,.45);
+  border-radius: 12px; padding: 4px;
+  box-shadow: 0 12px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(31,131,255,.08);
+}
+combobox popover list row,
+combobox menu menuitem, menu menuitem {
+  color: #eaf6ff; background: transparent;
+  padding: 6px 10px; border-radius: 8px;
+}
+combobox popover list row:selected,
+combobox popover list row:hover,
+combobox menu menuitem:hover,
+combobox menu menuitem:active,
+menu menuitem:hover, menu menuitem:active {
+  color: #fff;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
+    linear-gradient(to bottom, #255c92, #174469);
+}
+combobox arrow { -gtk-icon-filter: brightness(1.25) contrast(1.1); }
+
+/* ───────────────────────────────
+   5) PROGRESS BAR (recuperação)
+   ─────────────────────────────── */
+#login-window progressbar trough {
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 12px;
+  background-image: linear-gradient(to bottom, #0f1a25, #0b121c);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
+}
+#login-window progressbar progress {
+  border-radius: 12px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
+    linear-gradient(90deg, #1cc8ff, #24a3ff 45%, #22ffbb 80%);
+  box-shadow: 0 0 18px rgba(50,220,255,.32), 0 0 4px rgba(34,255,187,.20);
+}
+
+/* ───────────────────────────────
+   6) SCROLLBAR / TOOLTIP / ÍCONES
+   ─────────────────────────────── */
+scrollbar slider {
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 999px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06)),
+    linear-gradient(to bottom, #182636, #132030);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 10px rgba(0,0,0,.45);
+}
+tooltip, tooltip * { color: #05101a; font-weight: 600; }
+button image, combobox image { -gtk-icon-filter: brightness(1.15) contrast(1.05); }
+
+/* Foco consistente */
+*:focus { outline: none; box-shadow: 0 0 0 3px rgba(40,160,255,.22); }
+
+/* ───────────────────────────────
+   7) HEADER DAS ABAS (Notebook)
+   ─────────────────────────────── */
+
+/* páginas transparentes para não “sumir” o fundo em tela cheia */
+#login-window notebook,
+#login-window notebook > stack,
+#login-window notebook > stack > *,
+#login-window stack, #login-window stack > *,
+#login-window scrolledwindow,
+#login-window scrolledwindow > viewport {
+  background-color: transparent;
+  background-image: none;
+  border: 0; box-shadow: none;
+}
+
+/* header com a mesma faixa do Environment e sem linhas extras */
+#login-window notebook { background: transparent; border: 0; }
+#login-window notebook > header,
+#login-window notebook > header.top {
+  background-image: linear-gradient(to bottom, #101826, #0d1521);
+  padding: 6px 8px;
+  border: 0;            /* evita “linha branca” */
+  box-shadow: none;
+}
+
+/* pills das abas */
+#login-window notebook tab {
+  margin: 4px;
+  padding: 6px 12px;
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 999px;
+  color: #eff7ff; font-weight: 700;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
+    linear-gradient(to bottom, #162536, #132030);
+  box-shadow: 0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
+}
+#login-window notebook tab label { color: inherit; }
+#login-window notebook tab:checked {
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
+    linear-gradient(to bottom, #1a2d42, #152636);
+  border-color: #2a6dbf; color: #fff;
+  box-shadow: 0 6px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(42,109,191,.25) inset;
+}
+
+/* ───────────────────────────────
+   8) StackSwitcher no topo
+   ─────────────────────────────── */
+#login-window stackswitcher {
+  background-image: linear-gradient(to bottom, #101826, #0d1521);
+  border-bottom: 1px solid rgba(110,160,220,.35);
+  padding: 6px 8px;
+}
+#login-window stackswitcher > button {
+  margin: 4px; padding: 4px 12px;
+  color: #eff7ff; font-weight: 700;
+  border: 1px solid rgba(60,110,170,.38);
+  border-radius: 999px;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
+    linear-gradient(to bottom, #162536, #132030);
+  box-shadow: 0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
+}
+#login-window stackswitcher > button:checked {
+  color: #fff; border-color: #2a6dbf;
+  background-image:
+    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
+    linear-gradient(to bottom, #1a2d42, #152636);
+}
+
+/* =========================
+   HERO (logo + título grande)
+   ========================= */
+#app-hero {
+  margin-top: 16px;
+  margin-bottom: 10px;          /* espaço entre hero e o card */
+  padding: 4px 8px;
+  display: inline-block;        /* pra centralizar legal */
+}
+
+#app-logo {
+  margin-bottom: 8px;
+}
+
+#app-title {
+  color: #f6fbff;
+  font-weight: 900;
+  letter-spacing: .6px;
+  font-size: 36px;              /* grande */
+  text-shadow: 0 2px 10px rgba(0,0,0,.45);
+}

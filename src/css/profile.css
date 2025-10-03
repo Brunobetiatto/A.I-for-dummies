@@ -1,0 +1,142 @@
+/* profile.css
+   Metal theme tuned for user profile tab
+*/
+
+/* Base: similar metal-panel look used elsewhere */
+.profile-panel {
+  background-image: linear-gradient(to bottom, #d8d8d8, #bfbfbf);
+  border: 1px solid #7f7f7f;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #808080;
+  padding: 12px;
+  border-radius: 3px;
+}
+
+/* Header (avatar + name area) */
+.profile-panel .profile-header {
+  padding: 8px;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+      -ms-flex-align: center;
+          align-items: center;
+  gap: 12px;
+}
+
+/* Avatar */
+.profile-panel image,
+.profile-panel .avatar {
+  min-width: 72px;
+  min-height: 72px;
+  max-width: 96px;
+  max-height: 96px;
+  border-radius: 6px;
+  border: 1px solid #8a8a8a;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.6) inset;
+  padding: 2px;
+  background: linear-gradient(to bottom, #fafafa, #ededed);
+}
+
+/* Name / email area */
+.profile-panel .profile-name {
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 2px;
+}
+.profile-panel .profile-email {
+  color: #333;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* Close-tab button — make it look integrated */
+.profile-panel button.close-tab {
+  background-image: linear-gradient(to bottom, #efefef, #d6d6d6);
+  border: 1px solid #7a7a7a;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 1px 1px 0 #fff inset, -1px -1px 0 #808080 inset;
+}
+.profile-panel button.close-tab:hover { background-image: linear-gradient(to bottom, #f7f7f7, #e3e3e3); }
+
+/* Bio frame */
+.profile-panel frame {
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+.profile-panel frame > label { font-weight: bold; }
+.profile-panel .bio {
+  padding: 8px;
+  background-image: linear-gradient(to bottom, #f7f7f7, #efefef);
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+}
+
+/* Datasets list area */
+.profile-panel .datasets-frame {
+  margin-top: 10px;
+  padding: 8px;
+  background-image: linear-gradient(to bottom, #f3f3f3, #e8e8e8);
+  border: 1px solid #cfcfcf;
+  border-radius: 4px;
+}
+
+/* Each list row */
+.profile-panel .dataset-row {
+  padding: 8px 6px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom, #ffffff, #fbfbfb);
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Name button inside dataset row */
+.profile-panel .dataset-name {
+  font-weight: 600;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+}
+.profile-panel .dataset-name:focus,
+.profile-panel .dataset-name:hover {
+  background-color: rgba(40, 100, 200, 0.06);
+  border-radius: 4px;
+}
+
+/* Meta label (size/date) */
+.profile-panel .dataset-meta {
+  color: #444;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* Separator */
+.profile-panel separator,
+.profile-panel .row-sep {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  border-color: #d6d6d6;
+}
+
+/* Scrollbar tweaks (desktop-friendly) */
+.profile-panel scrollbar slider {
+  background-image: linear-gradient(to bottom, #e8e8e8, #d3d3d3);
+  border: 1px solid #bfbfbf;
+}
+
+/* Make labels a bit more readable */
+.profile-panel label {
+  color: #222;
+}
+
+/* Small screens: make avatar smaller and stack nicely */
+@media (max-width: 640px) {
+  .profile-panel .profile-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .profile-panel image, .profile-panel .avatar { max-width: 72px; max-height: 72px; }
+}

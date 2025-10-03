@@ -85,3 +85,17 @@ scrollbar slider {
   background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
   border: 1px solid #7a7a7a;
 };
+
+/* If you have model/plot containers with custom classes, keep them boxy */
+.models-panel, .plot-frame, .metrics-frame {
+  background: #c0c0c0;
+  border: 1px solid #000000;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #808080;
+  padding: 6px;
+  border-radius: 0;
+}
+
+/* Fit table tighter like Win98 lists */
+treeview { -GtkTreeView-vertical-separator: 0; -GtkTreeView-horizontal-separator: 4; }

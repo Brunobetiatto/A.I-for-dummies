@@ -22,6 +22,8 @@ bool api_reset_password(const char *reset_token, const char *new_password, char 
 bool api_describe_table(const char *table_name, char **response);
 bool api_create_user(const char *nome, const char *email, const char *password, char **response);
 bool api_login(const char *email, const char *password, char **response);
+bool api_get_user_by_id(int user_id, char **response);
+bool api_get_user_datasets(int user_id, char **response);
 
 
 
@@ -186,6 +188,21 @@ bool api_login(const char *email, const char *password, char **response) {
     
     cJSON_Delete(json);
     free(data);
+    return (*response != NULL);
+}
+
+// Implementação:
+bool api_get_user_by_id(int user_id, char **response) {
+    char endpoint[256];
+    snprintf(endpoint, sizeof(endpoint), "/user/%d", user_id);
+    *response = api_request("GET", endpoint, NULL);
+    return (*response != NULL);
+}
+
+bool api_get_user_datasets(int user_id, char **response) {
+    char endpoint[256];
+    snprintf(endpoint, sizeof(endpoint), "/user/%d/datasets", user_id);
+    *response = api_request("GET", endpoint, NULL);
     return (*response != NULL);
 }
 
@@ -448,6 +465,41 @@ WCHAR* run_api_command(const WCHAR *command) {
                 cJSON_Delete(json);
             }
         }
+    }
+
+    if (token && strcmp(token, "GET_USER_JSON") == 0) {
+        token = strtok(NULL, " ");
+        if (token) {
+            int uid = atoi(token);
+            if (api_get_user_by_id(uid, &response)) {
+                // convert raw JSON (response) to WCHAR and return directly
+                int wchar_size = MultiByteToWideChar(CP_UTF8, 0, response, -1, NULL, 0);
+                WCHAR *wchar_response = malloc(wchar_size * sizeof(WCHAR));
+                MultiByteToWideChar(CP_UTF8, 0, response, -1, wchar_response, wchar_size);
+                free(response);
+                free(utf8_command);
+                return wchar_response; // caller must free
+            }
+        }
+        free(utf8_command);
+        return NULL;
+    }
+
+    if (token && strcmp(token, "GET_USER_DATASETS_JSON") == 0) {
+        token = strtok(NULL, " ");
+        if (token) {
+            int uid = atoi(token);
+            if (api_get_user_datasets(uid, &response)) {
+                int wchar_size = MultiByteToWideChar(CP_UTF8, 0, response, -1, NULL, 0);
+                WCHAR *wchar_response = malloc(wchar_size * sizeof(WCHAR));
+                MultiByteToWideChar(CP_UTF8, 0, response, -1, wchar_response, wchar_size);
+                free(response);
+                free(utf8_command);
+                return wchar_response;
+            }
+        }
+        free(utf8_command);
+        return NULL;
     }
     
     free(utf8_command);

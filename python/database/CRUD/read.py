@@ -93,3 +93,76 @@ def verify_login(cnx, email: str, password: str):
         print("Error in verify_login:", e)
         traceback.print_exc()
         return None
+    
+def get_user_by_id(cnx, user_id: int):
+    cur = cnx.cursor()
+    try:
+        cur.execute(
+            "SELECT idusuario, nome, email, senha, salt, dataCadastro, bio, avatar_url FROM usuario WHERE idusuario = %s",
+            (user_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        # se conexão usa DictCursor, row já é dict; se não, adaptamos:
+        if isinstance(row, dict):
+            return row
+        else:
+            # assuma ordem: idusuario, nome, email, senha, salt, dataCadastro, bio, avatar_url
+            return {
+                "idusuario": row[0],
+                "nome": row[1],
+                "email": row[2],
+                "senha": row[3],
+                "salt": row[4],
+                "dataCadastro": row[5],
+                "bio": row[6],
+                "avatar_url": row[7]
+            }
+    finally:
+        cur.close()
+
+def get_datasets_by_user(cnx, user_id: int):
+    cur = cnx.cursor()
+    try:
+        cur.execute(
+            """SELECT iddataset, usuario_idusuario, nome, descricao, url, tamanho, dataCadastro, enviado_por_nome, enviado_por_email
+               FROM dataset
+               WHERE usuario_idusuario = %s
+               ORDER BY dataCadastro DESC""",
+            (user_id,)
+        )
+        rows = cur.fetchall()
+        results = []
+        if not rows:
+            return results
+        if isinstance(rows[0], dict):
+            for r in rows:
+                results.append({
+                    "iddataset": r.get("iddataset"),
+                    "usuario_idusuario": r.get("usuario_idusuario"),
+                    "nome": r.get("nome"),
+                    "descricao": r.get("descricao"),
+                    "url": r.get("url"),
+                    "tamanho": r.get("tamanho"),
+                    "dataCadastro": r.get("dataCadastro").isoformat() if r.get("dataCadastro") else None,
+                    "enviado_por_nome": r.get("enviado_por_nome"),
+                    "enviado_por_email": r.get("enviado_por_email")
+                })
+        else:
+            for r in rows:
+                results.append({
+                    "iddataset": r[0],
+                    "usuario_idusuario": r[1],
+                    "nome": r[2],
+                    "descricao": r[3],
+                    "url": r[4],
+                    "tamanho": r[5],
+                    "dataCadastro": r[6].isoformat() if r[6] else None,
+                    "enviado_por_nome": r[7],
+                    "enviado_por_email": r[8]
+                })
+        return results
+    finally:
+        cur.close()
+    

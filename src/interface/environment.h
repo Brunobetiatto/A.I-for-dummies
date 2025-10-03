@@ -3,8 +3,18 @@
 #include <glib/gstdio.h>
 #include <sys/stat.h>
 
+#ifdef G_OS_WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <io.h>      /* _open_osfhandle */
+#include <fcntl.h>   /* _O_RDONLY, _O_BINARY */
+#include <errno.h>
+#include <process.h> /* _spawnv, _P_NOWAIT */
+#endif
+
 #ifndef ENV_H
 #define ENV_H
+
 
 // ---- small helpers -------------------------------------------------
 static void append_log(EnvCtx *ctx, const char *fmt, ...) {
@@ -283,6 +293,113 @@ static gboolean on_python_stdout(GIOChannel *ch, GIOCondition cond, gpointer use
     return TRUE;
 }
 
+
+#ifdef G_OS_WIN32
+static gboolean spawn_process_with_pipes_win(const gchar *exe_utf8, const gchar *cmdline_utf8,
+                                             int *out_fd_ptr, int *err_fd_ptr, PROCESS_INFORMATION *pi_out,
+                                             GError **gerr)
+{
+    gboolean res = FALSE;
+    HANDLE hOutRd = NULL, hOutWr = NULL;
+    HANDLE hErrRd = NULL, hErrWr = NULL;
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+    /* criar pipes para stdout/stderr */
+    if (!CreatePipe(&hOutRd, &hOutWr, &sa, 0)) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "CreatePipe stdout failed (err=%lu)", GetLastError());
+        goto done;
+    }
+    if (!CreatePipe(&hErrRd, &hErrWr, &sa, 0)) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "CreatePipe stderr failed (err=%lu)", GetLastError());
+        goto done;
+    }
+
+    /* leitura não herdável (só os handles de escrita vão ser herdados pelo filho) */
+    if (!SetHandleInformation(hOutRd, HANDLE_FLAG_INHERIT, 0) ||
+        !SetHandleInformation(hErrRd, HANDLE_FLAG_INHERIT, 0)) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "SetHandleInformation failed (err=%lu)", GetLastError());
+        goto done;
+    }
+
+    /* converter strings UTF-8 -> UTF-16 */
+    WCHAR *exe_w = g_utf8_to_utf16(exe_utf8, -1, NULL, NULL, NULL);
+    WCHAR *cmd_w = g_utf8_to_utf16(cmdline_utf8, -1, NULL, NULL, NULL);
+    if (!exe_w || !cmd_w) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "UTF-8 -> UTF-16 conversion failed");
+        g_free(exe_w); g_free(cmd_w);
+        goto done;
+    }
+
+    STARTUPINFOW si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE); /* não redirecionamos stdin */
+    si.hStdOutput = hOutWr;
+    si.hStdError  = hErrWr;
+
+    PROCESS_INFORMATION pi; ZeroMemory(&pi, sizeof(pi));
+
+    /* criar processo sem console (sem janela), herdando handles de escrita */
+    BOOL created = CreateProcessW(
+        exe_w,      /* lpApplicationName */
+        cmd_w,      /* lpCommandLine (modificável) */
+        NULL, NULL, /* security attrs */
+        TRUE,       /* bInheritHandles */
+        CREATE_NO_WINDOW,
+        NULL, NULL, /* environment, cwd */
+        &si, &pi
+    );
+
+    g_free(exe_w); g_free(cmd_w);
+
+    if (!created) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "CreateProcessW failed (err=%lu)", GetLastError());
+        goto done;
+    }
+
+    /* parent fecha os handles de escrita; o filho tem os seus próprios */
+    CloseHandle(hOutWr); hOutWr = NULL;
+    CloseHandle(hErrWr); hErrWr = NULL;
+
+    /* converter handles de leitura para descritores POSIX */
+    intptr_t out_fd_os = _open_osfhandle((intptr_t)hOutRd, _O_RDONLY | _O_BINARY);
+    if (out_fd_os == -1) {
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "_open_osfhandle stdout failed (errno=%d)", errno);
+        goto done;
+    }
+    intptr_t err_fd_os = _open_osfhandle((intptr_t)hErrRd, _O_RDONLY | _O_BINARY);
+    if (err_fd_os == -1) {
+        _close((int)out_fd_os);
+        g_set_error(gerr, G_FILE_ERROR, G_FILE_ERROR_FAILED, "_open_osfhandle stderr failed (errno=%d)", errno);
+        goto done;
+    }
+
+    /* devolver fds e PROCESS_INFORMATION (quem chamar decide fechar pi.hProcess/hThread) */
+    *out_fd_ptr = (int)out_fd_os;
+    *err_fd_ptr = (int)err_fd_os;
+    if (pi_out) {
+        memcpy(pi_out, &pi, sizeof(pi));
+    } else {
+        /* se não queremos PI, fechamos handles para evitar leak */
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+
+    res = TRUE;
+    return res;
+
+done:
+    if (hOutRd) CloseHandle(hOutRd);
+    if (hOutWr) CloseHandle(hOutWr);
+    if (hErrRd) CloseHandle(hErrRd);
+    if (hErrWr) CloseHandle(hErrWr);
+    return FALSE;
+}
+#endif
+
+
+/* --- Função spawn_python_training atualizada para usar o helper no Windows --- */
 static gboolean spawn_python_training(EnvCtx *ctx) {
     if (!ctx || !ctx->current_dataset_path) return FALSE;
 
@@ -293,24 +410,31 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
         return FALSE;
     }
 
-    /* Prefer pythonw on Windows (no console) */
 #ifdef G_OS_WIN32
-    gchar *python = g_find_program_in_path("pythonw");
-    if (!python) python = g_find_program_in_path("pyw");
-    if (!python) python = g_find_program_in_path("python");
+    gchar *python = g_find_program_in_path("python");
+    if (!python) python = g_find_program_in_path("py");
+    append_log(ctx, "[info] Using Python interpreter: %s", python ? python : "(not found)");
 #else
     gchar *python = g_find_program_in_path("python3");
     if (!python) python = g_find_program_in_path("python");
 #endif
-    if (!python) { append_log(ctx, "[error] Python not found in PATH"); return FALSE; }
+    if (!python) {
+        append_log(ctx, "[error] Python not found in PATH");
+        return FALSE;
+    }
 
-    gchar *script = g_build_filename("python", "models", "models.py", NULL);
+    gchar *cwd = g_get_current_dir();
+    gchar *script = g_build_filename(cwd, "python", "models", "models.py", NULL);
+    if (!g_file_test(script, G_FILE_TEST_EXISTS)) {
+        append_log(ctx, "[error] Script não encontrado: %s", script);
+        g_free(cwd); g_free(script); g_free(python);
+        return FALSE;
+    }
+    append_log(ctx, "[debug] CWD=%s", cwd);
 
-    /* Train split (0..100 slider => 0..1) */
     gdouble train_pct = gtk_range_get_value(GTK_RANGE(ctx->split_scale)) / 100.0;
     gchar *train_s  = g_strdup_printf("%.3f", train_pct);
 
-    /* Epochs + frame cadence: aim ~40 frames total for smoothness */
     gint epochs = gtk_spin_button_get_value_as_int(ctx->epochs_spin);
     gint frame_every = MAX(1, epochs / 40);
     gchar *epochs_s = g_strdup_printf("%d", epochs);
@@ -319,6 +443,9 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
     const gchar *proj  = proj_to_flag(ctx->proj_combo);
     const gchar *color = color_to_flag(ctx->colorby_combo);
     const gchar *algo  = algo_to_flag(ctx->algo_combo);
+
+    gchar *out_plot = g_strdup(ctx->fit_img_path ? ctx->fit_img_path : "out_plot.png");
+    gchar *out_metrics = g_strdup(ctx->metrics_path ? ctx->metrics_path : "metrics.json");
 
     gchar *argv[] = {
         python, script,
@@ -333,30 +460,118 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
         "--proj",     (gchar*)proj,
         "--color-by", (gchar*)color,
         "--frame-every", frame_s,
-        "--out-plot",    ctx->fit_img_path,
-        "--out-metrics", ctx->metrics_path,
+        "--out-plot",    out_plot,
+        "--out-metrics", out_metrics,
         NULL
     };
+    append_log(ctx, "[debug] Spawning: %s %s", python, script);
+    for (int i = 0; argv[i] != NULL; ++i) append_log(ctx, "[debug] argv[%d] = %s", i, argv[i]);
 
     gint out_fd = -1, err_fd = -1;
     GError *err = NULL; GPid pid = 0;
+    GSpawnFlags flags = 0;
+    if (!g_path_is_absolute(python)) flags = G_SPAWN_SEARCH_PATH;
 
     gboolean ok = g_spawn_async_with_pipes(
         NULL, argv, NULL,
-        (GSpawnFlags)(G_SPAWN_SEARCH_PATH), /* no console window with pythonw */
+        flags,
         NULL, NULL, &pid,
         NULL, &out_fd, &err_fd, &err
     );
 
-    g_free(train_s); g_free(epochs_s); g_free(frame_s);
-    g_free(script);  g_free(python);
-
     if (!ok) {
         append_log(ctx, "[error] spawn failed: %s", err ? err->message : "unknown");
         if (err) g_error_free(err);
+
+#ifdef G_OS_WIN32
+        /* Tentativa: usar CreateProcessW + pipes (mais robusto no Windows) */
+        append_log(ctx, "[warn] spawn_async_with_pipes falhou; tentando CreateProcessW + pipes...");
+        GError *werr = NULL;
+        /* construir cmdline (colocar aspas onde necessário) */
+        gchar *cmdline = g_strdup_printf("\"%s\" \"%s\" --csv \"%s\" --x \"%s\" --y \"%s\" --x-label \"%s\" --y-label \"%s\" --model \"%s\" --epochs %s --train-pct %s --proj \"%s\" --color-by \"%s\" --frame-every %s --out-plot \"%s\" --out-metrics \"%s\"",
+                                         python, script,
+                                         ctx->current_dataset_path,
+                                         xname, yname, xname, yname,
+                                         algo, epochs_s, train_s, proj, color, frame_s,
+                                         out_plot, out_metrics);
+
+        PROCESS_INFORMATION pi;
+        int win_out_fd = -1, win_err_fd = -1;
+        if (spawn_process_with_pipes_win(python, cmdline, &win_out_fd, &win_err_fd, &pi, &werr)) {
+            /* criar GIOChannels a partir dos fds Windows */
+            GIOChannel *ch_out = (win_out_fd >= 0) ? g_io_channel_win32_new_fd(win_out_fd) : NULL;
+            GIOChannel *ch_err = (win_err_fd >= 0) ? g_io_channel_win32_new_fd(win_err_fd) : NULL;
+            if (ch_out) {
+                g_io_channel_set_encoding(ch_out, NULL, NULL);
+                g_io_add_watch(ch_out, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx);
+            }
+            if (ch_err) {
+                g_io_channel_set_encoding(ch_err, NULL, NULL);
+                g_io_add_watch(ch_err, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx);
+            }
+
+            /* opcional: podes guardar pi.hProcess para esperar término mais tarde.
+               Aqui fechamos handles do PROCESS_INFORMATION para evitar leak; se precisares
+               de esperar pelo processo, guarda pi em ctx e fecha quando terminar. */
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+
+            ctx->trainer_running = TRUE;
+            append_log(ctx, "[info] started child via CreateProcessW (with pipes).");
+            if (ctx->status) gtk_label_set_text(ctx->status, "Training…");
+            if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
+            if (ctx->right_nb && ctx->plot_page_idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+
+            g_free(cmdline);
+            /* limpar alocações */
+            g_free(train_s); g_free(epochs_s); g_free(frame_s);
+            g_free(script);  g_free(python); g_free(cwd);
+            g_free(out_plot); g_free(out_metrics);
+            return TRUE;
+        } else {
+            append_log(ctx, "[error] CreateProcessW helper falhou: %s", werr ? werr->message : "(unknown)");
+            if (werr) g_error_free(werr);
+            g_free(cmdline);
+
+            /* último recurso: tentar _spawnv (sem pipes), para pelo menos iniciar o processo */
+            append_log(ctx, "[warn] tentando fallback _spawnv() no Windows (sem pipes)...");
+            char **spawn_argv = g_new0(char*, 40);
+            int ai = 0;
+            for (int i = 0; argv[i] != NULL && ai < 38; ++i) spawn_argv[ai++] = argv[i];
+            spawn_argv[ai] = NULL;
+
+            intptr_t spawn_ret = _spawnv(_P_NOWAIT, (const char*)python, (const char * const*)spawn_argv);
+            if (spawn_ret == -1) {
+                append_log(ctx, "[error] _spawnv failed (errno=%d).", errno);
+                g_free(spawn_argv);
+                g_free(train_s); g_free(epochs_s); g_free(frame_s);
+                g_free(script);  g_free(python); g_free(cwd);
+                g_free(out_plot); g_free(out_metrics);
+                return FALSE;
+            } else {
+                append_log(ctx, "[info] started child via _spawnv pid=%ld", (long)spawn_ret);
+                ctx->trainer_running = TRUE;
+                if (ctx->status) gtk_label_set_text(ctx->status, "Training…");
+                if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
+                if (ctx->right_nb && ctx->plot_page_idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+                g_free(spawn_argv);
+                g_free(train_s); g_free(epochs_s); g_free(frame_s);
+                g_free(script);  g_free(python); g_free(cwd);
+                g_free(out_plot); g_free(out_metrics);
+                return TRUE;
+            }
+        }
+#else
+        /* Em Unix, se falhou, abortamos */
+        append_log(ctx, "[error] spawn_async_with_pipes falhou e não há fallback disponível neste OS.");
+        g_free(train_s); g_free(epochs_s); g_free(frame_s);
+        g_free(script);  g_free(python); g_free(cwd);
+        g_free(out_plot); g_free(out_metrics);
         return FALSE;
+#endif
     }
 
+    /* Se spawn com pipes funcionou (POSIX ou Windows caso raro), cria canais e segue */
 #ifdef G_OS_WIN32
     GIOChannel *ch_out = (out_fd >= 0) ? g_io_channel_win32_new_fd(out_fd) : NULL;
     GIOChannel *ch_err = (err_fd >= 0) ? g_io_channel_win32_new_fd(err_fd) : NULL;
@@ -364,20 +579,19 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
     GIOChannel *ch_out = (out_fd >= 0) ? g_io_channel_unix_new(out_fd) : NULL;
     GIOChannel *ch_err = (err_fd >= 0) ? g_io_channel_unix_new(err_fd) : NULL;
 #endif
-    if (ch_out) { g_io_channel_set_encoding(ch_out, NULL, NULL);
-                  g_io_add_watch(ch_out, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
-    if (ch_err) { g_io_channel_set_encoding(ch_err, NULL, NULL);
-                  g_io_add_watch(ch_err, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
+    if (ch_out) { g_io_channel_set_encoding(ch_out, NULL, NULL); g_io_add_watch(ch_out, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
+    if (ch_err) { g_io_channel_set_encoding(ch_err, NULL, NULL); g_io_add_watch(ch_err, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
+
+    g_free(train_s); g_free(epochs_s); g_free(frame_s);
+    g_free(script);  g_free(python); g_free(cwd);
+    g_free(out_plot); g_free(out_metrics);
 
     ctx->trainer_running = TRUE;
     append_log(ctx, "[start] model=%s  epochs=%d  train%%=%.1f  proj=%s  color=%s",
                algo, epochs, train_pct*100.0, proj, color);
     if (ctx->status)   gtk_label_set_text(ctx->status, "Training…");
     if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
-
-    /* Jump to Plot immediately so the first frame swap is visible */
-    if (ctx->right_nb && ctx->plot_page_idx >= 0)
-        gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+    if (ctx->right_nb && ctx->plot_page_idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
 
     return TRUE;
 }

@@ -1,3 +1,6 @@
+/* css/datasets.css
+   A simple "Metal" theme for GTK4 apps on desktop platforms.
+   Inspired by macOS Metal appearance, but adapted for cross-platform use.
 /* Base window background (Metal-like brushed gray) */
 window, dialog, .background {
   background-image: linear-gradient(to bottom, #d0d0d0, rgba(189, 189, 189, 1));

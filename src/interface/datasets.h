@@ -2,6 +2,7 @@
 #include "../backend/communicator.h"
 #include "context.h"
 #include <pango/pangocairo.h>
+#include "profile.h"
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -15,7 +16,7 @@ static const GtkTargetEntry DND_TARGETS[] = {
 
 #ifndef gdk_atom_equal
 #  define gdk_atom_equal(a,b) ((a) == (b))
-#endif
+#endif /* DATASETS_H */
 
 static void trim_spaces(char *s) {
     if (!s) return;
@@ -318,6 +319,44 @@ static void on_y_drag_data_received(GtkWidget *w, GdkDragContext *ctx,
     gtk_style_context_remove_class(sc, "drop-hover");
     gtk_drag_finish(ctx, success, FALSE, time_);
 }
+gboolean on_user_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data) {
+    gpointer p = g_object_get_data(G_OBJECT(w), "uploader-id");
+    if (!p) return TRUE;
+    int uploader_id = GPOINTER_TO_INT(p);
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "GET_USER_JSON %d", uploader_id);
+
+    // converter comando para WCHAR
+    int wide_len = MultiByteToWideChar(CP_UTF8, 0, cmd, -1, NULL, 0);
+    WCHAR *wcmd = malloc(wide_len * sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, cmd, -1, wcmd, wide_len);
+
+    // chama communicator (run_api_command) — recebe WCHAR* alocado
+    WCHAR *wres = run_api_command(wcmd);
+    free(wcmd);
+    if (!wres) return TRUE;
+
+    // converte resposta WCHAR* -> UTF-8
+    int utf8_size = WideCharToMultiByte(CP_UTF8, 0, wres, -1, NULL, 0, NULL, NULL);
+    char *resp_utf8 = malloc(utf8_size);
+    WideCharToMultiByte(CP_UTF8, 0, wres, -1, resp_utf8, utf8_size, NULL, NULL);
+    free(wres); // liberar o WCHAR* retornado por run_api_command
+
+    if (resp_utf8) {
+        // resp_utf8 contém o JSON cru retornado pela API (ex.: {"status":"OK","user":{...}})
+        extern void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent);
+
+        // pega a janela pai (opcional)
+        GtkWindow *parent_win = GTK_WINDOW(gtk_widget_get_ancestor(w, GTK_TYPE_WINDOW));
+        profile_create_and_show_from_json(resp_utf8, parent_win);
+
+        free(resp_utf8);
+    }
+
+    return TRUE;
+}
+
 
 static void enable_drop_on_env_entries(EnvCtx *ctx) {
     if (!ctx) return;
@@ -472,6 +511,8 @@ typedef struct {
     GtkLabel   *lbl_rows;
     GtkLabel   *lbl_link;
     GtkLabel   *lbl_desc;
+
+    GtkWidget  *user_event;
 } DatasetsUI;
 
 /* BACK button -> return to list page */
@@ -530,6 +571,37 @@ static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer u
 
     if (GTK_IS_STACK(dui->stack)) {
         gtk_stack_set_visible_child_name(dui->stack, "details");
+    }
+
+
+    /* aliases para possível coluna de id do uploader */
+    const char *A_USER_ID[] = {
+        "usuario_idusuario", "usuarioid", "user_id", "uploader_id",
+        "idusuario", "id", "owner_id"
+    };
+
+    /* pega string do id se existir */
+    const char *v_user_id_str = meta ? meta_get_any(meta, A_USER_ID, G_N_ELEMENTS(A_USER_ID)) : "";
+
+    /* se tivermos nome, mostra; se não, usa traço */
+    if (v_user && *v_user) {
+        gtk_label_set_text(dui->lbl_user, v_user);
+    } else {
+        gtk_label_set_text(dui->lbl_user, "—");
+    }
+
+    /* configura o eventbox (dui->user_event) com o uploader-id para o on_user_clicked usar */
+    if (dui->user_event) {
+        if (v_user_id_str && *v_user_id_str) {
+            int uid = atoi(v_user_id_str);
+            g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", GINT_TO_POINTER(uid));
+            /* tornar sensível caso estivesse desabilitado */
+            gtk_widget_set_sensitive(dui->user_event, TRUE);
+        } else {
+            /* não temos id — remove dado e descativa clique */
+            g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", NULL);
+            gtk_widget_set_sensitive(dui->user_event, FALSE);
+        }
     }
     return TRUE;
 }
@@ -784,7 +856,11 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     GtkWidget *l_link = gtk_label_new("Link:");
     GtkWidget *l_desc = gtk_label_new("Description:");
 
-    GtkWidget *v_user = gtk_label_new("—");
+    GtkWidget *lbl_user_inner = gtk_label_new("—");
+    GtkWidget *v_user_event = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(v_user_event), FALSE);
+    gtk_container_add(GTK_CONTAINER(v_user_event), lbl_user_inner);
+
     GtkWidget *v_size = gtk_label_new("—");
     GtkWidget *v_rows = gtk_label_new("—");
     GtkWidget *v_link = gtk_label_new(NULL);
@@ -796,7 +872,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
 
     int r = 0;
     gtk_grid_attach(GTK_GRID(grid), l_user, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_user, 1, r++, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), v_user_event, 1, r++, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), l_size, 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), v_size, 1, r++, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), l_rows, 0, r, 1, 1);
@@ -833,10 +909,11 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
 
     /* Bundle UI pointers & stash them on the entry (easy to grab on refresh) */
     DatasetsUI *dui = g_new0(DatasetsUI, 1);
+    dui->user_event = v_user_event;
     dui->stack = GTK_STACK(stack);
     dui->cards = GTK_LIST_BOX(cards);
     dui->title_label = title;
-    dui->lbl_user = GTK_LABEL(v_user);
+    dui->lbl_user = GTK_LABEL(lbl_user_inner);
     dui->lbl_size = GTK_LABEL(v_size);
     dui->lbl_rows = GTK_LABEL(v_rows);
     dui->lbl_link = GTK_LABEL(v_link);
@@ -845,6 +922,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, g_free);
 
     /* Signals */
+    g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
     g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
     g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui->stack);
 

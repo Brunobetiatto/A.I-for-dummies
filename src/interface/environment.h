@@ -725,63 +725,49 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), ctx->stack);
     gtk_box_pack_start(GTK_BOX(outer), switcher, FALSE, FALSE, 0);
 
+    /* Toolbar (debug/logout area) - placed above the paned area */
+    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
+    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
+    g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
+    gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
+
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
 
     /* =============== LEFT controls =============== */
     GtkWidget *left_col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
-    /* Dataset row */
+    /* Dataset row (single, not duplicated) */
     {
-        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         ctx->ds_combo       = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         ctx->btn_refresh_ds = GTK_BUTTON(gtk_button_new_with_label("Refresh"));
         GtkWidget *btn_open = gtk_button_new_with_label("Open");
         GtkWidget *btn_load = gtk_button_new_with_label("Load");
 
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(row), btn_open, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(row), btn_load, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Dataset", row), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), btn_open, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), btn_load, FALSE, FALSE, 0);
+
+        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Dataset", ds_row), FALSE, FALSE, 0);
 
         g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_local_datasets), ctx);
         g_signal_connect(btn_open,            "clicked", G_CALLBACK(on_load_local_dataset),     ctx);
         g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_selected_dataset),  ctx);
     }
-    // Adicione o botão de logout na barra de ferramentas
-    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
-
-    /* botão debug - no canto esquerdo/ direito dependendo de pack_end/pack_start */
-
-    
-    ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));
-    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
-
-    /* Conecta o clique para abrir a janela de debug */
-
-    g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
-    
-    /* dataset row + refresh + load */
-    GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    ctx->ds_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
-    ctx->btn_refresh_ds = GTK_BUTTON(gtk_button_new_with_label("Refresh"));
-    GtkWidget *btn_load = gtk_button_new_with_label("Load");
-    gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(ds_row), btn_load, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left_content), ds_row, FALSE, FALSE, 0);
 
     /* trainees row */
-    GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
-    gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
-    gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new(""), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
-    /* ERA: gtk_box_pack_start(GTK_BOX(left_content), tr_row, FALSE, FALSE, 0); */
-    gtk_box_pack_start(GTK_BOX(left_content), group_panel("Trainee", tr_row), FALSE, FALSE, 0);
+    {
+        GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+        gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
+        gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new(""), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Trainee", tr_row), FALSE, FALSE, 0);
+    }
 
     /* Regressor + epochs */
     {
@@ -890,7 +876,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     }
 
     /* Wrap left in metal panel + pack */
-    const char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
+    char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
     GtkWidget *left_panel  = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", left_col,  "env-left-panel");
     gtk_paned_pack1(GTK_PANED(paned), left_panel, FALSE, FALSE);
 
@@ -921,6 +907,12 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *right_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", right_nb, "env-right-panel");
     gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, FALSE);
 
+    /* free CSS buffer returned by parse_CSS_file (wrap_CSS already applied it) */
+    if (ENVIRONMENT_CSS) {
+        free(ENVIRONMENT_CSS);
+        ENVIRONMENT_CSS = NULL;
+    }
+
     /* Footer */
     GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->progress = GTK_PROGRESS_BAR(gtk_progress_bar_new());
@@ -939,26 +931,11 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     if (!ctx->metrics_path) { gchar *tmp = g_get_tmp_dir(); ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL); }
 
     /* Use the single-file poller; metrics poller pops the tab once */
-    ctx->plot_timer_id   = g_timeout_add(120, poll_fit_image_cb, ctx);
-    ctx->metrics_timer_id= g_timeout_add(500,  poll_metrics_cb,  ctx);
+    ctx->plot_timer_id    = g_timeout_add(120, poll_fit_image_cb, ctx);
+    ctx->metrics_timer_id = g_timeout_add(500,  poll_metrics_cb,  ctx);
 
     /* Populate datasets combo */
     on_refresh_local_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
-
-    /* Torna o CSS válido para janelas/popus globais (menus, popovers, etc.) */
-    GtkCssProvider *prov = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(prov, ENVIRONMENT_CSS, -1, NULL);
-    #if GTK_MAJOR_VERSION >= 4
-    gtk_style_context_add_provider_for_display(
-        gdk_display_get_default(),
-        GTK_STYLE_PROVIDER(prov),
-        GTK_STYLE_PROVIDER_PRIORITY_USER);
-    #else
-    gtk_style_context_add_provider_for_screen(
-        gdk_screen_get_default(),
-        GTK_STYLE_PROVIDER(prov),
-        GTK_STYLE_PROVIDER_PRIORITY_USER);
-    #endif
-    g_object_unref(prov);
 }
+
 #endif

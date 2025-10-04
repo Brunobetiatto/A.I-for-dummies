@@ -1,237 +1,373 @@
-/* ===========================
-   Dark Frutiger Aero — Midnight Aqua
-   =========================== */
+/* =====================================================
+   Windows 95/98 Classic — App Theme (GTK CSS)
+   ===================================================== */
 
-:root { color-scheme: dark; }
+:root{
+  color-scheme: light;
 
-/* Base */
-window, dialog, .background {
-  background-color: #0b1220;
-  background-image:
-    radial-gradient(1100px 700px at 25% 0%, rgba(90,240,255,.18), rgba(90,240,255,0) 60%),
-    radial-gradient(900px 600px at 85% 5%, rgba(50,210,255,.12), rgba(50,210,255,0) 60%),
-    linear-gradient(to bottom, #0b1220, #0e1c2b 40%, #091521 100%);
-  color: #e6f5ff;
-}
+  /* Paleta Win95 */
+  --desk:#008080;
+  --winface:#C0C0C0;
+  --text:#000;
+  --shadow:#808080;
+  --darkshadow:#404040;
+  --highlight:#FFF;
 
-/* Painel vítreo (container principal) */
-.metal-panel{
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.04)),
-    linear-gradient(to bottom, rgba(22,38,58,.78), rgba(10,18,28,.85));
-  border: 1px solid rgba(110,180,255,.35);
-  border-radius: 12px;
-  box-shadow:
-    0 12px 28px rgba(0,0,0,.55),
-    inset 0 1px 0 rgba(255,255,255,.08),
-    inset 0 -1px 0 rgba(255,255,255,.04),
-    0 0 0 1px rgba(31,131,255,.08);
-  padding: 12px;
-  -webkit-backdrop-filter: blur(6px) saturate(115%);
-  backdrop-filter: blur(6px) saturate(115%);
+  --title-active-1:#000080;
+  --title-active-2:#1084d0;
+  --title-inactive-1:#7f7f7f;
+  --title-inactive-2:#b5b5b5;
+
+  --select-bg:#000080;
+  --select-fg:#FFF;
+
+  --ok-green-1:#00aa00;
+  --ok-green-2:#009000;
 }
 
 /* =========================
-   Frame (grupos)
+   Base (janela / desktop)
    ========================= */
+window, dialog, .background{
+  background-color:var(--desk);
+  background-image:none;
+  color:var(--text);
+  font-family:"MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size:10pt;
+}
 
-/* Moldura EXTERNA arredondada e anel fino */
+/* =========================
+   Painéis / Frames
+   ========================= */
+.metal-panel{
+  background:var(--winface);
+  color:var(--text);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  padding:10px 12px;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow),
+    0 1px 0 var(--highlight),
+    0 -1px 0 var(--darkshadow);
+}
+
 #env-left-panel frame > border,
 #env-right-panel frame > border,
-.metal-panel frame > border {
-  border-radius: 14px;
-  border: 1px solid rgba(60,110,170,.38);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+.metal-panel frame > border{
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 
-/* Garante o mesmo raio no container do frame */
 #env-left-panel frame,
 #env-right-panel frame,
-.metal-panel frame {
-  border-radius: 14px;
-  background-clip: padding-box;
+.metal-panel frame{
+  background:var(--winface);
+  background-clip:padding-box;
+  border-radius:0;
 }
 
-/* Corpo INTERNO cinza-claro (fill), agora SEM contorno */
 #env-left-panel frame > *:not(label):not(border),
-#env-right-panel frame > *:not(label):not(border) {
-  border-radius: 14px;
-  background-image: linear-gradient(to bottom, rgba(255,255,255,.07), rgba(0,0,0,.06));
-  border: 0 !important;           /* <- remove o contorno interno */
-  box-shadow: none !important;     /* <- nada de “anelzinho” dentro */
+#env-right-panel frame > *:not(label):not(border){
+  background:var(--winface);
+  border:0 !important;
+  border-radius:0;
+  box-shadow:none !important;
 }
 
-/* =============== Controles com “anel” azul-escuro SUPER FINO =============== */
+/* =========================
+   Controles (buttons / entries)
+   ========================= */
 button{
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 12px;
-  padding: 6px 14px;
-  color: #e7f6ff; font-weight: 600;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06) 55%, rgba(255,255,255,.03)),
-    linear-gradient(to bottom, #1f4d7a, #174269 60%, #143a5d);
-  box-shadow: 0 8px 18px rgba(0,0,0,.50), inset 0 1px 0 rgba(255,255,255,.08);
+  background:var(--winface);
+  color:var(--text);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  padding:4px 12px;
+  font-weight:600;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
-button:hover{
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05)),
-    linear-gradient(to bottom, #255c92, #1b4e7d 60%, #174469);
-  box-shadow: 0 10px 22px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.12);
-}
+button:hover{ filter:brightness(1.02); }
 button:active{
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
-    linear-gradient(to bottom, #173e64, #14375a 60%, #123251);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
 }
-button:disabled{ opacity:.45; color:rgba(240,250,255,.55); }
+button:disabled{ color:#7f7f7f; }
 
-/* Entradas / combobox */
 entry, spinbutton, combobox, combobox entry{
-  background-image: linear-gradient(to bottom, rgba(10,16,25,.95), rgba(7,12,19,.92));
-  color:#fff;
-  border:1px solid rgba(60,110,170,.38);
-  border-radius:12px;
-  padding:6px 8px;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.05);
+  background:#FFF;
+  color:#000;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  padding:4px 6px;
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
 }
-entry::placeholder, combobox entry::placeholder{ color: rgba(210,235,255,.75); }
+entry::placeholder, combobox entry::placeholder{ color:#555; }
 entry:focus, spinbutton:focus, combobox:focus, combobox entry:focus{
-  border-color:#28a0ff;
-  box-shadow:0 0 0 3px rgba(40,160,255,.24), inset 0 1px 3px rgba(0,0,0,.35);
-  outline:none;
+  outline:1px dotted #000;
+  outline-offset:-3px;
 }
 entry selection, spinbutton selection, combobox entry selection{
-  background:#28a0ff; color:#06111a;
+  background:var(--select-bg);
+  color:var(--select-fg);
 }
 
-/* Tabs topo (Datasets/Environment) */
-stackswitcher>button, stackswitcher>button>label{ color:#fff; font-weight:700; }
-stackswitcher>button:checked, stackswitcher>button:checked>label{ color:#fff; }
+/* =========================
+   StackSwitcher (abas de topo)
+   ========================= */
+stackswitcher > button,
+stackswitcher > button > label{ color:#000; font-weight:600; }
 
-/* Notebook (Logs/Plot/Metrics) */
-notebook>header{
-  background-image:linear-gradient(to bottom,#101826,#0d1521);
-  border-bottom:1px solid rgba(110,160,220,.35);
+stackswitcher > button{
+  margin:2px; padding:3px 10px;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  background:var(--winface);
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+stackswitcher > button:checked{
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
+}
+
+/* =========================
+   Notebook (tabs internas)
+   ========================= */
+notebook > header{
+  background:var(--winface);
+  border-bottom:1px solid var(--shadow);
 }
 notebook tab{
-  margin:4px; padding:6px 12px;
-  border:1px solid rgba(60,110,170,.38);
-  border-radius:999px;
-  color:#eff7ff; font-weight:700;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
-    linear-gradient(to bottom, #162536, #132030);
-  box-shadow:0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
+  margin:2px; padding:3px 10px;
+  color:var(--text); font-weight:600;
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 notebook tab:checked{
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
-    linear-gradient(to bottom, #1a2d42, #152636);
-  border-color:#2a6dbf; color:#fff;
-  box-shadow:0 6px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(42,109,191,.25) inset;
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
 }
 
-/* TreeView header */
+/* =========================
+   TreeView header
+   ========================= */
 treeview header button{
-  font-weight:700; padding:6px 8px;
-  border-radius:10px; color:#f3fbff;
-  border:1px solid rgba(60,110,170,.38);
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
-    linear-gradient(to bottom, #132130, #101c2a);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  padding:4px 8px; font-weight:700; color:#000;
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 
-/* Progressbar */
+/* =========================
+   Progressbar
+   ========================= */
 progressbar trough{
-  border:1px solid rgba(60,110,170,.38);
-  border-radius:12px;
-  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 progressbar progress{
-  border-radius:12px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
-    linear-gradient(90deg,#1cc8ff,#24a3ff 45%,#22ffbb 80%);
-  box-shadow:0 0 18px rgba(50,220,255,.35), 0 0 4px rgba(34,255,187,.20);
+  margin:2px; border-radius:0;
+  background-image:repeating-linear-gradient(-45deg, var(--ok-green-1) 0 8px, var(--ok-green-2) 8px 16px);
+  border:1px solid var(--darkshadow);
 }
-progressbar text, progressbar progress text{ color:#07111a; font-weight:700; }
+progressbar text, progressbar progress text{ color:#000; font-weight:700; }
 
-/* Scrollbar */
+/* =========================
+   Scrollbar
+   ========================= */
+scrollbar trough{
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
 scrollbar slider{
-  border:1px solid rgba(60,110,170,.38);
-  border-radius:999px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06)),
-    linear-gradient(to bottom,#182636,#132030);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 10px rgba(0,0,0,.45);
+  background:#dfdfdf;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
-scrollbar slider:hover{
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 6px 14px rgba(0,0,0,.50), 0 0 12px rgba(50,210,255,.22);
-}
+scrollbar slider:hover{ filter:brightness(1.03); }
 
-/* Foco global */
-*:focus{ outline:none; box-shadow:0 0 0 3px rgba(40,160,255,.22); }
+/* =========================
+   Foco global
+   ========================= */
+*:focus{ outline:1px dotted #000; outline-offset:-3px; box-shadow:none; }
 
-/* ===== Só estes rótulos com “placa” atrás (sem mudar color) ===== */
+/* =========================
+   Rótulos “placa”
+   ========================= */
 #epochs-label,
 #split-train-label,
 #split-test-label{
-  font-weight:700; letter-spacing:.2px;
-  padding:2px 6px; border-radius:8px;
-  background-image: linear-gradient(to bottom, rgba(10,16,25,.45), rgba(10,16,25,.30));
-  box-shadow: 0 1px 2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  font-weight:700; letter-spacing:0;
+  padding:2px 6px;
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 
-/* ===== Controlador do Split ===== */
+/* =========================
+   Split Scale
+   ========================= */
 #split-scale trough{
   min-height:8px;
-  border:1px solid rgba(60,110,170,.38);
-  border-radius:12px;
-  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
+  background:var(--winface);
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
 #split-scale highlight,
 #split-scale progress{
-  border-radius:12px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
-    linear-gradient(90deg,#1cc8ff,#24a3ff 45%,#22ffbb 80%);
-  box-shadow:0 0 12px rgba(50,220,255,.28);
+  background-image:repeating-linear-gradient(90deg, #000080 0 6px, #1b4aa5 6px 12px);
 }
 #split-scale slider{
-  min-width:18px; min-height:18px; margin:-6px 0;
-  border:1px solid rgba(120,160,200,.55);
-  border-radius:50%;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.06)),
-    radial-gradient(14px 14px at 50% 35%, #ffffff, #e6eef7 60%, #bfd3e9 100%);
-  box-shadow:0 2px 6px rgba(0,0,0,.45), 0 0 8px rgba(40,160,255,.18);
+  min-width:14px; min-height:22px; margin:-7px 0;
+  background:#dfdfdf;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
-#split-scale slider:hover{ box-shadow:0 3px 8px rgba(0,0,0,.55), 0 0 10px rgba(50,210,255,.26); }
-#split-scale:focus slider{ box-shadow:0 0 0 3px rgba(40,160,255,.28), 0 3px 8px rgba(0,0,0,.55); }
+#split-scale:focus slider{ outline:1px dotted #000; outline-offset:-3px; }
 
-/* ===== Combobox popup (dark) ===== */
-combobox .popup, combobox popover, combobox menu, popover, menu{
-  background-image:linear-gradient(to bottom,#0f1a25,#0b121c);
-  border:1px solid rgba(100,140,200,.45);
-  border-radius:12px; padding:4px;
-  box-shadow:0 12px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(31,131,255,.08);
-}
-combobox popover list row, combobox menu menuitem, menu menuitem{
-  color:#eaf6ff; background:transparent; padding:6px 10px; border-radius:8px;
-}
-combobox popover list row:selected,
-combobox popover list row:hover,
-combobox menu menuitem:hover,
-combobox menu menuitem:active,
-menu menuitem:hover,
-menu menuitem:active{
+/* =========================
+   Ícones (sem filtro)
+   ========================= */
+combobox arrow{ -gtk-icon-filter:none; }
+button image, notebook tab image, combobox image{ -gtk-icon-filter:none; }
+
+/* =========================
+   Titlebar Win95 (CSD)
+   ========================= */
+#w95-titlebar{
+  background-image:linear-gradient(to right, var(--title-active-1), var(--title-active-2));
   color:#fff;
-  background-image:linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
-                   linear-gradient(to bottom,#255c92,#174469);
+  padding:2px 4px;
+  min-height:26px;
+  border:1px solid var(--darkshadow);
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
-combobox arrow{ -gtk-icon-filter: brightness(1.25) contrast(1.1); }
-button image, notebook tab image, combobox image{ -gtk-icon-filter: brightness(1.15) contrast(1.05); }
+#w95-titlebar:backdrop{
+  background-image:linear-gradient(to right, var(--title-inactive-1), var(--title-inactive-2));
+  color:#e6e6e6;
+}
+#w95-title{ font-weight:700; font-size:10pt; letter-spacing:.2px; }
+
+#w95-titlebar button.win95{
+  min-width:26px; min-height:20px; margin-left:2px; padding:0 0;
+  background:var(--winface); color:#000; font-weight:700;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+#w95-titlebar button.win95:active{
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
+}
+headerbar#w95-titlebar, .titlebar#w95-titlebar{
+  background-image:linear-gradient(to right, #000080, #000080);
+  color:#fff; min-height:26px; border:1px solid #404040;
+}
+#w95-titlebar .title-icon{ margin-right:6px; }
+headerbar .win95{
+  min-width:24px; padding:0 6px;
+  background:var(--winface); color:#000;
+  border:1px solid var(--shadow); border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+headerbar .win95:active{
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
+}
+
+/* =====================================================
+   Combobox DROPDOWN (lista aberta) — cinza + arredondado
+   Cobre tanto GtkMenu em window.popup quanto Popover.
+   ===================================================== */
+
+/* Casca do dropdown (menu OU popover) */
+window.popup,
+window.popup > menu,
+combobox popover,
+combobox popover.background{
+  background:#d9d9d9;
+  border:1px solid var(--shadow);
+  border-radius:8px;
+  padding:2px;
+  box-shadow:
+    0 8px 18px rgba(0,0,0,.25),
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+
+/* Itens */
+window.popup > menu > menuitem,
+combobox popover list row{
+  color:#000;
+  background:transparent;
+  border-radius:6px;
+  padding:4px 10px;
+}
+
+/* Seleção/Hover com opacidade maior (mais “fechado”) */
+window.popup > menu > menuitem:hover,
+window.popup > menu > menuitem:active,
+combobox popover list row:hover,
+combobox popover list row:selected{
+  background-image:
+    linear-gradient(to bottom, rgba(0,0,0,.18), rgba(0,0,0,.26)),
+    linear-gradient(to bottom, var(--select-bg), var(--select-bg));
+  color:var(--select-fg);
+  box-shadow:
+    inset 1px 1px 0 rgba(255,255,255,.35),
+    inset -1px -1px 0 rgba(0,0,0,.45);
+}
+
+/* Hover leve (quando não está selected/active) */
+window.popup > menu > menuitem:hover:not(:active),
+combobox popover list row:hover:not(:selected){
+  background-image:
+    linear-gradient(to bottom, rgba(0,0,0,.12), rgba(0,0,0,.20)),
+    linear-gradient(to bottom, var(--select-bg), var(--select-bg));
+}

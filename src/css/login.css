@@ -1,276 +1,363 @@
-/* ==========================================
-   Dark Frutiger Aero — LOGIN (Midnight Aqua)
-   ========================================== */
+/* =====================================================
+   Windows 95/98 Classic — Login (GTK CSS)
+   ===================================================== */
 
-:root { color-scheme: dark; }
-
-/* ───────────────────────────────
-   1) FUNDO / BASE DA JANELA
-   ─────────────────────────────── */
-#login-window,
-window, dialog, .background {
-  background-color: #0b1220;
-  background-image:
-    radial-gradient(1100px 700px at 25% 0%, rgba(90,240,255,.18), rgba(90,240,255,0) 60%),
-    radial-gradient(900px 600px at 85% 5%, rgba(50,210,255,.12), rgba(50,210,255,0) 60%),
-    linear-gradient(to bottom, #0b1220, #0e1c2b 40%, #091521 100%);
-  color: #e6f5ff;
+:root{
+  color-scheme: light;
+  /* Paleta clássica */
+  --desk: #008080;              /* desktop teal */
+  --winface: #C0C0C0;           /* 3D Objects */
+  --text: #000000;
+  --shadow: #808080;            /* 3D Shadow */
+  --darkshadow: #404040;        /* 3D Dark Shadow */
+  --highlight: #FFFFFF;         /* 3D Highlight */
+  --title-active-1: #000080;    /* Active Title start */
+  --title-active-2: #1084d0;    /* Active Title end */
+  --title-inactive-1: #7f7f7f;  /* Inactive Title start */
+  --title-inactive-2: #b5b5b5;  /* Inactive Title end */
+  --select-bg: #000080;         /* selection */
+  --select-fg: #FFFFFF;
+  --focus-dot: #000000;         /* dotted focus */
+  --ok-green-1:#00aa00;         /* progressbar */
+  --ok-green-2:#009000;
+  --link: #0000EE;
+  --visited: #551A8B;
 }
 
-/* ───────────────────────────────
-   2) CARD (PAINEL) DE LOGIN
-   ─────────────────────────────── */
+/* 1) FUNDO/BASE */
+#login-window,
+window, dialog, .background{
+  background-color: var(--desk);
+  background-image: none;
+  color: var(--text);
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
+}
+
+/* 2) PAINEL (CARD) — CINZA 3D */
 #login-panel,
-.metal-panel {
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.04)),
-    linear-gradient(to bottom, rgba(22,38,58,.78), rgba(10,18,28,.85));
-  border: 1px solid rgba(110,180,255,.35);
-  border-radius: 16px;
+.metal-panel{
+  background: var(--winface);
+  color: var(--text);
+  border: 30px solid var(--shadow);
+  border-radius: 0;
+  padding: 12px 14px;
+  /* Borda 3D levantada */
   box-shadow:
-    0 20px 38px rgba(0,0,0,.55),
-    inset 0 1px 0 rgba(255,255,255,.08),
-    inset 0 -1px 0 rgba(255,255,255,.04),
-    0 0 0 1px rgba(31,131,255,.08);
-  padding: 16px 18px;
-  -webkit-backdrop-filter: blur(8px) saturate(115%);
-  backdrop-filter: blur(8px) saturate(115%);
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow),
+    0 1px 0 var(--highlight),
+    0 -1px 0 var(--darkshadow);
   max-width: 720px;
   min-width: 420px;
 }
 
 /* Título e rótulos */
-#login-window label.title {
-  color: #fff; font-weight: 800; letter-spacing: .2px;
-  text-shadow: 0 1px 0 rgba(0,0,0,.6);
-  margin-bottom: 8px;
+#login-window label.title{
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-shadow: none;
+  margin: 0 0 6px 0;
+  font-size: 12pt;
 }
 #login-window label,
-#login-window .label { color: #f1f8ff; font-weight: 600; }
+#login-window .label{ color: var(--text); font-weight: 600; }
 
-/* ───────────────────────────────
-   3) CONTROLES: ENTRIES / BOTÕES
-   ─────────────────────────────── */
+/* 3) ENTRIES / SPIN / COMBO — aspecto "afundado" */
 #login-window entry,
 #login-window spinbutton,
 #login-window combobox,
-#login-window combobox entry {
-  background-image: linear-gradient(to bottom, rgba(10,16,25,.95), rgba(7,12,19,.92));
-  color: #fff;
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 12px;
-  padding: 6px 10px;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.05);
+#login-window combobox entry{
+  background: #FFFFFF;
+  color: #000;
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  padding: 4px 6px;
+  box-shadow: inset 1px 1px 0 var(--darkshadow),
+              inset -1px -1px 0 var(--highlight);
 }
 #login-window entry::placeholder,
-#login-window combobox entry::placeholder { color: rgba(210,235,255,.70); }
+#login-window combobox entry::placeholder{ color:#555; }
 #login-window entry:focus,
 #login-window spinbutton:focus,
 #login-window combobox:focus,
-#login-window combobox entry:focus {
-  border-color: #28a0ff;
-  box-shadow: 0 0 0 3px rgba(40,160,255,.24), inset 0 1px 3px rgba(0,0,0,.35);
-  outline: none;
+#login-window combobox entry:focus{
+  outline: 1px dotted var(--focus-dot);
+  outline-offset: -3px;
+  box-shadow: inset 1px 1px 0 var(--darkshadow), inset -1px -1px 0 var(--highlight);
 }
 
-#login-window button {
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 12px;
-  padding: 6px 14px;
-  color: #e7f6ff; font-weight: 700;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06) 55%, rgba(255,255,255,.03)),
-    linear-gradient(to bottom, #1f4d7a, #174269 60%, #143a5d);
-  box-shadow: 0 8px 18px rgba(0,0,0,.50), inset 0 1px 0 rgba(255,255,255,.08);
+/* 4) BOTÕES — 3D raised/pressed */
+#login-window button{
+  background: var(--winface);
+  color: var(--text);
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  padding: 4px 12px;
+  font-weight: 600;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
 }
-#login-window button:hover {
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.18), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05)),
-    linear-gradient(to bottom, #255c92, #1b4e7d 60%, #174469);
+#login-window button:hover{ filter: brightness(1.02); }
+#login-window button:active{
+  /* Inverte as luzes para parecer pressionado */
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
 }
-#login-window button:active {
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.08), rgba(255,255,255,.03)),
-    linear-gradient(to bottom, #173e64, #14375a 60%, #123251);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
-}
-#login-window button:disabled { opacity: .45; color: rgba(240,250,255,.55); }
-#login-window button#login-btn { min-height: 32px; padding: 6px 16px; }
+#login-window button:focus{ outline: 1px dotted var(--focus-dot); outline-offset: -4px; }
+#login-window button:disabled{ color:#7f7f7f; }
+#login-window button#login-btn{ min-height: 28px; }
 
-/* Status / mensagens */
-#login-window label.status {
-  color: #07111a; font-weight: 700;
-  background: linear-gradient(to bottom, #e7f6ff, #d4ecff);
-  border: 1px solid rgba(120,160,200,.55);
-  border-radius: 10px; padding: 4px 8px;
-  box-shadow: 0 4px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.65);
-}
-
-/* Check / Radio (se usar) */
-checkbutton, radiobutton { color: #e8f6ff; font-weight: 600; }
-checkbutton check, radiobutton radio {
-  border: 1px solid rgba(60,110,170,.38);
-  background: linear-gradient(to bottom, #162536, #132030);
-  border-radius: 6px; box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-}
-checkbutton check:checked { background-image: linear-gradient(180deg, #1cc8ff, #24a3ff); }
-radiobutton radio { border-radius: 50%; }
-radiobutton radio:checked {
-  background-image: radial-gradient(circle at 50% 50%, #1cc8ff 0 45%, transparent 46%);
+/* Botão "padrão" (Enter) — borda interna preta como no Win95 */
+#login-window button.suggested-action{
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow),
+    inset 2px 2px 0 #000000,
+    inset -2px -2px 0 #000000;
 }
 
-/* ───────────────────────────────
-   4) POPUPS (Combobox / Menus)
-   ─────────────────────────────── */
+/* 5) STATUS / MENSAGENS (estilo InfoBox) */
+#login-window label.status{
+  color: #000; font-weight: 700;
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  border-radius: 0; padding: 4px 8px;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+
+/* 6) CHECK / RADIO */
+checkbutton, radiobutton{ color: var(--text); font-weight: 600; }
+checkbutton check, radiobutton radio{
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+checkbutton check:checked{ background: var(--winface); box-shadow: inset 2px 2px 0 var(--text); }
+radiobutton radio{ border-radius: 50%; }
+
+/* 7) MENUS / COMBO POPUP */
 combobox .popup,
 combobox popover, combobox menu,
-popover, menu {
-  background-image: linear-gradient(to bottom, #0f1a25, #0b121c);
-  border: 1px solid rgba(100,140,200,.45);
-  border-radius: 12px; padding: 4px;
-  box-shadow: 0 12px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(31,131,255,.08);
+popover, menu{
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  border-radius: 0; padding: 2px;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
 }
 combobox popover list row,
-combobox menu menuitem, menu menuitem {
-  color: #eaf6ff; background: transparent;
-  padding: 6px 10px; border-radius: 8px;
+combobox menu menuitem, menu menuitem{
+  color: var(--text); background: transparent;
+  padding: 3px 8px; border-radius: 0;
 }
 combobox popover list row:selected,
 combobox popover list row:hover,
 combobox menu menuitem:hover,
 combobox menu menuitem:active,
-menu menuitem:hover, menu menuitem:active {
-  color: #fff;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
-    linear-gradient(to bottom, #255c92, #174469);
-}
-combobox arrow { -gtk-icon-filter: brightness(1.25) contrast(1.1); }
-
-/* ───────────────────────────────
-   5) PROGRESS BAR (recuperação)
-   ─────────────────────────────── */
-#login-window progressbar trough {
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 12px;
-  background-image: linear-gradient(to bottom, #0f1a25, #0b121c);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
-}
-#login-window progressbar progress {
-  border-radius: 12px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.04)),
-    linear-gradient(90deg, #1cc8ff, #24a3ff 45%, #22ffbb 80%);
-  box-shadow: 0 0 18px rgba(50,220,255,.32), 0 0 4px rgba(34,255,187,.20);
+menu menuitem:hover, menu menuitem:active{
+  color: var(--select-fg);
+  background: var(--select-bg);
 }
 
-/* ───────────────────────────────
-   6) SCROLLBAR / TOOLTIP / ÍCONES
-   ─────────────────────────────── */
-scrollbar slider {
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 999px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.12), rgba(255,255,255,.06)),
-    linear-gradient(to bottom, #182636, #132030);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 10px rgba(0,0,0,.45);
+/* 8) PROGRESS BAR */
+#login-window progressbar trough{
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
 }
-tooltip, tooltip * { color: #05101a; font-weight: 600; }
-button image, combobox image { -gtk-icon-filter: brightness(1.15) contrast(1.05); }
+#login-window progressbar progress{
+  margin: 2px; border-radius: 0;
+  background-image: repeating-linear-gradient(-45deg, var(--ok-green-1) 0 8px, var(--ok-green-2) 8px 16px);
+  border: 1px solid var(--darkshadow);
+}
 
-/* Foco consistente */
-*:focus { outline: none; box-shadow: 0 0 0 3px rgba(40,160,255,.22); }
+/* 9) SCROLLBAR */
+scrollbar trough{
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+scrollbar slider{
+  background: #dfdfdf;
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
 
-/* ───────────────────────────────
-   7) HEADER DAS ABAS (Notebook)
-   ─────────────────────────────── */
+/* 10) Foco pontilhado consistente */
+*:focus{ box-shadow: none; }
 
-/* páginas transparentes para não “sumir” o fundo em tela cheia */
+/* 11) HEADER/TITLEBAR (CSD/Headerbar) */
+headerbar, .titlebar{
+  background-image: linear-gradient(to right, var(--title-active-1), var(--title-active-2));
+  color: #FFFFFF;
+  border: 1px solid var(--darkshadow);
+  min-height: 26px;
+}
+headerbar:backdrop, .titlebar:backdrop{
+  background-image: linear-gradient(to right, var(--title-inactive-1), var(--title-inactive-2));
+  color: #E6E6E6;
+}
+headerbar .title{ font-weight: 700; letter-spacing: .2px; }
+
+/* 12) NOTEBOOK (abas) */
 #login-window notebook,
 #login-window notebook > stack,
 #login-window notebook > stack > *,
 #login-window stack, #login-window stack > *,
 #login-window scrolledwindow,
-#login-window scrolledwindow > viewport {
-  background-color: transparent;
-  background-image: none;
-  border: 0; box-shadow: none;
+#login-window scrolledwindow > viewport{ background: transparent; border: 0; box-shadow: none; }
+
+#login-window notebook{ background: var(--winface); border: 1px solid var(--shadow); }
+#login-window notebook > header,
+#login-window notebook > header.top{
+  background: var(--winface);
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--shadow);
 }
 
-/* header com a mesma faixa do Environment e sem linhas extras */
-#login-window notebook { background: transparent; border: 0; }
-#login-window notebook > header,
-#login-window notebook > header.top {
-  background-image: linear-gradient(to bottom, #101826, #0d1521);
-  padding: 6px 8px;
-  border: 0;            /* evita “linha branca” */
+#login-window notebook tab{
+  margin: 2px; padding: 3px 10px;
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  color: var(--text);
+  background: var(--winface);
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+#login-window notebook tab:checked{
+  /* aba "pressionada" */
+  box-shadow: inset 1px 1px 0 var(--darkshadow), inset -1px -1px 0 var(--highlight);
+}
+#login-window notebook tab:focus{ outline: 1px dotted var(--focus-dot); outline-offset: -3px; }
+
+/* 13) StackSwitcher (estilo botões Win95) */
+#login-window stackswitcher{ background: var(--winface); border-bottom: 1px solid var(--shadow); padding: 4px 6px; }
+#login-window stackswitcher > button{
+  margin: 2px; padding: 3px 10px;
+  color: var(--text); font-weight: 600;
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  background: var(--winface);
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+#login-window stackswitcher > button:checked{
+  box-shadow: inset 1px 1px 0 var(--darkshadow), inset -1px -1px 0 var(--highlight);
+}
+
+/* 14) LINKS */
+#login-window label.link{ color: var(--link); text-decoration: underline; }
+#login-window label.link:visited{ color: var(--visited); }
+
+/* 15) HERO (logo + título) */
+#app-hero{ margin-top: 12px; margin-bottom: 8px; padding: 0; display: inline-block; }
+#app-logo{ margin-bottom: 6px; width: 96px; height: 96px; /* ajuste aqui o tamanho do ícone */ }
+#app-title{
+  color: #000; text-shadow: none;
+  font-weight: 700; letter-spacing: 0;
+  font-size: 24px; /* título grande, mas dentro do estilo 95 */
+}
+
+/* ==== Titlebar Win95 (CSD) ==== */
+#w95-titlebar {
+  background-image: linear-gradient(to right, var(--title-active-1), var(--title-active-2));
+  color: #fff;
+  padding: 2px 4px;
+  min-height: 26px;
+  border: 1px solid var(--darkshadow);
+  /* moldura 3D da barra */
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+#w95-titlebar:backdrop {
+  background-image: linear-gradient(to right, var(--title-inactive-1), var(--title-inactive-2));
+  color: #e6e6e6;
+}
+
+#w95-title {
+  font-weight: 700;
+  font-size: 10pt;
+  letter-spacing: .2px;
+}
+
+/* Botões da titlebar no estilo Win95 */
+#w95-titlebar button.win95 {
+  min-width: 26px; min-height: 20px;
+  margin-left: 2px;
+  padding: 0 0;
+  border: 1px solid var(--shadow);
+  border-radius: 0;
+  background: var(--winface);
+  color: #000; font-weight: 700;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+}
+#w95-titlebar button.win95:active {
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow),
+    inset -1px -1px 0 var(--highlight);
+}
+
+#w95-titlebar .title-icon { margin-right: 6px; }
+
+/* Barra azul e título Win95 */
+headerbar#w95-titlebar, .titlebar#w95-titlebar {
+  background-image: linear-gradient(to right, #000080, #000080);
+  color:#fff; min-height:26px; border:1px solid #404040;
+}
+#w95-titlebar .title, #w95-title { font-weight:700; }
+
+/* Botões com relevo 3D */
+headerbar .win95 {
+  min-width: 24px; padding: 0 6px;
+  background: var(--winface); color: #000;
+  border: 1px solid var(--shadow); border-radius: 0;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+headerbar .win95:active {
+  box-shadow: inset 1px 1px 0 var(--darkshadow), inset -1px -1px 0 var(--highlight);
+}
+
+/* === Fundo teal em toda a tela do login; apenas o card fica claro === */
+#login-window {
+  background-color: #008080;   /* já é var(--desk), mas reforço explícito */
+}
+
+/* Deixa as páginas/containers transparentes para herdar o fundo teal */
+#login-window notebook,
+#login-window notebook > stack,
+#login-window notebook > stack > *,
+#login-window stack,
+#login-window stack > *,
+#login-window scrolledwindow,
+#login-window scrolledwindow > viewport,
+#login-window box,
+#login-window grid {
+  background-color: transparent;
+  background-image: none;
+  border: 0;
   box-shadow: none;
 }
 
-/* pills das abas */
-#login-window notebook tab {
-  margin: 4px;
-  padding: 6px 12px;
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 999px;
-  color: #eff7ff; font-weight: 700;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
-    linear-gradient(to bottom, #162536, #132030);
-  box-shadow: 0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
-}
-#login-window notebook tab label { color: inherit; }
-#login-window notebook tab:checked {
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
-    linear-gradient(to bottom, #1a2d42, #152636);
-  border-color: #2a6dbf; color: #fff;
-  box-shadow: 0 6px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(42,109,191,.25) inset;
+/* O card do login continua branco/cinza (Win95) */
+#login-window .metal-panel,
+#login-panel {
+  background: var(--winface);      /* #C0C0C0 */
 }
 
-/* ───────────────────────────────
-   8) StackSwitcher no topo
-   ─────────────────────────────── */
-#login-window stackswitcher {
-  background-image: linear-gradient(to bottom, #101826, #0d1521);
-  border-bottom: 1px solid rgba(110,160,220,.35);
-  padding: 6px 8px;
-}
-#login-window stackswitcher > button {
-  margin: 4px; padding: 4px 12px;
-  color: #eff7ff; font-weight: 700;
-  border: 1px solid rgba(60,110,170,.38);
-  border-radius: 999px;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.10), rgba(255,255,255,.05)),
-    linear-gradient(to bottom, #162536, #132030);
-  box-shadow: 0 4px 10px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
-}
-#login-window stackswitcher > button:checked {
-  color: #fff; border-color: #2a6dbf;
-  background-image:
-    linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08)),
-    linear-gradient(to bottom, #1a2d42, #152636);
-}
-
-/* =========================
-   HERO (logo + título grande)
-   ========================= */
-#app-hero {
-  margin-top: 16px;
-  margin-bottom: 10px;          /* espaço entre hero e o card */
-  padding: 4px 8px;
-  display: inline-block;        /* pra centralizar legal */
-}
-
-#app-logo {
-  margin-bottom: 8px;
-}
-
-#app-title {
-  color: #f6fbff;
-  font-weight: 900;
-  letter-spacing: .6px;
-  font-size: 36px;              /* grande */
-  text-shadow: 0 2px 10px rgba(0,0,0,.45);
+/* === Card do login em #e0deda; controles continuam com seus estilos === */
+#login-window #login-panel,
+#login-window #login-panel box,
+#login-window #login-panel grid,
+#login-window #login-panel frame,
+#login-window #login-panel scrolledwindow,
+#login-window #login-panel viewport {
+  background-color: #e0deda;
+  background-image: none;
 }

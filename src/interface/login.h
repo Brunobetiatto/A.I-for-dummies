@@ -261,7 +261,7 @@ void on_forgot_clicked(GtkButton *btn, gpointer user_data) {
 
     if (gtk_widget_get_parent(ctx->recovery_box) == NULL) {
         if (ctx->login_grid != NULL) {
-            gtk_grid_attach(GTK_GRID(ctx->login_grid), ctx->recovery_box, 0, 6, 2, 1);
+            gtk_grid_attach(GTK_GRID(ctx->login_grid), ctx->recovery_box, 0, 7, 2, 1);
             gtk_widget_show_all(ctx->login_grid);
         } else {
             gtk_container_add(GTK_CONTAINER(ctx->window), ctx->recovery_box);
@@ -698,10 +698,75 @@ static GtkWidget* make_app_hero(void) {
     return v;
 }
 
+/* helper local: alterna maximizar/restaurar (sem outras dependências) */
+static void login_titlebar_on_max_clicked(GtkButton *btn, gpointer win_) {
+    (void)btn;
+    GtkWindow *win = GTK_WINDOW(win_);
+    if (gtk_window_is_maximized(win)) gtk_window_unmaximize(win);
+    else                               gtk_window_maximize(win);
+}
+
+/* Titlebar Win95 com logo e 3 botões PNG (min/max/close) */
+static void install_w95_titlebar(GtkWindow *win) {
+    GtkWidget *hb = gtk_header_bar_new();
+    gtk_widget_set_name(hb, "w95-titlebar");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+    gtk_header_bar_set_title(GTK_HEADER_BAR(hb), NULL);
+
+    /* ESQUERDA: logo + título */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GdkPixbuf *pb_logo =
+        gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
+    GtkWidget *logo = gtk_image_new_from_pixbuf(pb_logo);
+    g_object_unref(pb_logo);
+    gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), logo, FALSE, FALSE, 0);
+
+    GtkWidget *title = gtk_label_new("AI for Dummies");
+    gtk_widget_set_name(title, "w95-title");
+    gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
+
+    /* DIREITA: [min] [max] [close] com PNGs fixos */
+    GtkWidget *btn_min   = gtk_button_new();
+    GtkWidget *btn_max   = gtk_button_new();
+    GtkWidget *btn_close = gtk_button_new();
+
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "win95");
+
+    GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+
+    gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
+    gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
+    gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
+
+    g_object_unref(pb_min); g_object_unref(pb_max); g_object_unref(pb_close);
+
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
+
+    /* sinais */
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close),   win);
+    g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
+    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(login_titlebar_on_max_clicked), win);
+
+    gtk_window_set_titlebar(win, hb);
+}
+
 // Criação da janela de login
 GtkWidget* create_login_window(const LoginHandlers *handlers) {
     const char *LOGIN_CSS = parse_CSS_file("login.css");
-
+    
     LoginCtx *ctx = g_new0(LoginCtx, 1);
 
     if (handlers) ctx->handlers = *handlers;
@@ -711,6 +776,9 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
 
     gtk_window_set_title(GTK_WINDOW(login_win), "Login / Cadastro");
 
+    /* >>> BARRA WIN95 <<< */
+    install_w95_titlebar(GTK_WINDOW(login_win));
+    
     // Tela cheia proporcional
     GdkScreen *screen = gdk_screen_get_default();
     gint sw = gdk_screen_get_width(screen);
@@ -720,9 +788,17 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_window_set_position(GTK_WINDOW(login_win), GTK_WIN_POS_CENTER);
     gtk_container_set_border_width(GTK_CONTAINER(login_win), 12);
     gtk_widget_set_name(login_win, "login-window");
+    GtkCssProvider *prov_login = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(prov_login, LOGIN_CSS ? LOGIN_CSS : "", -1, NULL);
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(prov_login),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(prov_login);
 
     // Notebook para abas
     GtkWidget *notebook = gtk_notebook_new();
+    gtk_widget_set_name(notebook, "login-tabs"); 
     gtk_container_add(GTK_CONTAINER(login_win), notebook);
 
     // ================= LOGIN TAB =================
@@ -770,6 +846,7 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_valign(login_box, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(login_box), make_app_hero(), FALSE, FALSE, 0);
     GtkWidget *login_panel = wrap_CSS(LOGIN_CSS, "metal-panel", login_grid, "login-panel");
+    gtk_widget_set_name(login_panel, "login-panel"); 
     gtk_container_add(GTK_CONTAINER(login_box), login_panel);
 
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, gtk_label_new("Login"));
@@ -826,13 +903,13 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
 
     // BOTÃO "Esqueci minha senha"
     GtkWidget *forgot_btn = gtk_button_new_with_label("Esqueci minha senha");
-    gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NONE);
+    gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NORMAL);
     gtk_widget_set_name(forgot_btn, "link-like-button");
     gtk_grid_attach(GTK_GRID(login_grid), forgot_btn, 0, 5, 2, 1);
     gtk_widget_set_halign(forgot_btn, GTK_ALIGN_CENTER);
 
     GtkWidget *debug_btn = gtk_button_new_with_label("Debug");
-    gtk_button_set_relief(GTK_BUTTON(debug_btn), GTK_RELIEF_NONE);
+    gtk_button_set_relief(GTK_BUTTON(debug_btn), GTK_RELIEF_NORMAL);
     gtk_widget_set_name(debug_btn, "link-like-button");
     gtk_grid_attach(GTK_GRID(login_grid), debug_btn, 0, 6, 2, 1); // ← ESTA LINHA ESTÁ FALTANDO!
     gtk_widget_set_halign(debug_btn, GTK_ALIGN_CENTER);

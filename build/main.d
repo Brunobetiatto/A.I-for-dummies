@@ -671,9 +671,9 @@ build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  src/backend/backlogger.h src/interface/context.h \
  src/interface/datasets.h src/interface/../css/css.h \
  src/interface/../backend/communicator.h \
- C:/A.I-for-dummies/src/interface/debug_window.h src/interface/context.h \
- src/interface/profile.h src/interface/environment.h \
- src/interface/debug_window.h \
+ src/interface/../backend/../interface/debug_window.h \
+ src/interface/context.h src/interface/profile.h \
+ src/interface/environment.h src/interface/debug_window.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gstdio.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gprintf.h src/interface/login.h
 C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h:
@@ -1352,7 +1352,7 @@ src/interface/context.h:
 src/interface/datasets.h:
 src/interface/../css/css.h:
 src/interface/../backend/communicator.h:
-C:/A.I-for-dummies/src/interface/debug_window.h:
+src/interface/../backend/../interface/debug_window.h:
 src/interface/context.h:
 src/interface/profile.h:
 src/interface/environment.h:

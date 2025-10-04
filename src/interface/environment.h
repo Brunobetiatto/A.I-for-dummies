@@ -16,6 +16,74 @@
 #ifndef ENV_H
 #define ENV_H
 
+/* ---------- Barra Win95 para a janela do Environment ---------- */
+
+#include <gtk/gtk.h>
+
+/* helper local: alterna maximizar/restaurar (sem outras deps) */
+static void titlebar_on_max_clicked(GtkButton *btn, gpointer win_) {
+    (void)btn;
+    GtkWindow *win = GTK_WINDOW(win_);
+    if (gtk_window_is_maximized(win)) gtk_window_unmaximize(win);
+    else                               gtk_window_maximize(win);
+}
+
+/* instala a titlebar Win95 com logo + 3 botões PNG fixos */
+static void install_env_w95_titlebar(GtkWindow *win, const char *title_text) {
+    GtkWidget *hb = gtk_header_bar_new();
+    gtk_widget_set_name(hb, "w95-titlebar");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+    gtk_header_bar_set_title(GTK_HEADER_BAR(hb), NULL);
+
+    /* ESQUERDA: ícone + título */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GdkPixbuf *pb_logo =
+        gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
+    GtkWidget *logo = gtk_image_new_from_pixbuf(pb_logo);
+    g_object_unref(pb_logo);
+    gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), logo, FALSE, FALSE, 0);
+
+    GtkWidget *title = gtk_label_new(title_text ? title_text : "AI for Dummies");
+    gtk_widget_set_name(title, "w95-title");
+    gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
+
+    /* DIREITA: [min] [max] [close] — com PNGs (não mudam) */
+    GtkWidget *btn_min   = gtk_button_new();
+    GtkWidget *btn_max   = gtk_button_new();
+    GtkWidget *btn_close = gtk_button_new();
+
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "win95");
+
+    GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+
+    gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
+    gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
+    gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
+
+    g_object_unref(pb_min); g_object_unref(pb_max); g_object_unref(pb_close);
+
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
+
+    /* sinais (simples) */
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close),   win);
+    g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
+    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(titlebar_on_max_clicked), win);
+
+    /* aplica como titlebar */
+    gtk_window_set_titlebar(win, hb);
+}
 
 // ---- small helpers -------------------------------------------------
 static void append_log(EnvCtx *ctx, const char *fmt, ...) {
@@ -213,7 +281,6 @@ static gboolean poll_fit_image_cb(gpointer user_data) {
     }
     return G_SOURCE_CONTINUE;
 }
-
 
 static gboolean poll_metrics_cb(gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
@@ -466,7 +533,7 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
         "--out-metrics", out_metrics,
         NULL
     };
-    append_log(ctx, "[debug] Spawning: %s %s", python, script);
+    append_log(ctx, "[debug] TRAIN PCT: %.3f", train_s);
     for (int i = 0; argv[i] != NULL; ++i) append_log(ctx, "[debug] argv[%d] = %s", i, argv[i]);
 
     gint out_fd = -1, err_fd = -1;
@@ -664,6 +731,47 @@ static GtkWidget* group_panel(const char *title, GtkWidget *content) {
     return frame;
 }
 
+/* Widget para usar como rótulo da aba: [icon png]  Texto */
+static GtkWidget* make_tab_label(const char *icon_path, const char *text) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+
+    GError *err = NULL;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(icon_path, 16, 16, TRUE, &err);
+    GtkWidget *img = pb ? gtk_image_new_from_pixbuf(pb)
+                        : gtk_image_new_from_icon_name("image-missing", GTK_ICON_SIZE_MENU);
+    if (pb) g_object_unref(pb);
+    if (err) g_error_free(err);
+
+    GtkWidget *lab = gtk_label_new(text);
+    gtk_widget_set_valign(img, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(lab, GTK_ALIGN_CENTER);
+
+    gtk_box_pack_start(GTK_BOX(box), img, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), lab, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(box);
+    return box;
+}
+
+/* troca uma aba de rótulo textual por [icon + texto] */
+static void set_icon_tab(GtkNotebook *nb, GtkWidget *page,
+                         const char *icon_png, const char *text) {
+    GtkWidget *tab = make_tab_label(icon_png, text);
+    gtk_notebook_set_tab_label(nb, page, tab);
+}
+
+/* quando qualquer página é adicionada ao notebook da direita */
+static void on_right_nb_page_added(GtkNotebook *nb, GtkWidget *child,
+                                   guint page_num, gpointer user_data) {
+    GtkWidget *tabw = gtk_notebook_get_tab_label(nb, child);
+    if (GTK_IS_LABEL(tabw)) {
+        const gchar *t = gtk_label_get_text(GTK_LABEL(tabw));
+        if (g_strcmp0(t, "Preview dataset") == 0) {
+            set_icon_tab(nb, child, "assets/preview.png", "Preview Dataset");
+        }
+    }
+}
+
 static void on_train_clicked(GtkButton *b, gpointer user) {
     (void)b;
     EnvCtx *ctx = (EnvCtx*)user;
@@ -717,6 +825,8 @@ static void on_split_entry_changed(GtkEditable *editable, gpointer user_data) {
 /* Build the Environment tab (LEFT controls | RIGHT notebook) */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
+    if (GTK_IS_WINDOW(tl)) install_env_w95_titlebar(GTK_WINDOW(tl), "AI for Dummies");
 
     /* top switcher (kept) */
     ctx->stack = GTK_STACK(gtk_stack_new());
@@ -725,14 +835,21 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), ctx->stack);
     gtk_box_pack_start(GTK_BOX(outer), switcher, FALSE, FALSE, 0);
 
-    /* Toolbar (debug/logout area) - placed above the paned area */
+    /* Toolbar (debug/logout area)*/
     GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));
+    {
+        GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale("assets/debug.png", 16, 16, TRUE, NULL);
+        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+        g_object_unref(pb);
+        gtk_button_set_image(ctx->btn_debug, img);
+        gtk_button_set_always_show_image(ctx->btn_debug, TRUE);
+        gtk_button_set_image_position(ctx->btn_debug, GTK_POS_LEFT);
+    }
     gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
     gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
     g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
     gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
-
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
 
@@ -866,14 +983,19 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Actions */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        ctx->btn_start = GTK_BUTTON(gtk_button_new_with_label("Start"));
-        ctx->btn_pause = GTK_BUTTON(gtk_button_new_with_label("Pause"));
+
+        /* use ▶ (U+25B6) e ⏸ (U+23F8) – sem variation selector */
+        ctx->btn_start = GTK_BUTTON(gtk_button_new_with_label("Start ▶"));
+        ctx->btn_pause = GTK_BUTTON(gtk_button_new_with_label("Pause ⏸"));
+
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->btn_start), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->btn_pause), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Actions", row), FALSE, FALSE, 0);
+
         g_signal_connect(ctx->btn_start, "clicked", G_CALLBACK(on_start_clicked), ctx);
         g_signal_connect(ctx->btn_pause, "clicked", G_CALLBACK(on_pause_clicked), ctx);
     }
+
 
     /* Wrap left in metal panel + pack */
     char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
@@ -883,24 +1005,29 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* =============== RIGHT: notebook =============== */
     GtkWidget *right_nb = gtk_notebook_new();
     ctx->right_nb = GTK_NOTEBOOK(right_nb);
+    g_signal_connect(ctx->right_nb, "page-added",
+                 G_CALLBACK(on_right_nb_page_added), ctx);
 
     /* Logs */
     ctx->logs_view = GTK_TEXT_VIEW(gtk_text_view_new());
     gtk_text_view_set_editable(ctx->logs_view, FALSE);
     GtkWidget *sc_log = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(sc_log), GTK_WIDGET(ctx->logs_view));
-    gtk_notebook_append_page(ctx->right_nb, sc_log, gtk_label_new("Logs"));
+    GtkWidget *logs_tab = make_tab_label("assets/logs.png", "Logs");
+    gtk_notebook_append_page(ctx->right_nb, sc_log, logs_tab);
 
     /* Plot */
     ctx->plot_img = GTK_IMAGE(gtk_image_new());
     GtkWidget *plot_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_box_pack_start(GTK_BOX(plot_box), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
-    ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, gtk_label_new("Plot"));
+    GtkWidget *plot_tab = make_tab_label("assets/plot.png", "Plot");
+    ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, plot_tab);
 
     /* Metrics */
     GtkWidget *metrics_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(metrics_view), FALSE);
-    gtk_notebook_append_page(ctx->right_nb, metrics_view, gtk_label_new("Metrics"));
+    GtkWidget *metrics_tab = make_tab_label("assets/metrics.png", "Metrics");
+    gtk_notebook_append_page(ctx->right_nb, metrics_view, metrics_tab);
     ctx->metrics_view = GTK_TEXT_VIEW(metrics_view);
 
     /* Wrap right too (consistent depth) */
@@ -923,8 +1050,27 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* Finalize */
     gtk_stack_add_titled(ctx->stack, paned, "environment", "Environment");
-    gtk_notebook_append_page(nb, outer, gtk_label_new("Environment"));
+
+    /* Aba Environment com ícone */
+    GtkWidget *env_tab = make_tab_label("assets/environment.png", "Environment");
+    gtk_notebook_append_page(nb, outer, env_tab);
+
+    /* Substitui a label de texto "Datasets" por [ícone + texto] */
+    for (gint i = 0; i < gtk_notebook_get_n_pages(nb); ++i) {
+        GtkWidget *page = gtk_notebook_get_nth_page(nb, i);
+        GtkWidget *tabw = gtk_notebook_get_tab_label(nb, page);
+        if (GTK_IS_LABEL(tabw)) {
+            const gchar *t = gtk_label_get_text(GTK_LABEL(tabw));
+            if (g_strcmp0(t, "Datasets") == 0 || g_strcmp0(t, "Dataset") == 0) {
+                GtkWidget *ds_tab = make_tab_label("assets/datasets.png", "Datasets");
+                gtk_notebook_set_tab_label(nb, page, ds_tab);
+                break;
+            }
+        }
+    }
+
     gtk_widget_show_all(outer);
+
 
     /* Default temp paths + pollers */
     if (!ctx->fit_img_path) { gchar *tmp = g_get_tmp_dir(); ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png",     NULL); }

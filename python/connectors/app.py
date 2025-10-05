@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 import secrets
 import datetime
 from datetime import timedelta
+import re
 
 # Adiciona o diretório pai ao sys.path para permitir imports absolutos como "database.*"
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../connectors
@@ -27,11 +28,13 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', '1409'),
+    'password': os.getenv('DB_PASSWORD', 'Brunobetiatto1.'),
     'database': os.getenv('DB_NAME', 'aifordummies'),
     'autocommit': True,
     'cursorclass': pymysql.cursors.DictCursor
 }
+
+ALLOWED_TABLES = ['usuario', 'dataset'] 
 
 def get_db_connection():
     return pymysql.connect(**DB_CONFIG)
@@ -49,27 +52,37 @@ def list_tables():
 
 @app.route('/table/<table_name>', methods=['GET'])
 def dump_table(table_name):
+    # validação simples do nome da tabela
+    if not re.match(r'^[A-Za-z0-9_]+$', table_name):
+        return jsonify({'status': 'ERROR', 'message': 'invalid table name'}), 400
+    if ALLOWED_TABLES and table_name not in ALLOWED_TABLES:
+        return jsonify({'status': 'ERROR', 'message': 'table not allowed'}), 403
+
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute(f"SELECT * FROM `{table_name}`")
-            cols = [d[0] for d in cur.description]      # lista de nomes de coluna
-            rows_dicts = cur.fetchall()                 # lista de dicts (cursor DictCursor)
+            if table_name.lower() == 'dataset':
+                # JOIN para trazer o nome do usuário que postou
+                sql = """
+                    SELECT d.*, u.nome AS usuario_nome, u.email AS usuario_email
+                    FROM dataset d
+                    LEFT JOIN usuario u ON d.usuario_idusuario = u.idusuario
+                """
+                cur.execute(sql)
+            else:
+                # consulta segura usando nome validado
+                sql = f"SELECT * FROM `{table_name}`"
+                cur.execute(sql)
 
-        # converter rows (dicts) para arrays seguindo a ordem de cols
+            cols = [d[0] for d in cur.description]
+            rows_dicts = cur.fetchall()  # espera lista de dicts (cursor dictionary=True)
+
         rows = []
         for r in rows_dicts:
-            row = []
-            for c in cols:
-                # extrai valor campo; None permanece None -> JSON null
-                row.append(r.get(c))
+            row = [r.get(c) for c in cols]
             rows.append(row)
 
-        result = {
-            'status': 'OK',
-            'columns': cols,
-            'data': rows
-        }
+        result = {'status': 'OK', 'columns': cols, 'data': rows}
         return jsonify(result)
     except Exception as e:
         return jsonify({'status': 'ERROR', 'message': str(e)}), 500

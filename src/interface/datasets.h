@@ -19,6 +19,22 @@ static const GtkTargetEntry DND_TARGETS[] = {
 #  define gdk_atom_equal(a,b) ((a) == (b))
 #endif /* DATASETS_H */
 
+
+typedef struct {
+    GtkStack   *stack;
+    GtkListBox *cards;
+
+    GtkWidget  *title_label; /* top title in details */
+
+    GtkLabel   *lbl_user;
+    GtkLabel   *lbl_size;
+    GtkLabel   *lbl_rows;
+    GtkLabel   *lbl_link;
+    GtkLabel   *lbl_desc;
+
+    GtkWidget  *user_event;
+} DatasetsUI;
+
 static void trim_spaces(char *s) {
     if (!s) return;
     char *p = s, *q = s;
@@ -501,20 +517,7 @@ typedef struct {
 } CardClickCtx;
 
 /* Simple UI bundle we store on the search entry via g_object_set_data */
-typedef struct {
-    GtkStack   *stack;
-    GtkListBox *cards;
 
-    GtkWidget  *title_label; /* top title in details */
-
-    GtkLabel   *lbl_user;
-    GtkLabel   *lbl_size;
-    GtkLabel   *lbl_rows;
-    GtkLabel   *lbl_link;
-    GtkLabel   *lbl_desc;
-
-    GtkWidget  *user_event;
-} DatasetsUI;
 
 /* BACK button -> return to list page */
 static void on_back_to_list_clicked(GtkButton *btn, gpointer user_data) {
@@ -530,80 +533,146 @@ static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer u
 
     DatasetsUI *dui = (DatasetsUI*)user_data;
 
-    /* Read metadata map attached to the card */
-    GHashTable *meta = g_object_get_data(G_OBJECT(widget), "dataset-meta");
+    /* Read metadata map attached to the card and any precomputed title */
+    GHashTable *meta = (GHashTable*)g_object_get_data(G_OBJECT(widget), "dataset-meta");
     const char *title_mk = (const char*)g_object_get_data(G_OBJECT(widget), "card-title");
 
+    /* Set header/title */
     if (title_mk && GTK_IS_LABEL(dui->title_label)) {
         gtk_label_set_markup(GTK_LABEL(dui->title_label), title_mk);
     }
 
-    /* Aliases for typical fields */
+    /* Aliases for typical fields (used only when meta is present) */
     const char *A_TITLE[] = {"nome","name","title"};
-    const char *A_USER[]  = {"usuario","user","owner","author","autor"};
+    const char *A_USER[]  = {"usuario","user","owner","author","autor","usuario_nome","enviado_por_nome"};
     const char *A_SIZE[]  = {"size","tamanho","bytes"};
     const char *A_ROWS[]  = {"rows","linhas","nrows","amostras","samples"};
     const char *A_LINK[]  = {"link","url","source","path"};
-    const char *A_DESC[]  = {"descricao","description","desc"};
+    const char *A_DESC[]  = {"descricao","description","desc","enviado_por_descricao"};
 
-    const char *v_user = meta ? meta_get_any(meta, A_USER, G_N_ELEMENTS(A_USER)) : "";
-    const char *v_size = meta ? meta_get_any(meta, A_SIZE, G_N_ELEMENTS(A_SIZE)) : "";
-    const char *v_rows = meta ? meta_get_any(meta, A_ROWS, G_N_ELEMENTS(A_ROWS)) : "";
-    const char *v_link = meta ? meta_get_any(meta, A_LINK, G_N_ELEMENTS(A_LINK)) : "";
-    const char *v_desc = meta ? meta_get_any(meta, A_DESC, G_N_ELEMENTS(A_DESC)) : "";
+    /* Prefer uploader info stored directly on the eventbox (set by refresh_datasets_cb) */
+    const char *ev_uploader_name  = (const char*)g_object_get_data(G_OBJECT(widget), "uploader-name");
+    const char *ev_uploader_email = (const char*)g_object_get_data(G_OBJECT(widget), "uploader-email");
+    gpointer     ev_uploader_id_p = g_object_get_data(G_OBJECT(widget), "uploader-id");
+    gpointer     ev_dataset_id_p  = g_object_get_data(G_OBJECT(widget), "dataset-id");
 
-    /* Size pretty-print if numeric bytes */
-    char *size_pp = pretty_size(v_size);
+    /* Fallbacks: read from meta if not present as dedicated fields */
+    const char *v_user = ev_uploader_name;
+    if (!v_user || !*v_user) {
+        v_user = meta ? meta_get_any(meta, A_USER, G_N_ELEMENTS(A_USER)) : NULL;
+    }
 
-    gtk_label_set_text(dui->lbl_user, (v_user && *v_user) ? v_user : "—");
+    const char *v_email = ev_uploader_email;
+    if ((!v_email || !*v_email) && meta) {
+        const char *A_EMAIL[] = {"usuario_email","enviado_por_email","email","user_email","owner_email"};
+        v_email = meta_get_any(meta, A_EMAIL, G_N_ELEMENTS(A_EMAIL));
+    }
+
+    const char *v_size = meta ? meta_get_any(meta, A_SIZE, G_N_ELEMENTS(A_SIZE)) : NULL;
+    const char *v_rows = meta ? meta_get_any(meta, A_ROWS, G_N_ELEMENTS(A_ROWS)) : NULL;
+    const char *v_link = meta ? meta_get_any(meta, A_LINK, G_N_ELEMENTS(A_LINK)) : NULL;
+    const char *v_desc = meta ? meta_get_any(meta, A_DESC, G_N_ELEMENTS(A_DESC)) : NULL;
+
+    /* Prepare size pretty string (pretty_size returns allocated string or NULL) */
+    char *size_pp = NULL;
+    if (v_size && *v_size) {
+        size_pp = pretty_size(v_size);
+    }
+
+    /* Compose display for user: prefer name, otherwise show email, otherwise dash */
+    char user_display[256] = "—";
+    if (v_user && *v_user) {
+        g_snprintf(user_display, sizeof(user_display), "%s", v_user);
+    }
+
+    /* Set labels (use "—" when nothing) */
+    gtk_label_set_text(dui->lbl_user, user_display);
     gtk_label_set_text(dui->lbl_rows, (v_rows && *v_rows) ? v_rows : "—");
     gtk_label_set_text(dui->lbl_desc, (v_desc && *v_desc) ? v_desc : "—");
-    gtk_label_set_text(dui->lbl_size, (size_pp && *size_pp) ? size_pp : ((v_size && *v_size) ? v_size : "—"));
 
+    if (size_pp && *size_pp) {
+        gtk_label_set_text(dui->lbl_size, size_pp);
+    } else {
+        gtk_label_set_text(dui->lbl_size, (v_size && *v_size) ? v_size : "—");
+    }
+
+    /* Link label: make clickable markup if present, otherwise dash */
     if (v_link && *v_link) {
         gchar *mk = g_markup_printf_escaped("<a href=\"%s\">%s</a>", v_link, v_link);
-        gtk_label_set_markup(dui->lbl_link, mk);
+        gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
         g_free(mk);
     } else {
         gtk_label_set_text(dui->lbl_link, "—");
     }
 
-    g_free(size_pp);
+    if (size_pp) g_free(size_pp);
 
+    /* Show details page */
     if (GTK_IS_STACK(dui->stack)) {
         gtk_stack_set_visible_child_name(dui->stack, "details");
     }
 
-
-    /* aliases para possível coluna de id do uploader */
-    const char *A_USER_ID[] = {
-        "usuario_idusuario", "usuarioid", "user_id", "uploader_id",
-        "idusuario", "id", "owner_id"
-    };
-
-    /* pega string do id se existir */
-    const char *v_user_id_str = meta ? meta_get_any(meta, A_USER_ID, G_N_ELEMENTS(A_USER_ID)) : "";
-
-    /* se tivermos nome, mostra; se não, usa traço */
-    if (v_user && *v_user) {
-        gtk_label_set_text(dui->lbl_user, v_user);
-    } else {
-        gtk_label_set_text(dui->lbl_user, "—");
-    }
-
-    /* configura o eventbox (dui->user_event) com o uploader-id para o on_user_clicked usar */
+    /* --- Configure the user-event widget so a click on the uploader opens the user detail --- */
     if (dui->user_event) {
-        if (v_user_id_str && *v_user_id_str) {
-            int uid = atoi(v_user_id_str);
+        /* set uploader-id (if present on eventbox use that; otherwise try to parse from meta) */
+        gint uid = 0;
+        gboolean have_uid = FALSE;
+
+        if (ev_uploader_id_p) {
+            uid = GPOINTER_TO_INT(ev_uploader_id_p);
+            if (uid > 0) have_uid = TRUE;
+        } else if (meta) {
+            const char *A_USER_ID[] = {
+                "usuario_idusuario", "usuarioid", "user_id", "uploader_id",
+                "idusuario", "id", "owner_id", NULL
+            };
+            const char *uid_str = meta_get_any(meta, A_USER_ID, 7);
+            if (uid_str && *uid_str) {
+                uid = atoi(uid_str);
+                if (uid > 0) have_uid = TRUE;
+            }
+        }
+
+        /* set or clear uploader-id on dui->user_event */
+        if (have_uid) {
             g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", GINT_TO_POINTER(uid));
-            /* tornar sensível caso estivesse desabilitado */
             gtk_widget_set_sensitive(dui->user_event, TRUE);
         } else {
-            /* não temos id — remove dado e descativa clique */
             g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", NULL);
             gtk_widget_set_sensitive(dui->user_event, FALSE);
         }
+
+        /* Move uploader-name/email into dui->user_event — free previous stored strings to avoid leaks. */
+        const char *prev_name = (const char*)g_object_get_data(G_OBJECT(dui->user_event), "uploader-name");
+       
+        if (v_user && *v_user) g_object_set_data_full(G_OBJECT(dui->user_event), "uploader-name", g_strdup(v_user), g_free);
+        else g_object_set_data(G_OBJECT(dui->user_event), "uploader-name", NULL);
+
+        const char *prev_email = (const char*)g_object_get_data(G_OBJECT(dui->user_event), "uploader-email");
+    
+        if (v_email && *v_email) g_object_set_data_full(G_OBJECT(dui->user_event), "uploader-email", g_strdup(v_email), g_free);
+        else g_object_set_data(G_OBJECT(dui->user_event), "uploader-email", NULL);
+
+        /* Optionally carry dataset-id to dui->user_event for context (clear old if any) */
+        g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", NULL);
+
+        if (ev_dataset_id_p) {
+            g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", ev_dataset_id_p);
+        } else if (meta) {
+            const char *A_DATASET_ID[] = {"iddataset","id","dataset_id", NULL};
+            const char *did_str = meta_get_any(meta, A_DATASET_ID, 3);
+            if (did_str && *did_str) {
+                int did = atoi(did_str);
+                if (did > 0) g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", GINT_TO_POINTER(did));
+            }
+        }
     }
+
+    debug_log("on_card_button: clicked dataset, uploader='%s' email='%s' uid=%d",
+              ev_uploader_name ? ev_uploader_name : "(none)",
+              ev_uploader_email ? ev_uploader_email : "(none)",
+              ev_uploader_id_p ? GPOINTER_TO_INT(ev_uploader_id_p) : 0);
+
     return TRUE;
 }
 
@@ -622,6 +691,7 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
 
     cJSON *root = cJSON_Parse(resp); free(resp);
     if (!root) return;
+    debug_log("Datasets JSON: %s", cJSON_Print(root));
 
     cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
     if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0) { cJSON_Delete(root); return; }
@@ -637,16 +707,42 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
         g_list_free(rows);
     }
 
-    /* Determine common column indexes for title/desc/size (optional; we’ll also use meta map) */
+    /* Determine common column indexes (name/desc/size/url/date/id) + uploader fields */
     int ncols = cJSON_GetArraySize(columns);
-    int idx_nome=-1, idx_desc=-1, idx_size=-1;
-    for (int i=0; i<ncols; ++i) {
+    int idx_nome = -1, idx_desc = -1, idx_size = -1, idx_url = -1, idx_dt = -1, idx_id = -1;
+    int idx_uploader_id = -1, idx_uploader_name = -1, idx_uploader_email = -1;
+
+    for (int i = 0; i < ncols; ++i) {
         cJSON *col = cJSON_GetArrayItem(columns, i);
         if (!cJSON_IsString(col) || !col->valuestring) continue;
         const char *nm = col->valuestring;
-        if (g_ascii_strcasecmp(nm,"nome")==0 || g_ascii_strcasecmp(nm,"name")==0 || g_ascii_strcasecmp(nm,"title")==0) idx_nome = i;
-        if (g_ascii_strcasecmp(nm,"descricao")==0 || g_ascii_strcasecmp(nm,"description")==0) idx_desc = i;
-        if (g_ascii_strcasecmp(nm,"tamanho")==0 || g_ascii_strcasecmp(nm,"size")==0) idx_size = i;
+
+        if (g_ascii_strcasecmp(nm, "nome") == 0 || g_ascii_strcasecmp(nm, "name") == 0 || g_ascii_strcasecmp(nm, "title") == 0) idx_nome = i;
+        if (g_ascii_strcasecmp(nm, "descricao") == 0 || g_ascii_strcasecmp(nm, "description") == 0 || g_ascii_strcasecmp(nm, "desc") == 0) idx_desc = i;
+        if (g_ascii_strcasecmp(nm, "tamanho") == 0 || g_ascii_strcasecmp(nm, "size") == 0 || g_ascii_strcasecmp(nm, "bytes") == 0) idx_size = i;
+        if (g_ascii_strcasecmp(nm, "url") == 0 || g_ascii_strcasecmp(nm, "link") == 0 || g_ascii_strcasecmp(nm, "source") == 0 || g_ascii_strcasecmp(nm, "path") == 0) idx_url = i;
+        if (g_ascii_strcasecmp(nm, "datacadastro") == 0 || g_ascii_strcasecmp(nm, "dataCadastro") == 0 || g_ascii_strcasecmp(nm, "created_at") == 0 || g_ascii_strcasecmp(nm, "date") == 0) idx_dt = i;
+        if (g_ascii_strcasecmp(nm, "iddataset") == 0 || g_ascii_strcasecmp(nm, "id") == 0) idx_id = i;
+
+        /* uploader id/name/email detection (várias aliases) */
+        if (g_ascii_strcasecmp(nm, "usuario_idusuario") == 0 || g_ascii_strcasecmp(nm, "usuarioid") == 0 ||
+            g_ascii_strcasecmp(nm, "user_id") == 0 || g_ascii_strcasecmp(nm, "uploader_id") == 0 ||
+            g_ascii_strcasecmp(nm, "idusuario") == 0 || g_ascii_strcasecmp(nm, "owner_id") == 0 ||
+            g_ascii_strcasecmp(nm, "userid") == 0 || g_ascii_strcasecmp(nm, "user") == 0) {
+            idx_uploader_id = i;
+        }
+
+        if (g_ascii_strcasecmp(nm, "usuario_nome") == 0 || g_ascii_strcasecmp(nm, "enviado_por_nome") == 0 ||
+            g_ascii_strcasecmp(nm, "uploader_name") == 0 || g_ascii_strcasecmp(nm, "user_name") == 0 ||
+            g_ascii_strcasecmp(nm, "owner_name") == 0) {
+            idx_uploader_name = i;
+        }
+
+        if (g_ascii_strcasecmp(nm, "usuario_email") == 0 || g_ascii_strcasecmp(nm, "enviado_por_email") == 0 ||
+            g_ascii_strcasecmp(nm, "email") == 0 || g_ascii_strcasecmp(nm, "user_email") == 0 ||
+            g_ascii_strcasecmp(nm, "owner_email") == 0) {
+            idx_uploader_email = i;
+        }
     }
 
     /* Build a “card” (row) for each dataset */
@@ -656,18 +752,18 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
 
         /* Title / description text for the card face */
         char title_buf[256] = "(dataset)";
-        char desc_buf [512] = "";
+        char desc_buf[512] = "";
 
         if (idx_nome >= 0) {
             cJSON *cell = cJSON_GetArrayItem(row, idx_nome);
             if (cJSON_IsString(cell) && cell->valuestring) {
-                snprintf(title_buf, sizeof(title_buf), "%s", cell->valuestring);
+                g_strlcpy(title_buf, cell->valuestring, sizeof(title_buf));
             }
         }
         if (idx_desc >= 0) {
             cJSON *cell = cJSON_GetArrayItem(row, idx_desc);
             if (cJSON_IsString(cell) && cell->valuestring) {
-                snprintf(desc_buf, sizeof(desc_buf), "%s", cell->valuestring);
+                g_strlcpy(desc_buf, cell->valuestring, sizeof(desc_buf));
             }
         }
 
@@ -677,22 +773,21 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
             cJSON *cell = cJSON_GetArrayItem(row, idx_size);
             if (cJSON_IsString(cell) && cell->valuestring) {
                 char *pp = pretty_size(cell->valuestring);
-                snprintf(size_right, sizeof(size_right), "%s", pp ? pp : "");
-                g_free(pp);
+                if (pp) { g_strlcpy(size_right, pp, sizeof(size_right)); g_free(pp); }
             } else if (cJSON_IsNumber(cell)) {
                 char tmp[64];
                 g_snprintf(tmp, sizeof(tmp), "%g", cell->valuedouble);
                 char *pp = pretty_size(tmp);
-                snprintf(size_right, sizeof(size_right), "%s", pp ? pp : "");
-                g_free(pp);
+                if (pp) { g_strlcpy(size_right, pp, sizeof(size_right)); g_free(pp); }
             }
         }
 
-        /* Card UI */
+        /* Build UI for the card */
         GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         GtkWidget *left   = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
         GtkWidget *labt   = gtk_label_new(NULL);
         GtkWidget *labd   = gtk_label_new(desc_buf);
+
         gchar *markup = g_markup_printf_escaped("<b>%s</b>", title_buf);
         gtk_label_set_markup(GTK_LABEL(labt), markup);
         gtk_label_set_xalign(GTK_LABEL(labt), 0.0);
@@ -708,25 +803,99 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
         gtk_box_pack_start(GTK_BOX(rowbox), left, TRUE, TRUE, 0);
         gtk_box_pack_end  (GTK_BOX(rowbox), size, FALSE, FALSE, 0);
 
+        /* EventBox wrapper for click */
         GtkWidget *ev = gtk_event_box_new();
         gtk_container_add(GTK_CONTAINER(ev), rowbox);
-        gtk_list_box_insert(dui->cards, ev, -1);
 
-        /* Attach: title markup + full metadata map for this dataset */
-        g_object_set_data_full(G_OBJECT(ev), "card-title", markup, g_free);
-
+        /* Build meta hashtable and attach */
         GHashTable *meta = make_row_meta(columns, row);
         g_object_set_data_full(G_OBJECT(ev), "dataset-meta", meta, (GDestroyNotify)g_hash_table_destroy);
 
-        /* Click -> details (pure-C handler) */
+        /* Attach title markup for details header (free with g_free) */
+        g_object_set_data_full(G_OBJECT(ev), "card-title", g_strdup(markup), g_free);
+
+        /* Extract uploader-id (from row if present) and store on the eventbox for convenience */
+        if (idx_uploader_id >= 0) {
+            cJSON *uid_cell = cJSON_GetArrayItem(row, idx_uploader_id);
+            if (cJSON_IsNumber(uid_cell)) {
+                g_object_set_data(G_OBJECT(ev), "uploader-id", GINT_TO_POINTER((gint)uid_cell->valueint));
+            } else if (cJSON_IsString(uid_cell) && uid_cell->valuestring) {
+                int uid = atoi(uid_cell->valuestring);
+                g_object_set_data(G_OBJECT(ev), "uploader-id", GINT_TO_POINTER(uid));
+            } else {
+                g_object_set_data(G_OBJECT(ev), "uploader-id", NULL);
+            }
+        } else {
+            /* fallback: try to read from meta with common keys */
+            const char *uploader_id_str = meta_get_any(meta,
+                (const char*[]){"usuario_idusuario","usuarioid","idusuario","user_id","uploader_id","owner_id",NULL}, 6);
+            if (uploader_id_str && *uploader_id_str) {
+                g_object_set_data(G_OBJECT(ev), "uploader-id", GINT_TO_POINTER(atoi(uploader_id_str)));
+            } else {
+                g_object_set_data(G_OBJECT(ev), "uploader-id", NULL);
+            }
+        }
+
+        /* Also store uploader name/email (if present) on the card for quick access.
+           Use set_data_full so g_free() is called when widget is destroyed to avoid leaks. */
+        if (idx_uploader_name >= 0) {
+            cJSON *name_cell = cJSON_GetArrayItem(row, idx_uploader_name);
+            if (cJSON_IsString(name_cell) && name_cell->valuestring && name_cell->valuestring[0]) {
+                g_object_set_data_full(G_OBJECT(ev), "uploader-name", g_strdup(name_cell->valuestring), g_free);
+            } else {
+                g_object_set_data(G_OBJECT(ev), "uploader-name", NULL);
+            }
+        } else {
+            const char *name_from_meta = meta_get_any(meta, (const char*[]){"usuario_nome","enviado_por_nome","user_name",NULL}, 3);
+            if (name_from_meta && *name_from_meta) g_object_set_data_full(G_OBJECT(ev), "uploader-name", g_strdup(name_from_meta), g_free);
+            else g_object_set_data(G_OBJECT(ev), "uploader-name", NULL);
+        }
+
+        if (idx_uploader_email >= 0) {
+            cJSON *email_cell = cJSON_GetArrayItem(row, idx_uploader_email);
+            if (cJSON_IsString(email_cell) && email_cell->valuestring && email_cell->valuestring[0]) {
+                g_object_set_data_full(G_OBJECT(ev), "uploader-email", g_strdup(email_cell->valuestring), g_free);
+            } else {
+                g_object_set_data(G_OBJECT(ev), "uploader-email", NULL);
+            }
+        } else {
+            const char *email_from_meta = meta_get_any(meta, (const char*[]){"usuario_email","enviado_por_email","email",NULL}, 3);
+            if (email_from_meta && *email_from_meta) g_object_set_data_full(G_OBJECT(ev), "uploader-email", g_strdup(email_from_meta), g_free);
+            else g_object_set_data(G_OBJECT(ev), "uploader-email", NULL);
+        }
+
+        /* dataset id (if present) */
+        if (idx_id >= 0) {
+            cJSON *idcell = cJSON_GetArrayItem(row, idx_id);
+            if (cJSON_IsNumber(idcell)) {
+                g_object_set_data(G_OBJECT(ev), "dataset-id", GINT_TO_POINTER(idcell->valueint));
+            } else if (cJSON_IsString(idcell) && idcell->valuestring) {
+                int did = atoi(idcell->valuestring);
+                g_object_set_data(G_OBJECT(ev), "dataset-id", GINT_TO_POINTER(did));
+            } else {
+                g_object_set_data(G_OBJECT(ev), "dataset-id", NULL);
+            }
+        } else {
+            g_object_set_data(G_OBJECT(ev), "dataset-id", NULL);
+        }
+
+        /* Insert into list and connect click handler */
+        gtk_list_box_insert(GTK_LIST_BOX(dui->cards), ev, -1);
         g_signal_connect(ev, "button-press-event", G_CALLBACK(on_card_button), dui);
+
+        /* free local markup (we duplicated for storage), original markup var must be freed */
+        g_free(markup);
     }
 
     /* Show list page after refresh */
     gtk_stack_set_visible_child_name(dui->stack, "list");
 
+    /* Ensure cards are visible */
+    gtk_widget_show_all(GTK_WIDGET(dui->cards));
+
     cJSON_Delete(root);
 }
+
 
 static void populate_ds_combo_from_api(EnvCtx *ctx) {
     if (!ctx || !ctx->ds_combo) return;

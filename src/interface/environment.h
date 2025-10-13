@@ -49,15 +49,15 @@ static void install_env_w95_titlebar(GtkWindow *win, const char *title_text) {
     gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
-
-    /* DIREITA: [min] [max] [close] — com PNGs (não mudam) */
+    
     GtkWidget *btn_min   = gtk_button_new();
     GtkWidget *btn_max   = gtk_button_new();
     GtkWidget *btn_close = gtk_button_new();
 
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "win95");
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "win95");
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "envbar-btn");
+
 
     GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
     GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
@@ -825,6 +825,7 @@ static void on_split_entry_changed(GtkEditable *editable, gpointer user_data) {
 /* Build the Environment tab (LEFT controls | RIGHT notebook) */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_name(outer, "env-window");
     GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
     if (GTK_IS_WINDOW(tl)) install_env_w95_titlebar(GTK_WINDOW(tl), "AI for Dummies");
 

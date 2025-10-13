@@ -13,10 +13,11 @@
 #include <stdarg.h>
 #include <time.h>
 #include <wchar.h>
-#include <windows.h>   /* for WCHAR and WideChar conversions (your project uses them) */
+#include <windows.h>
 #include <stdlib.h>
 #include <string.h>
 #include <gdk/gdkkeysyms.h>
+#include "../css/css.h" 
 
 
 #ifndef DEBUG_WINDOW_H
@@ -71,6 +72,83 @@ static void _now_str(char *buf, size_t n) {
     localtime_r(&t, &tm);
 #endif
     strftime(buf, n, "%Y-%m-%d %H:%M:%S", &tm);
+}
+
+/* helper local: alterna maximizar/restaurar (sem outras dependências) */
+static void debug_titlebar_on_max_clicked(GtkButton *btn, gpointer win_) {
+    (void)btn;
+    GtkWindow *win = GTK_WINDOW(win_);
+    if (gtk_window_is_maximized(win)) gtk_window_unmaximize(win);
+    else                               gtk_window_maximize(win);
+}
+
+static void install_w95_titlebar_debug(GtkWindow *win) {
+    GtkWidget *hb = gtk_header_bar_new();
+    gtk_widget_set_name(hb, "w95-titlebar");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+    gtk_header_bar_set_title(GTK_HEADER_BAR(hb), NULL);
+
+    /* ESQUERDA: logo + título */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GdkPixbuf *pb_logo =
+        gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
+    GtkWidget *logo = gtk_image_new_from_pixbuf(pb_logo);
+    g_object_unref(pb_logo);
+    gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), logo, FALSE, FALSE, 0);
+
+    GtkWidget *title = gtk_label_new("AI for Dummies");
+    gtk_widget_set_name(title, "w95-title");
+    gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
+
+    /* DIREITA: [min] [max] [close] com PNGs fixos */
+    GtkWidget *btn_min   = gtk_button_new();
+    GtkWidget *btn_max   = gtk_button_new();
+    GtkWidget *btn_close = gtk_button_new();
+
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "win95");
+
+    GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+
+    gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
+    gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
+    gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
+
+    g_object_unref(pb_min); g_object_unref(pb_max); g_object_unref(pb_close);
+
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
+
+    /* sinais */
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_hide), win);
+    g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
+    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(debug_titlebar_on_max_clicked), win);
+
+    gtk_window_set_titlebar(win, hb);
+}
+
+/* Ao tentar fechar pela decoração/Alt+F4: só esconde */
+static gboolean _on_debug_delete(GtkWidget *w, GdkEvent *e, gpointer user_data) {
+    (void)e; (void)user_data;
+    gtk_widget_hide(w);
+    return TRUE;  // impede destruir
+}
+
+/* Se por algum motivo destruir acontecer, zere o ponteiro global */
+static void _on_debug_destroy(GtkWidget *w, gpointer user_data) {
+    (void)w; (void)user_data;
+    g_debug_ctx.window = NULL;
 }
 
 /* schedule append via idle (thread-safe) */
@@ -373,9 +451,35 @@ gboolean debug_window_create(GtkWindow *parent) {
     g_debug_ctx.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(g_debug_ctx.window), 900, 480);
     gtk_window_set_title(GTK_WINDOW(g_debug_ctx.window), "Debug / Terminal");
-    if (parent) gtk_window_set_transient_for(GTK_WINDOW(g_debug_ctx.window), parent);
+    /* Torne independente do parent (não minimize em grupo) */
+    gtk_window_set_transient_for(GTK_WINDOW(g_debug_ctx.window), NULL);
+    gtk_window_set_modal(GTK_WINDOW(g_debug_ctx.window), FALSE);
+    gtk_window_set_destroy_with_parent(GTK_WINDOW(g_debug_ctx.window), FALSE);
+    /* mostre no taskbar normalmente */
+    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(g_debug_ctx.window), FALSE);
+    gtk_window_set_skip_pager_hint(GTK_WINDOW(g_debug_ctx.window), FALSE);
+
+    /* Eventos de fechar/limpar ponteiro */
+    g_signal_connect(g_debug_ctx.window, "delete-event",
+                    G_CALLBACK(_on_debug_delete), NULL);
+    g_signal_connect(g_debug_ctx.window, "destroy",
+                    G_CALLBACK(_on_debug_destroy), NULL);
+    install_w95_titlebar_debug(GTK_WINDOW(g_debug_ctx.window));
+    /* nome do topo para o CSS */
+    gtk_widget_set_name(g_debug_ctx.window, "debug-window");
+
+    /* carrega o CSS deste módulo */
+    const char *DEBUG_CSS = parse_CSS_file("debug.css");
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(prov, DEBUG_CSS ? DEBUG_CSS : "", -1, NULL);
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(prov);
 
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_name(vbox, "debug-panel");
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
     gtk_container_add(GTK_CONTAINER(g_debug_ctx.window), vbox);
 
@@ -384,6 +488,7 @@ gboolean debug_window_create(GtkWindow *parent) {
     gtk_text_view_set_editable(g_debug_ctx.backlog_view, FALSE);
     gtk_text_view_set_cursor_visible(g_debug_ctx.backlog_view, FALSE);
     g_debug_ctx.backlog_scroller = gtk_scrolled_window_new(NULL, NULL);
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_debug_ctx.backlog_scroller), "sunken");
     gtk_widget_set_vexpand(g_debug_ctx.backlog_scroller, TRUE);
     gtk_container_add(GTK_CONTAINER(g_debug_ctx.backlog_scroller), GTK_WIDGET(g_debug_ctx.backlog_view));
     gtk_box_pack_start(GTK_BOX(vbox), g_debug_ctx.backlog_scroller, TRUE, TRUE, 0);
@@ -394,9 +499,10 @@ gboolean debug_window_create(GtkWindow *parent) {
     gtk_text_view_set_accepts_tab(GTK_TEXT_VIEW(g_debug_ctx.cmd_view), TRUE);
     gtk_text_view_set_left_margin(g_debug_ctx.cmd_view, 6);
     gtk_text_view_set_right_margin(g_debug_ctx.cmd_view, 6);
-    gtk_widget_set_size_request(GTK_WIDGET(g_debug_ctx.cmd_view), -1, 100); /* input height */
+    gtk_widget_set_size_request(GTK_WIDGET(g_debug_ctx.cmd_view), -1, 100); 
 
     g_debug_ctx.cmd_scroller = gtk_scrolled_window_new(NULL, NULL);
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_debug_ctx.cmd_scroller), "sunken");
     gtk_widget_set_vexpand(g_debug_ctx.cmd_scroller, FALSE);
     gtk_container_add(GTK_CONTAINER(g_debug_ctx.cmd_scroller), GTK_WIDGET(g_debug_ctx.cmd_view));
     gtk_box_pack_start(GTK_BOX(vbox), g_debug_ctx.cmd_scroller, FALSE, FALSE, 0);

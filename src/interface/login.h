@@ -763,6 +763,110 @@ static void install_w95_titlebar(GtkWindow *win) {
     gtk_window_set_titlebar(win, hb);
 }
 
+/* Carrega um ícone (16x16 por padrão) procurando primeiro em "assets/<nome>" */
+static GdkPixbuf* load_icon_95(const char *basename, int size) {
+    GError *err = NULL;
+    GdkPixbuf *pb = NULL;
+
+    /* tenta "assets/<basename>" */
+    char path[256];
+    snprintf(path, sizeof(path), "assets/%s", basename);
+    pb = gdk_pixbuf_new_from_file_at_scale(path, size, size, TRUE, &err);
+
+    if (!pb) { /* fallback: tenta exatamente o basename (caso já venha com assets/) */
+        if (err) g_clear_error(&err);
+        pb = gdk_pixbuf_new_from_file_at_scale(basename, size, size, TRUE, &err);
+    }
+    if (err) g_clear_error(&err);
+    return pb; /* pode ser NULL se não achar, e tudo bem */
+}
+
+/* Cria um widget com ÍCONE + TEXTO (para rótulos e abas do notebook) */
+static GtkWidget* make_icon_text(const char *text, const char *icon_basename, int size) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign(box, GTK_ALIGN_START);
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+
+    GdkPixbuf *pb = load_icon_95(icon_basename, size);
+    if (pb) {
+        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+        g_object_unref(pb);
+        gtk_box_pack_start(GTK_BOX(box), img, FALSE, FALSE, 0);
+    }
+
+    GtkWidget *lbl = gtk_label_new(text);
+    gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+    gtk_widget_set_valign(lbl, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
+
+    return box;
+}
+
+/* Aplica imagem à esquerda do texto do botão (se existir o arquivo) */
+static void set_button_icon(GtkWidget *button, const char *icon_basename, int size) {
+    GdkPixbuf *pb = load_icon_95(icon_basename, size);
+    if (!pb) return;
+    GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+    g_object_unref(pb);
+    gtk_button_set_image(GTK_BUTTON(button), img);
+    gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
+    gtk_button_set_image_position(GTK_BUTTON(button), GTK_POS_LEFT);
+}
+
+// helper para colocar imagem no botão (14px, mantém alpha)
+static void set_btn_image(GtkWidget *btn, const char *path) {
+    GError *err = NULL;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, 14, 14, TRUE, &err);
+    if (pb) {
+        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+        gtk_button_set_image(GTK_BUTTON(btn), img);
+        gtk_button_set_always_show_image(GTK_BUTTON(btn), TRUE);
+        g_object_unref(pb);
+    }
+    if (err) g_clear_error(&err);
+}
+
+static GtkWidget* make_tab_label_login(const char *text, const char *icon_path) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+
+    GError *err = NULL;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(icon_path, 14, 14, TRUE, &err);
+    if (pb) {
+        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+        gtk_box_pack_start(GTK_BOX(box), img, FALSE, FALSE, 0);
+        g_object_unref(pb);
+    }
+    if (err) g_clear_error(&err);
+
+    GtkWidget *lbl = gtk_label_new(text);
+    gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(box);
+    return box;
+}
+
+/* helpers p/ trocar cursor */
+static void set_hand_cursor(GtkWidget *w, gboolean hand) {
+    GdkWindow  *win = gtk_widget_get_window(w);
+    if (!win) return;
+    GdkDisplay *dpy = gdk_display_get_default();
+
+    /* tenta nome moderno; cai pro enum antigo se precisar */
+    GdkCursor *cur = gdk_cursor_new_from_name(dpy, hand ? "pointer" : "default");
+    if (!cur && hand) cur = gdk_cursor_new_for_display(dpy, GDK_HAND2);
+    gdk_window_set_cursor(win, cur);
+    if (cur) g_object_unref(cur);
+}
+
+static gboolean on_enter(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    set_hand_cursor(w, TRUE);
+    return FALSE;
+}
+static gboolean on_leave(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    set_hand_cursor(w, FALSE);
+    return FALSE;
+}
+
 // Criação da janela de login
 GtkWidget* create_login_window(const LoginHandlers *handlers) {
     const char *LOGIN_CSS = parse_CSS_file("login.css");
@@ -776,6 +880,7 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
 
     gtk_window_set_title(GTK_WINDOW(login_win), "Login / Cadastro");
 
+    
     /* >>> BARRA WIN95 <<< */
     install_w95_titlebar(GTK_WINDOW(login_win));
     
@@ -814,14 +919,14 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_grid_attach(GTK_GRID(login_grid), lbl_login_title, 0, 0, 2, 1);
     gtk_widget_set_halign(lbl_login_title, GTK_ALIGN_CENTER);
 
-    GtkWidget *lbl_email = gtk_label_new("Email:");
+    GtkWidget *lbl_email = make_icon_text("Email", "email.png", 16);
     ctx->email_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->email_entry), "seu@email.com");
     gtk_widget_set_hexpand(ctx->email_entry, TRUE);
     gtk_grid_attach(GTK_GRID(login_grid), lbl_email, 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(login_grid), ctx->email_entry, 1, 1, 1, 1);
 
-    GtkWidget *lbl_pass = gtk_label_new("Senha:");
+    GtkWidget *lbl_pass  = make_icon_text("Senha", "password.png", 16);
     ctx->pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->pass_entry), FALSE);
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->pass_entry), "••••••");
@@ -849,7 +954,8 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_name(login_panel, "login-panel"); 
     gtk_container_add(GTK_CONTAINER(login_box), login_panel);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, gtk_label_new("Login"));
+    GtkWidget *login_tab = make_tab_label_login("Login", "assets/login.png");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), login_box, login_tab);
 
     // ================= REGISTER TAB =================
     GtkWidget *reg_grid = gtk_grid_new();
@@ -862,21 +968,21 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_grid_attach(GTK_GRID(reg_grid), lbl_reg_title, 0, 0, 2, 1);
     gtk_widget_set_halign(lbl_reg_title, GTK_ALIGN_CENTER);
 
-    GtkWidget *reg_nome_label = gtk_label_new("Nome:");
+    GtkWidget *reg_nome_label = make_icon_text("Nome", "user.png", 16);
     ctx->reg_nome_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_nome_entry), "Seu nome completo");
     gtk_widget_set_hexpand(ctx->reg_nome_entry, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), reg_nome_label, 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_nome_entry, 1, 1, 1, 1);
 
-    GtkWidget *reg_email_label = gtk_label_new("Email:");
+    GtkWidget *reg_email_label = make_icon_text("Email", "email.png", 16);
     ctx->reg_email_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_email_entry), "email@dominio.com");
     gtk_widget_set_hexpand(ctx->reg_email_entry, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), reg_email_label, 0, 2, 1, 1);
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_email_entry, 1, 2, 1, 1);
 
-    GtkWidget *reg_pass_label = gtk_label_new("Senha:");
+    GtkWidget *reg_pass_label = make_icon_text("Senha", "password.png", 16);
     ctx->reg_pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->reg_pass_entry), FALSE);
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_pass_entry), "••••••");
@@ -899,24 +1005,39 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_box_pack_start(GTK_BOX(reg_box), make_app_hero(), FALSE, FALSE, 0);
     GtkWidget *reg_panel = wrap_CSS(LOGIN_CSS, "metal-panel", reg_grid, "login-panel");
     gtk_container_add(GTK_CONTAINER(reg_box), reg_panel);
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, gtk_label_new("Cadastro"));
+    GtkWidget *cad_tab = make_tab_label_login("Cadastro", "assets/cadastro.png");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, cad_tab);
 
     // BOTÃO "Esqueci minha senha"
     GtkWidget *forgot_btn = gtk_button_new_with_label("Esqueci minha senha");
-    gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NORMAL);
     gtk_widget_set_name(forgot_btn, "link-like-button");
+    gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NONE);
+    set_button_icon(forgot_btn, "forgot.png", 16);
     gtk_grid_attach(GTK_GRID(login_grid), forgot_btn, 0, 5, 2, 1);
     gtk_widget_set_halign(forgot_btn, GTK_ALIGN_CENTER);
 
+    // BOTÃO "Debug"
     GtkWidget *debug_btn = gtk_button_new_with_label("Debug");
-    gtk_button_set_relief(GTK_BUTTON(debug_btn), GTK_RELIEF_NORMAL);
     gtk_widget_set_name(debug_btn, "link-like-button");
-    gtk_grid_attach(GTK_GRID(login_grid), debug_btn, 0, 6, 2, 1); // ← ESTA LINHA ESTÁ FALTANDO!
+    gtk_button_set_relief(GTK_BUTTON(debug_btn), GTK_RELIEF_NONE);
+    set_button_icon(debug_btn, "debug.png", 16);
+    gtk_grid_attach(GTK_GRID(login_grid), debug_btn, 0, 6, 2, 1);
     gtk_widget_set_halign(debug_btn, GTK_ALIGN_CENTER);
 
     ctx->btn_debug = GTK_BUTTON(debug_btn);
     gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
     g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
+    
+    /* habilita eventos de “mouse entrou/saiu” */
+    gtk_widget_add_events(forgot_btn, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+    gtk_widget_add_events(debug_btn,  GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+
+    /* muda o cursor para “mãozinha” ao passar por cima */
+    g_signal_connect(forgot_btn, "enter-notify-event", G_CALLBACK(on_enter), NULL);
+    g_signal_connect(forgot_btn, "leave-notify-event", G_CALLBACK(on_leave), NULL);
+
+    g_signal_connect(debug_btn,  "enter-notify-event", G_CALLBACK(on_enter), NULL);
+    g_signal_connect(debug_btn,  "leave-notify-event", G_CALLBACK(on_leave), NULL);
 
     // ----- Criar a caixa de recuperação, mas NÃO anexar ao grid ainda -----
     ctx->recovery_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);

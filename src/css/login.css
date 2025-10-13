@@ -65,7 +65,6 @@ window, dialog, .background{
 #login-window .label{ color: var(--text); font-weight: 600; }
 
 /* 3) ENTRIES / SPIN / COMBO — aspecto "afundado" */
-#login-window entry,
 #login-window spinbutton,
 #login-window combobox,
 #login-window combobox entry{
@@ -77,9 +76,7 @@ window, dialog, .background{
   box-shadow: inset 1px 1px 0 var(--darkshadow),
               inset -1px -1px 0 var(--highlight);
 }
-#login-window entry::placeholder,
 #login-window combobox entry::placeholder{ color:#555; }
-#login-window entry:focus,
 #login-window spinbutton:focus,
 #login-window combobox:focus,
 #login-window combobox entry:focus{
@@ -233,6 +230,7 @@ headerbar .title{ font-weight: 700; letter-spacing: .2px; }
   /* aba "pressionada" */
   box-shadow: inset 1px 1px 0 var(--darkshadow), inset -1px -1px 0 var(--highlight);
 }
+
 #login-window notebook tab:focus{ outline: 1px dotted var(--focus-dot); outline-offset: -3px; }
 
 /* 13) StackSwitcher (estilo botões Win95) */
@@ -360,4 +358,125 @@ headerbar .win95:active {
 #login-window #login-panel viewport {
   background-color: #e0deda;
   background-image: none;
+}
+
+/* “Card” prateado com relevo (equiv. .card) */
+#login-panel,
+#login-window .metal-panel {
+  color:#212529;
+  border: 2px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  border-left-color:#fff;
+  border-top-color:#fff;
+  box-shadow: 1px 1px #000;  
+  padding: 12px 14px;
+}
+
+/* Botões 3D (equiv. .btn) – mantém sua aparência, adiciona hover/disabled */
+#login-window button {
+  border-width: 2px;
+  border-style: outset;
+  border-color: buttonface;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  background: silver;
+  color: black;
+  padding: 4px 6px;
+  border-radius: 1px;
+}
+#login-window button:hover,
+#login-window button:focus,
+#login-window button:active {
+  border: 2px inset #818181;
+  background: silver;
+  color:#424242;
+  box-shadow: -1px -1px #000;
+}
+#login-window button:disabled {
+  cursor: default;
+  background-color: silver;
+  border-style: outset;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  color: grey;
+  text-shadow: 1px 1px #fff;
+}
+
+
+/* Notebook (equiv. .nav-tabs / .tab-content) */
+#login-window notebook { border: 2px solid #fff; border-bottom-color:#fff; }
+#login-window notebook > header { background:#c0c0c0; border-bottom:2px solid #fff; }
+#login-window notebook tab {
+  background:#c0c0c0; color:black;
+  border-top-left-radius:4px; border-top-right-radius:4px;
+  border-right:1px solid #5A5A5A; margin:0; padding:.2rem 1.2rem;
+}
+
+#login-window notebook > stack {
+  border: 2px solid;
+  border-bottom-color:#424242; border-right-color:#424242;
+  padding: 1rem 1.4rem;
+}
+
+/* Barra de progresso (equiv. .progress / .progress-bar) – já bem próxima */
+#login-window progressbar trough {
+  background: silver;
+  border: 1px inset #d5d5d5;
+  color:#424242;
+  border-radius: 0;
+}
+#login-window progressbar progress {
+  background-color:#1a0094; /* faixa sólida */
+}
+#login-window progressbar progress.progress-bar-blocks {
+  background-image: linear-gradient(90deg,transparent 75%,#d5d5d5 25%);
+  background-size: 1rem 1rem;
+}
+
+/* Campos de texto estilo Win95 (afundado, 2 níveis) */
+#login-window entry {
+  background: #ffffff;
+  color: #000;
+  border-radius: 0;
+  padding: 8px 12px;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf, 
+    inset -2px -2px 0 #cfcfcf,  
+    inset 3px 3px 0 #818181,  
+    inset -2px -2px 0 #cfcfcf; 
+  min-height: 22px;            
+}
+
+/* Placeholder mais apagado */
+#login-window entry::placeholder {
+  color: #6b6b6b;
+}
+
+/* Foco com pontilhado interno, como no Win95 */
+#login-window entry:focus {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+/* Botões com cara de link: sem fundo, sem borda*/
+#login-window button#link-like-button {
+  background: transparent;
+  background-image: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0 2px;
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#login-window button#link-like-button:hover,
+#login-window button#link-like-button:focus,
+#login-window button#link-like-button:active {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--link);
+  text-decoration: underline;
 }

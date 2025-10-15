@@ -23,8 +23,6 @@ bool api_login(const char *email, const char *password, char **response);
 bool api_get_user_by_id(int user_id, char **response);
 bool api_get_user_datasets(int user_id, char **response);
 
-// *** ADICIONADO: protótipo para upload CSV ***
-bool api_upload_csv(const char *csv_path, char **response);
 
 char* process_api_response(const char *api_response);   // processa a resposta da API e formata para o main.c
 WCHAR* run_api_command(const WCHAR *command);           // executa comandos via API
@@ -577,15 +575,128 @@ WCHAR* run_api_command(const WCHAR *command) {
 
     // *** ADICIONADO: novo comando UPLOAD_CSV <caminho do arquivo (restante da linha)> ***
     else if (token && strcmp(token, "UPLOAD_CSV") == 0) {
-        token = strtok(NULL, ""); // pega resto da linha (path pode conter espaços)
+        token = strtok(NULL, ""); // pega resto da linha (path e/ou pares key=value) — pode conter espaços
         if (token) {
             // trim leading spaces
             while (*token == ' ') token++;
-            if (*token != '\0') {
-                api_upload_csv(token, &response);
+            if (*token == '\0') {
+                debug_log("UPLOAD_CSV: nothing after command");
+            } else {
+                char *rest = token;
+                char *path = NULL;
+                int user_id = 0;
+                char *enviado_por_nome = NULL;
+                char *enviado_por_email = NULL;
+                char *nome_field = NULL;
+                char *descricao = NULL;
+
+                /* Caso 1: JSON object (recomendado) */
+                if (rest[0] == '{') {
+                    cJSON *j = cJSON_Parse(rest);
+                    if (j) {
+                        cJSON *jpath = cJSON_GetObjectItemCaseSensitive(j, "path");
+                        if (!jpath) jpath = cJSON_GetObjectItemCaseSensitive(j, "file");
+                        if (cJSON_IsString(jpath) && jpath->valuestring) path = g_strdup(jpath->valuestring);
+
+                        cJSON *ju = cJSON_GetObjectItemCaseSensitive(j, "user_id");
+                        if (cJSON_IsNumber(ju)) user_id = ju->valueint;
+                        else {
+                            cJSON *jus = cJSON_GetObjectItemCaseSensitive(j, "usuario_id");
+                            if (cJSON_IsNumber(jus)) user_id = jus->valueint;
+                            else if (cJSON_IsString(jus) && jus->valuestring) user_id = atoi(jus->valuestring);
+                        }
+
+                        cJSON *jn = cJSON_GetObjectItemCaseSensitive(j, "enviado_por_nome");
+                        if (cJSON_IsString(jn) && jn->valuestring) enviado_por_nome = g_strdup(jn->valuestring);
+
+                        cJSON *je = cJSON_GetObjectItemCaseSensitive(j, "enviado_por_email");
+                        if (cJSON_IsString(je) && je->valuestring) enviado_por_email = g_strdup(je->valuestring);
+
+                        cJSON *jnome = cJSON_GetObjectItemCaseSensitive(j, "nome");
+                        if (cJSON_IsString(jnome) && jnome->valuestring) nome_field = g_strdup(jnome->valuestring);
+
+                        cJSON *jdesc = cJSON_GetObjectItemCaseSensitive(j, "descricao");
+                        if (cJSON_IsString(jdesc) && jdesc->valuestring) descricao = g_strdup(jdesc->valuestring);
+
+                        cJSON_Delete(j);
+                    } else {
+                        debug_log("UPLOAD_CSV: invalid JSON payload");
+                    }
+                } else {
+                    /* Caso 2: tokenized key=value pairs. First token sem '=' é tratado como path */
+                    char *tmp = g_strdup(rest);
+                    char *saveptr = NULL;
+                    char *tk = strtok_r(tmp, " ", &saveptr);
+                    if (tk) {
+                        if (strchr(tk, '=') == NULL) {
+                            path = g_strdup(tk);
+                            tk = strtok_r(NULL, " ", &saveptr);
+                        }
+                    }
+                    while (tk) {
+                        char *eq = strchr(tk, '=');
+                        if (eq) {
+                            *eq = '\0';
+                            char *k = tk;
+                            char *v = eq + 1;
+
+                            /* strip surrounding quotes if present */
+                            size_t vlen = strlen(v);
+                            if (vlen >= 2 && ((v[0] == '"' && v[vlen-1] == '"') || (v[0] == '\'' && v[vlen-1] == '\''))) {
+                                v[vlen-1] = '\0';
+                                v++;
+                            }
+
+                            if (g_strcmp0(k, "user_id") == 0 || g_strcmp0(k, "usuario_id") == 0) {
+                                user_id = atoi(v);
+                            } else if (g_strcmp0(k, "enviado_por_nome") == 0) {
+                                g_free(enviado_por_nome); enviado_por_nome = g_strdup(v);
+                            } else if (g_strcmp0(k, "enviado_por_email") == 0) {
+                                g_free(enviado_por_email); enviado_por_email = g_strdup(v);
+                            } else if (g_strcmp0(k, "nome") == 0) {
+                                g_free(nome_field); nome_field = g_strdup(v);
+                            } else if (g_strcmp0(k, "descricao") == 0) {
+                                g_free(descricao); descricao = g_strdup(v);
+                            } else if (g_strcmp0(k, "path") == 0 || g_strcmp0(k, "file") == 0) {
+                                if (!path) path = g_strdup(v);
+                            } else {
+                                /* ignore unknown keys */
+                            }
+                        }
+                        tk = strtok_r(NULL, " ", &saveptr);
+                    }
+                    g_free(tmp);
+                }
+
+                /* path é obrigatório para o upload */
+                if (!path) {
+                    debug_log("UPLOAD_CSV: missing path");
+                } else {
+                    /* Chama a função existente corretamente, passando &response para que ela aloque/retorne a resposta */
+                    if (!api_upload_csv_with_meta(path,
+                                                  user_id,
+                                                  (enviado_por_nome && *enviado_por_nome) ? enviado_por_nome : NULL,
+                                                  (enviado_por_email && *enviado_por_email) ? enviado_por_email : NULL,
+                                                  (nome_field && *nome_field) ? nome_field : NULL,
+                                                  (descricao && *descricao) ? descricao : NULL,
+                                                  &response)) {
+                        /* Se a função retornou false, response pode ou não ter sido preenchido; manter como está e deixar o fluxo tratar */
+                        debug_log("UPLOAD_CSV: upload function returned failure");
+                    }
+                    /* NOTA: não liberar 'response' aqui — o fluxo posterior de run_api_command faz process_api_response(response) e depois free(response) */
+                }
+
+                /* liberar temporários alocados */
+                if (path) g_free(path);
+                if (enviado_por_nome) g_free(enviado_por_nome);
+                if (enviado_por_email) g_free(enviado_por_email);
+                if (nome_field) g_free(nome_field);
+                if (descricao) g_free(descricao);
             }
         }
     }
+
+
 
     if (token && strcmp(token, "GET_USER_JSON") == 0) {
         token = strtok(NULL, " ");

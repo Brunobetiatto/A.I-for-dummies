@@ -8,6 +8,10 @@ import secrets
 import datetime
 from datetime import timedelta
 import re
+import uuid
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
+
 
 # Adiciona o diretório pai ao sys.path para permitir imports absolutos como "database.*"
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../connectors
@@ -16,7 +20,7 @@ if PARENT not in sys.path:
     sys.path.insert(0, PARENT)
 
 
-from database.CRUD.create import create_user
+from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
 from database.CRUD.update import reset_user_password
 from database.CRUD.read import get_user_by_id, get_datasets_by_user
@@ -28,11 +32,24 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', '1409'),
+    'password': os.getenv('DB_PASSWORD', ''),
     'database': os.getenv('DB_NAME', 'aifordummies'),
     'autocommit': True,
     'cursorclass': pymysql.cursors.DictCursor
 }
+
+# --- configuração (no topo do arquivo, junto com app config) ---
+UPLOAD_FOLDER = os.path.join(PARENT, 'uploads')  # caminho absoluto para a pasta uploads
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'csv'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# rota para servir os arquivos enviados (ajuste se estiver servindo static de outra forma)
+@app.route('/uploads/<path:filename>', methods=['GET'])
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=False)
 
 ALLOWED_TABLES = ['usuario', 'dataset'] 
 
@@ -299,6 +316,102 @@ def api_get_user(user_id):
         return jsonify({"status":"OK","user":resp})
     finally:
         cnx.close()
+
+
+@app.route('/datasets/upload', methods=['POST'])
+def datasets_upload():
+    """
+    Espera multipart/form-data:
+      - file: o CSV a ser enviado
+      - user_id: id do usuário que faz o upload (obrigatório)
+      - enviado_por_nome: opcional (se ausente será buscado do usuário)
+      - enviado_por_email: opcional (se ausente será buscado do usuário)
+      - nome: opcional (se ausente usamos o nome do arquivo original)
+      - descricao: opcional
+    Retorna JSON com 'status':'OK' e 'dataset':{...} ou erro apropriado.
+    """
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'ERROR', 'message': 'No file part'}), 400
+        file = request.files['file']
+
+        user_id = request.form.get('user_id') or request.form.get('usuario_id')
+        nome_field = request.form.get('nome') or ''
+        descricao = request.form.get('descricao') or ''
+        enviado_por_nome = request.form.get('enviado_por_nome')
+        enviado_por_email = request.form.get('enviado_por_email')
+
+        if not user_id:
+            return jsonify({'status': 'ERROR', 'message': 'user_id is required'}), 400
+
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            return jsonify({'status': 'ERROR', 'message': 'user_id must be an integer'}), 400
+
+        if file.filename == '':
+            return jsonify({'status': 'ERROR', 'message': 'No selected file'}), 400
+        if not allowed_file(file.filename):
+            return jsonify({'status': 'ERROR', 'message': 'Invalid file type. Only CSV allowed'}), 400
+
+        # salvar arquivo com nome seguro + sufixo único
+        orig_filename = secure_filename(file.filename)
+        unique_suffix = uuid.uuid4().hex[:12]
+        saved_filename = f"{os.path.splitext(orig_filename)[0]}_{unique_suffix}.csv"
+        save_path = os.path.join(UPLOAD_FOLDER, saved_filename)
+        file.save(save_path)
+        file_size_bytes = os.path.getsize(save_path)
+        tamanho_str = str(file_size_bytes)  # guarda como string (schema aceita VARCHAR)
+
+        # construir URL pública (ajuste para produção)
+        file_url = request.host_url.rstrip('/') + '/uploads/' + saved_filename
+
+        # se enviado_por_* não foi informado, buscar no usuário
+        cnx = get_db_connection()
+        try:
+            user = get_user_by_id(cnx, user_id_int)
+            if not user:
+                return jsonify({'status': 'ERROR', 'message': 'User not found'}), 404
+
+            if not enviado_por_nome:
+                enviado_por_nome = user.get('nome') or ''
+            if not enviado_por_email:
+                enviado_por_email = user.get('email') or ''
+        finally:
+            cnx.close()
+
+        # nome do dataset: se não fornecido, usa nome original do arquivo (sem extensão)
+        nome_to_store = nome_field or os.path.splitext(orig_filename)[0]
+
+        # inserir no banco usando create_dataset (pode lançar IntegrityError em caso de unique constraint)
+        cnx = get_db_connection()
+        try:
+            dataset = create_dataset(cnx,
+                                     user_id_int,
+                                     enviado_por_nome,
+                                     enviado_por_email,
+                                     nome_to_store,
+                                     descricao,
+                                     file_url,
+                                     tamanho_str)
+            return jsonify({'status': 'OK', 'dataset': dataset})
+        except pymysql.err.IntegrityError as ie:
+            # se violação de unique (usuario_idusuario, nome) — retorna 409
+            return jsonify({'status': 'ERROR', 'message': 'Dataset with same name already exists for this user'}), 409
+        except Exception as e:
+            # cleanup: remover arquivo salvo em caso de erro de DB (opcional)
+            try:
+                if os.path.exists(save_path):
+                    os.remove(save_path)
+            except Exception:
+                pass
+            raise
+        finally:
+            cnx.close()
+
+    except Exception as e:
+        print("Error in datasets_upload:", str(e))
+        return jsonify({'status': 'ERROR', 'message': str(e)}), 500
 
 @app.route('/user/<int:user_id>/datasets', methods=['GET'])
 def api_get_user_datasets(user_id):

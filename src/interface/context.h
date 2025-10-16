@@ -94,6 +94,13 @@ typedef struct {
     gboolean         split_lock;
 
     char *current_dataset_path;  /* caminho absoluto do último dataset carregado */
+
+    int *session;
+    int current_user_id;
+    char *current_user_name;
+    char *current_user_email;
+
+
 } EnvCtx;
 
 #endif

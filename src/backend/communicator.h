@@ -7,10 +7,16 @@
 #include <gtk/gtk.h>
 #include "../interface/debug_window.h"
 
+#ifndef COMMUNICATOR_H
+#define COMMUNICATOR_H
+
 struct ResponseData {
     char *data;
     size_t size;
 };
+
+#define BASE_URL "http://localhost:5000/uploads"
+#define DATASET_DIR "datasets"
 
 bool api_list_tables(char **response);
 bool api_dump_table(const char *table_name, char **response);
@@ -200,6 +206,89 @@ bool api_get_user_datasets(int user_id, char **response) {
     *response = api_request("GET", endpoint, NULL);
     return (*response != NULL);
 }
+
+/* --- helper: simple percent-encode --- */
+static char *url_encode_simple(const char *s) {
+    if (!s) return g_strdup("");
+    GString *out = g_string_new(NULL);
+    for (const unsigned char *p = (const unsigned char*)s; *p; ++p) {
+        unsigned char c = *p;
+        if ((c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            g_string_append_c(out, c);
+        } else {
+            g_string_append_printf(out, "%%%02X", c);
+        }
+    }
+    char *ret = g_string_free(out, FALSE);
+    return ret;
+}
+
+static size_t write_file_callback(void *ptr, size_t size, size_t nmemb, void *stream) {
+    return fwrite(ptr, size, nmemb, (FILE *)stream);
+}
+
+bool api_get_dataset_by_name(const char *filename, char **response) {
+    if (!filename || !*filename) return false;
+
+    CURL *curl;
+    CURLcode res;
+    bool success = false;
+
+    // monta URL completa
+    char url[512];
+    snprintf(url, sizeof(url), "%s/%s", BASE_URL, filename);
+
+    // monta caminho local
+    char local_path[512];
+    snprintf(local_path, sizeof(local_path), "%s/%s", DATASET_DIR, filename);
+
+    // cria diretório datasets/ se não existir
+
+
+    #ifdef _WIN32
+        wchar_t wdir[64];
+        MultiByteToWideChar(CP_UTF8, 0, DATASET_DIR, -1, wdir, 64);
+        _wmkdir(wdir);
+    #else
+        mkdir(DATASET_DIR, 0755);
+    #endif
+
+    FILE *fp = fopen(local_path, "wb");
+    if (!fp) {
+        *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao abrir arquivo local.\"}");
+        return false;
+    }
+
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+        res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+
+        fclose(fp);
+
+        if (res == CURLE_OK) {
+            success = true;
+            *response = strdup("{\"status\":\"OK\",\"message\":\"Dataset salvo em datasets/\"}");
+        } else {
+            remove(local_path); // apaga arquivo incompleto
+            *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao baixar dataset.\"}");
+        }
+    } else {
+        fclose(fp);
+        *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao inicializar CURL.\"}");
+    }
+
+    return success;
+}
+
 
 // envia CSV + metadados: user_id, enviado_por_nome, enviado_por_email, nome, descricao
 bool api_upload_csv_with_meta(const char *csv_path,
@@ -696,6 +785,17 @@ WCHAR* run_api_command(const WCHAR *command) {
         }
     }
 
+    else if (token && strcmp(token, "GET_DATASET") == 0) {
+        // pega resto da linha (nome do dataset -- pode conter espaços)
+        token = strtok(NULL, "");
+        if (token) {
+            // trim leading spaces
+            while (*token == ' ') token++;
+            if (*token != '\0') {
+                api_get_dataset_by_name(token, &response);
+            }
+        }
+    }
 
 
     if (token && strcmp(token, "GET_USER_JSON") == 0) {
@@ -751,3 +851,5 @@ WCHAR* run_api_command(const WCHAR *command) {
     
     return NULL;
 }
+
+#endif

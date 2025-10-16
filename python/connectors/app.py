@@ -47,7 +47,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # rota para servir os arquivos enviados (ajuste se estiver servindo static de outra forma)
-@app.route('/uploads/<path:filename>', methods=['GET'])
+@app.route('/uploads/<filename>', methods=['GET'])
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=False)
 

@@ -4,6 +4,7 @@
 #include "context.h"
 #include <pango/pangocairo.h>
 #include "profile.h"
+#include "dataset_upload.h"
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -964,18 +965,159 @@ static void on_load_dataset(GtkButton *btn, gpointer user_data) {
     g_free((gpointer)sel);
 }
 
-static TabCtx* add_datasets_tab(GtkNotebook *nb) {
+/* helper: open upload dialog using the notebook's toplevel window as parent */
+static void on_open_upload_dialog(GtkButton *btn, gpointer user_data) {
+    EnvCtx *env = (EnvCtx*) user_data;
+    GtkNotebook *nb = GTK_NOTEBOOK(gtk_widget_get_parent(GTK_WIDGET(btn)));
+    GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(btn));
+    GtkWindow *parent = GTK_WINDOW(toplevel);
+    int default_user_id = env ? env->current_user_id : 0;
+    /* prefill nome/email: passaremos a enviar também os strings (se estiverem presentes) */
+    show_dataset_upload_dialog(parent, env);
+    /* se desejar pré-preencher enviado_por_nome/email automaticamente dentro do diálogo,
+       você pode modificar show_dataset_upload_dialog para aceitar nome/email extras
+       ou setar os entries via g_object_set_data no UploadUI. */
+}
+
+/* Importa dataset selecionado para o ambiente (chamada pelo botão "Import to Environment") */
+static void on_import_to_environment(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    DatasetsUI *dui = (DatasetsUI*) user_data;
+    if (!dui) return;
+
+    /* 1) obter o texto do label de link (deveria ser a URL visível) */
+    const char *link_text = NULL;
+    if (GTK_IS_LABEL(dui->lbl_link)) {
+        /* gtk_label_get_text retorna o conteúdo "visível" do label (sem tags) */
+        link_text = gtk_label_get_text(GTK_LABEL(dui->lbl_link));
+    }
+
+    if (!link_text || !*link_text || g_strcmp0(link_text, "—") == 0) {
+        gtk_label_set_text(dui->lbl_desc, "Nenhum link de dataset disponível.");
+        return;
+    }
+
+    /* 2) às vezes o label contém markup (ex.: <a href="...">url</a>), porém gtk_label_get_text
+       deve devolver o texto exibido — assumimos que isso retorna a URL ou ao menos contém '/'. */
+
+    /* 3) extrair somente o nome do arquivo (após última '/') */
+    const char *basename = strrchr(link_text, '/');
+    if (basename && *(basename + 1) != '\0') {
+        basename++; /* avança para depois da barra */
+    } else {
+        /* se não houver '/', talvez o label contenha apenas o nome já */
+        basename = link_text;
+    }
+
+    if (!basename || !*basename) {
+        gtk_label_set_text(dui->lbl_desc, "Nome de arquivo inválido no link.");
+        return;
+    }
+
+    /* 4) montar comando UTF-8 "GET_DATASET <filename>" */
+    char cmd_utf8[1024];
+    snprintf(cmd_utf8, sizeof(cmd_utf8), "GET_DATASET %s", basename);
+
+    /* 5) converter para WCHAR (UTF-16) */
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, NULL, 0);
+    if (wlen <= 0) {
+        gtk_label_set_text(dui->lbl_desc, "Erro de conversão (UTF-8->WCHAR).");
+        return;
+    }
+    WCHAR *wcmd = (WCHAR*)malloc((size_t)wlen * sizeof(WCHAR));
+    if (!wcmd) {
+        gtk_label_set_text(dui->lbl_desc, "Erro de memória.");
+        return;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, cmd_utf8, -1, wcmd, wlen);
+
+    /* 6) chama run_api_command (bloqueante) */
+    WCHAR *wresp = run_api_command(wcmd);
+    free(wcmd);
+
+    if (!wresp) {
+        gtk_label_set_text(dui->lbl_desc, "Falha: sem resposta da API.");
+        return;
+    }
+
+    /* 7) converter resposta WCHAR -> UTF-8 */
+    int rlen = WideCharToMultiByte(CP_UTF8, 0, wresp, -1, NULL, 0, NULL, NULL);
+    if (rlen <= 0) {
+        free(wresp);
+        gtk_label_set_text(dui->lbl_desc, "Erro de conversão da resposta.");
+        return;
+    }
+    char *resp = (char*)malloc((size_t)rlen);
+    if (!resp) {
+        free(wresp);
+        gtk_label_set_text(dui->lbl_desc, "Erro de memória.");
+        return;
+    }
+    WideCharToMultiByte(CP_UTF8, 0, wresp, -1, resp, rlen, NULL, NULL);
+    free(wresp);
+
+    /* 8) parse curto: apenas OK / ERROR */
+    gboolean ok = FALSE;
+    cJSON *root = cJSON_Parse(resp);
+    if (root) {
+        cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
+        if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) ok = TRUE;
+        cJSON_Delete(root);
+    } else {
+        /* fallback para formato legado "OK ..." */
+        if (strncmp(resp, "OK", 2) == 0) ok = TRUE;
+    }
+
+    /* 9) mostrar mensagem curta e elegante no lbl_desc */
+    if (ok) {
+        gtk_label_set_text(dui->lbl_desc, "✅ Dataset importado para o ambiente.");
+    } else {
+        gtk_label_set_text(dui->lbl_desc, "❌ Falha ao importar dataset.");
+    }
+
+    free(resp);
+}
+
+
+/* substitua sua função existente por esta versão (diferenças: botão Upload adicionado) */
+static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     const char *DATASETS_CSS = parse_CSS_file("datasets.css");
 
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
 
-    /* Top bar: search + refresh */
+    /* Top bar: search + upload + refresh */
     GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Search datasets…");
     gtk_box_pack_start(GTK_BOX(top), entry, TRUE, TRUE, 0);
 
+    /* --- NEW: Upload button --- */
+    GtkWidget *btn_upload_ui = gtk_button_new(); /* we'll set an image if available, else text */
+    {
+        GError *err = NULL;
+        GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file("./assets/upload_button.png", &err);
+        if (pixbuf) {
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, 24, 24, GDK_INTERP_BILINEAR);
+            if (scaled) {
+                gtk_button_set_image(GTK_BUTTON(btn_upload_ui), gtk_image_new_from_pixbuf(scaled));
+                g_object_unref(scaled);
+            }
+            g_object_unref(pixbuf);
+        } else {
+            /* fallback: label */
+            gtk_button_set_label(GTK_BUTTON(btn_upload_ui), "Upload");
+            if (err) g_error_free(err);
+        }
+    }
+    /* place upload button to the right of entry but before refresh */
+    gtk_box_pack_start(GTK_BOX(top), btn_upload_ui, FALSE, FALSE, 0);
+    g_signal_connect(btn_upload_ui, "clicked", G_CALLBACK(on_open_upload_dialog), env);
+
+
+
+
+    /* existing refresh button */
     GtkWidget *btn_refresh = gtk_button_new();
     gtk_box_pack_start(GTK_BOX(top), btn_refresh, FALSE, FALSE, 0);
     {
@@ -1092,6 +1234,10 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb) {
     g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, g_free);
 
     /* Signals */
+    /* conectar o botão import para usar o dui (detalhes atuais) */
+    g_signal_connect(btn_import, "clicked", G_CALLBACK(on_import_to_environment), dui);
+
+
     g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
     g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
     g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui->stack);

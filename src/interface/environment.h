@@ -255,31 +255,76 @@ static void set_split_ui(EnvCtx *ctx, double train) {
     ctx->split_lock = FALSE;
 }
 
+/* Carrega o PNG do plot e escala para caber no widget ctx->plot_img,
+   com look “pixelado” (NEAREST) para manter o estilo retro. */
 static gboolean poll_fit_image_cb(gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx || !ctx->fit_img_path || !ctx->plot_img) return G_SOURCE_CONTINUE;
+    if (!ctx || !ctx->plot_img || !ctx->fit_img_path) return TRUE;
 
-    GStatBuf st;
-    if (g_stat(ctx->fit_img_path, &st) != 0) return G_SOURCE_CONTINUE;
-
-    /* Only refresh when size/mtime change */
-    if (st.st_mtime != ctx->fit_img_mtime || st.st_size != ctx->fit_img_size) {
-        ctx->fit_img_mtime = st.st_mtime;
-        ctx->fit_img_size  = st.st_size;
-
-        GError *err = NULL;
-        GdkPixbuf *pb = gdk_pixbuf_new_from_file(ctx->fit_img_path, &err);
-        if (pb) {
-            gtk_image_set_from_pixbuf(ctx->plot_img, pb);
-            g_object_unref(pb);
-
-            /* Auto-switch to Plot whenever a fresh frame appears */
-            if (ctx->right_nb && ctx->plot_page_idx >= 0)
-                gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
-        }
+    /* tenta abrir a imagem atual */
+    GError *err = NULL;
+    GdkPixbuf *pix = gdk_pixbuf_new_from_file(ctx->fit_img_path, &err);
+    if (!pix) {
         if (err) g_error_free(err);
+        return TRUE; /* sem imagem ainda; tenta de novo no próximo tick */
     }
-    return G_SOURCE_CONTINUE;
+
+    /* tamanho disponível no widget da aba Plot */
+    /* depois de criar GdkPixbuf *pix a partir do arquivo... */
+    GtkAllocation alloc;
+    gtk_widget_get_allocation(GTK_WIDGET(ctx->plot_img), &alloc);
+    if (alloc.width <= 1 || alloc.height <= 1) {
+        GtkWidget *p = gtk_widget_get_parent(GTK_WIDGET(ctx->plot_img));
+        if (p) gtk_widget_get_allocation(p, &alloc);
+    }
+
+    const int tw = MAX(32, alloc.width);
+    const int th = MAX(32, alloc.height);
+
+    const int pw = gdk_pixbuf_get_width(pix);
+    const int ph = gdk_pixbuf_get_height(pix);
+
+    /* escala para COBRIR (cover), mantendo proporção */
+    double sx = (double)tw / (double)pw;
+    double sy = (double)th / (double)ph;
+    double s  = MAX(sx, sy);
+    int sw = MAX(1, (int)floor(pw * s + 0.5));
+    int sh = MAX(1, (int)floor(ph * s + 0.5));
+
+    GdkPixbuf *fit = gdk_pixbuf_scale_simple(pix, sw, sh, GDK_INTERP_NEAREST);
+
+    /* recorta central para exatamente (tw x th), sem letterbox */
+    int ox = (sw - tw) / 2; if (ox < 0) ox = 0;
+    int oy = (sh - th) / 2; if (oy < 0) oy = 0;
+    int cw = MIN(tw, sw), ch = MIN(th, sh);
+    GdkPixbuf *cropped = gdk_pixbuf_new_subpixbuf(fit, ox, oy, cw, ch);
+
+    gtk_image_set_from_pixbuf(ctx->plot_img, cropped);
+
+    g_object_unref(cropped);
+    g_object_unref(fit);
+    g_object_unref(pix);
+
+
+    /* fallback para o pai caso a alocação do image ainda seja 0x0 */
+    if (alloc.width <= 1 || alloc.height <= 1) {
+        GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(ctx->plot_img));
+        if (parent) gtk_widget_get_allocation(parent, &alloc);
+    }
+
+    /* borda mínima e evita zero */
+    int tw = MAX(32, alloc.width  - 6);
+    int th = MAX(32, alloc.height - 6);
+
+    /* escala para caber no “quadrado” do Plot tab (preenche sem preservar AR) */
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, tw, th, GDK_INTERP_NEAREST);
+
+    gtk_image_set_from_pixbuf(ctx->plot_img, scaled);
+
+    g_object_unref(scaled);
+    g_object_unref(pix);
+
+    return TRUE; /* continua o timer */
 }
 
 static gboolean poll_metrics_cb(gpointer user_data) {
@@ -1019,8 +1064,14 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* Plot */
     ctx->plot_img = GTK_IMAGE(gtk_image_new());
-    GtkWidget *plot_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_box_pack_start(GTK_BOX(plot_box), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
+    gtk_widget_set_hexpand(GTK_WIDGET(ctx->plot_img), TRUE);
+    gtk_widget_set_vexpand(GTK_WIDGET(ctx->plot_img), TRUE);
+    gtk_widget_set_halign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
+    gtk_widget_set_valign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
+    GtkWidget *plot_inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_pack_start(GTK_BOX(plot_inner), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
+    /* aplica o painel afundado Win95 */
+    GtkWidget *plot_box = wrap_CSS(ENVIRONMENT_CSS, "w95-plot", plot_inner, "env-plot");
     GtkWidget *plot_tab = make_tab_label("assets/plot.png", "Plot");
     ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, plot_tab);
 
@@ -1072,13 +1123,24 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     gtk_widget_show_all(outer);
 
-
     /* Default temp paths + pollers */
     if (!ctx->fit_img_path) { gchar *tmp = g_get_tmp_dir(); ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png",     NULL); }
     if (!ctx->metrics_path) { gchar *tmp = g_get_tmp_dir(); ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL); }
 
+        /* Gera um PNG inicial estilo Win95 (area cyan) para a aba Plot */
+    {
+        gchar *cmd = g_strdup_printf(
+            "python python/models.py --win95-mode area --win95-out \"%s\"",
+            ctx->fit_img_path
+        );
+        g_spawn_command_line_async(cmd, NULL);
+        g_free(cmd);
+    }
+
+    g_setenv("AIFD_PLOT_STYLE", "retro95", TRUE);
+
     /* Use the single-file poller; metrics poller pops the tab once */
-    ctx->plot_timer_id    = g_timeout_add(120, poll_fit_image_cb, ctx);
+    ctx->plot_timer_id = g_timeout_add(120, poll_fit_image_cb, ctx);
     ctx->metrics_timer_id = g_timeout_add(500,  poll_metrics_cb,  ctx);
 
     /* Populate datasets combo */

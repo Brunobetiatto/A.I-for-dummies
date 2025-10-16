@@ -487,3 +487,17 @@ headerbar#w95-titlebar button.envbar-btn:disabled {
 headerbar#w95-titlebar button.envbar-btn image {
   -gtk-icon-filter: none;
 }
+
+/* Painel afundado do gráfico (Win95) */
+.w95-plot{
+  background:#ffffff;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight),
+    inset -1px -1px 0 var(--darkshadow);
+  padding:6px;
+}
+.w95-plot image{ -gtk-icon-filter:none; }
+
+#env-right-panel.metal-panel { padding: 0; }

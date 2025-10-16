@@ -71,6 +71,26 @@ static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
     g_free(ctx);
 }
 
+typedef struct {
+    int id;
+    char *nome;
+    char *email;
+} UserSession;
+
+static UserSession* user_session_new(int id, const char *nome, const char *email) {
+    UserSession *s = g_new0(UserSession, 1);
+    s->id = id;
+    s->nome = nome ? g_strdup(nome) : NULL;
+    s->email = email ? g_strdup(email) : NULL;
+    return s;
+}
+static void user_session_free(UserSession *s) {
+    if (!s) return;
+    if (s->nome) g_free(s->nome);
+    if (s->email) g_free(s->email);
+    g_free(s);
+}
+
 // Timer da recuperação de senha (mantido igual)
 static gboolean recovery_timer_cb(gpointer data) {
     LoginCtx *ctx = (LoginCtx*)data;
@@ -190,19 +210,40 @@ void on_login_button_clicked(GtkButton *button, gpointer user_data) {
     }
 
     cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
-    if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) {
+        if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) {
+        /* -> extrair user do JSON (esperando {"status":"OK","user":{...}}) */
+        cJSON *userobj = cJSON_GetObjectItemCaseSensitive(root, "user");
+        int uid = 0;
+        const char *uname = NULL;
+        const char *uemail = NULL;
+        if (cJSON_IsObject(userobj)) {
+            cJSON *jid = cJSON_GetObjectItemCaseSensitive(userobj, "id");
+            cJSON *jn = cJSON_GetObjectItemCaseSensitive(userobj, "nome");
+            cJSON *je = cJSON_GetObjectItemCaseSensitive(userobj, "email");
+            if (cJSON_IsNumber(jid)) uid = jid->valueint;
+            else if (cJSON_IsString(jid) && jid->valuestring) uid = atoi(jid->valuestring);
+            if (cJSON_IsString(jn)) uname = jn->valuestring;
+            if (cJSON_IsString(je)) uemail = je->valuestring;
+        }
+
+        /* Cria sessão do usuário e passa como user_data para o callback on_success */
+        UserSession *session = user_session_new(uid, uname, uemail);
+
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app.");
         while (gtk_events_pending()) gtk_main_iteration();
 
         if (ctx->handlers.on_success) {
-            ctx->handlers.on_success(ctx->window, ctx->handlers.user_data);
+            /* passamos a session para on_success, que deverá receber e usar */
+            ctx->handlers.on_success(ctx->window, session);
         } else {
-            // fallback silencioso: só fecha a janela de login
             gtk_widget_destroy(ctx->window);
+            /* se não houver callback, liberar session */
+            user_session_free(session);
         }
         cJSON_Delete(root);
         return;
     }
+
 
     // Exibe mensagem de erro vinda da API (quando houver)
     cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");

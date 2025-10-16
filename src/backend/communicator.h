@@ -7,12 +7,16 @@
 #include <gtk/gtk.h>
 #include "../interface/debug_window.h"
 
+#ifndef COMMUNICATOR_H
+#define COMMUNICATOR_H
+
 struct ResponseData {
     char *data;
     size_t size;
 };
 
-
+#define BASE_URL "http://localhost:5000/uploads"
+#define DATASET_DIR "datasets"
 
 bool api_list_tables(char **response);
 bool api_dump_table(const char *table_name, char **response);
@@ -26,11 +30,8 @@ bool api_get_user_by_id(int user_id, char **response);
 bool api_get_user_datasets(int user_id, char **response);
 
 
-
 char* process_api_response(const char *api_response);   // processa a resposta da API e formata para o main.c
 WCHAR* run_api_command(const WCHAR *command);           // executa comandos via API
-
-
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
@@ -206,6 +207,201 @@ bool api_get_user_datasets(int user_id, char **response) {
     return (*response != NULL);
 }
 
+/* --- helper: simple percent-encode --- */
+static char *url_encode_simple(const char *s) {
+    if (!s) return g_strdup("");
+    GString *out = g_string_new(NULL);
+    for (const unsigned char *p = (const unsigned char*)s; *p; ++p) {
+        unsigned char c = *p;
+        if ((c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            g_string_append_c(out, c);
+        } else {
+            g_string_append_printf(out, "%%%02X", c);
+        }
+    }
+    char *ret = g_string_free(out, FALSE);
+    return ret;
+}
+
+static size_t write_file_callback(void *ptr, size_t size, size_t nmemb, void *stream) {
+    return fwrite(ptr, size, nmemb, (FILE *)stream);
+}
+
+bool api_get_dataset_by_name(const char *filename, char **response) {
+    if (!filename || !*filename) return false;
+
+    CURL *curl;
+    CURLcode res;
+    bool success = false;
+
+    // monta URL completa
+    char url[512];
+    snprintf(url, sizeof(url), "%s/%s", BASE_URL, filename);
+
+    // monta caminho local
+    char local_path[512];
+    snprintf(local_path, sizeof(local_path), "%s/%s", DATASET_DIR, filename);
+
+    // cria diretório datasets/ se não existir
+
+
+    #ifdef _WIN32
+        wchar_t wdir[64];
+        MultiByteToWideChar(CP_UTF8, 0, DATASET_DIR, -1, wdir, 64);
+        _wmkdir(wdir);
+    #else
+        mkdir(DATASET_DIR, 0755);
+    #endif
+
+    FILE *fp = fopen(local_path, "wb");
+    if (!fp) {
+        *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao abrir arquivo local.\"}");
+        return false;
+    }
+
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+        res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+
+        fclose(fp);
+
+        if (res == CURLE_OK) {
+            success = true;
+            *response = strdup("{\"status\":\"OK\",\"message\":\"Dataset salvo em datasets/\"}");
+        } else {
+            remove(local_path); // apaga arquivo incompleto
+            *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao baixar dataset.\"}");
+        }
+    } else {
+        fclose(fp);
+        *response = strdup("{\"status\":\"ERROR\",\"message\":\"Falha ao inicializar CURL.\"}");
+    }
+
+    return success;
+}
+
+
+// envia CSV + metadados: user_id, enviado_por_nome, enviado_por_email, nome, descricao
+bool api_upload_csv_with_meta(const char *csv_path,
+                              int user_id,
+                              const char *enviado_por_nome,
+                              const char *enviado_por_email,
+                              const char *nome,
+                              const char *descricao,
+                              char **response) {
+    CURL *curl = NULL;
+    CURLcode res;
+    struct ResponseData chunk;
+
+    FILE *f = fopen(csv_path, "rb");
+    if (!f) {
+        debug_log("!! api_upload_csv: arquivo nao encontrado: %s", csv_path);
+        *response = NULL;
+        return false;
+    }
+    fclose(f);
+
+    chunk.data = malloc(1);
+    chunk.size = 0;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (!curl) {
+        free(chunk.data);
+        curl_global_cleanup();
+        return false;
+    }
+
+    char url[512];
+    snprintf(url, sizeof(url), "http://localhost:5000/datasets/upload"); // ajuste se necessário
+
+    debug_log(">> API_UPLOAD_CSV_WITH_META: %s -> %s (user_id=%d)", csv_path, url, user_id);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+    // Criar formulário multipart
+    curl_mime *form = curl_mime_init(curl);
+    if (!form) {
+        debug_log("!! curl_mime_init falhou");
+        free(chunk.data);
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+        return false;
+    }
+
+    // Parte do arquivo: campo "file"
+    curl_mimepart *file_part = curl_mime_addpart(form);
+    curl_mime_name(file_part, "file");
+    curl_mime_filedata(file_part, csv_path);
+
+    // user_id
+    char user_id_str[32];
+    snprintf(user_id_str, sizeof(user_id_str), "%d", user_id);
+    curl_mimepart *uid_part = curl_mime_addpart(form);
+    curl_mime_name(uid_part, "user_id");
+    curl_mime_data(uid_part, user_id_str, CURL_ZERO_TERMINATED);
+
+    // enviado_por_nome (se fornecido)
+    if (enviado_por_nome && enviado_por_nome[0] != '\0') {
+        curl_mimepart *ename = curl_mime_addpart(form);
+        curl_mime_name(ename, "enviado_por_nome");
+        curl_mime_data(ename, enviado_por_nome, CURL_ZERO_TERMINATED);
+    }
+
+    // enviado_por_email (se fornecido)
+    if (enviado_por_email && enviado_por_email[0] != '\0') {
+        curl_mimepart *eemail = curl_mime_addpart(form);
+        curl_mime_name(eemail, "enviado_por_email");
+        curl_mime_data(eemail, enviado_por_email, CURL_ZERO_TERMINATED);
+    }
+
+    // nome do dataset (opcional)
+    if (nome && nome[0] != '\0') {
+        curl_mimepart *npart = curl_mime_addpart(form);
+        curl_mime_name(npart, "nome");
+        curl_mime_data(npart, nome, CURL_ZERO_TERMINATED);
+    }
+
+    // descricao (opcional)
+    if (descricao && descricao[0] != '\0') {
+        curl_mimepart *dpart = curl_mime_addpart(form);
+        curl_mime_name(dpart, "descricao");
+        curl_mime_data(dpart, descricao, CURL_ZERO_TERMINATED);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, form);
+
+    // Executa
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        debug_log("!! curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        free(chunk.data);
+        chunk.data = NULL;
+    } else {
+        debug_log("<< API_RESPONSE: %s", chunk.data ? chunk.data : "(null)");
+    }
+
+    curl_mime_free(form);
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
+
+    *response = chunk.data; // caller libera
+    return (*response != NULL);
+}
+
+
+
 char* process_api_response(const char *api_response) {
     cJSON *json = cJSON_Parse(api_response);
     if (!json) {
@@ -360,7 +556,6 @@ char* process_api_response(const char *api_response) {
 
 /* wrapper que converte UTF-8 -> WCHAR, chama run_api_command, converte de volta */
 
-
 WCHAR* run_api_command(const WCHAR *command) {
     // Convert command to UTF-8
     int utf8_size = WideCharToMultiByte(CP_UTF8, 0, command, -1, NULL, 0, NULL, NULL);
@@ -467,6 +662,142 @@ WCHAR* run_api_command(const WCHAR *command) {
         }
     }
 
+    // *** ADICIONADO: novo comando UPLOAD_CSV <caminho do arquivo (restante da linha)> ***
+    else if (token && strcmp(token, "UPLOAD_CSV") == 0) {
+        token = strtok(NULL, ""); // pega resto da linha (path e/ou pares key=value) — pode conter espaços
+        if (token) {
+            // trim leading spaces
+            while (*token == ' ') token++;
+            if (*token == '\0') {
+                debug_log("UPLOAD_CSV: nothing after command");
+            } else {
+                char *rest = token;
+                char *path = NULL;
+                int user_id = 0;
+                char *enviado_por_nome = NULL;
+                char *enviado_por_email = NULL;
+                char *nome_field = NULL;
+                char *descricao = NULL;
+
+                /* Caso 1: JSON object (recomendado) */
+                if (rest[0] == '{') {
+                    cJSON *j = cJSON_Parse(rest);
+                    if (j) {
+                        cJSON *jpath = cJSON_GetObjectItemCaseSensitive(j, "path");
+                        if (!jpath) jpath = cJSON_GetObjectItemCaseSensitive(j, "file");
+                        if (cJSON_IsString(jpath) && jpath->valuestring) path = g_strdup(jpath->valuestring);
+
+                        cJSON *ju = cJSON_GetObjectItemCaseSensitive(j, "user_id");
+                        if (cJSON_IsNumber(ju)) user_id = ju->valueint;
+                        else {
+                            cJSON *jus = cJSON_GetObjectItemCaseSensitive(j, "usuario_id");
+                            if (cJSON_IsNumber(jus)) user_id = jus->valueint;
+                            else if (cJSON_IsString(jus) && jus->valuestring) user_id = atoi(jus->valuestring);
+                        }
+
+                        cJSON *jn = cJSON_GetObjectItemCaseSensitive(j, "enviado_por_nome");
+                        if (cJSON_IsString(jn) && jn->valuestring) enviado_por_nome = g_strdup(jn->valuestring);
+
+                        cJSON *je = cJSON_GetObjectItemCaseSensitive(j, "enviado_por_email");
+                        if (cJSON_IsString(je) && je->valuestring) enviado_por_email = g_strdup(je->valuestring);
+
+                        cJSON *jnome = cJSON_GetObjectItemCaseSensitive(j, "nome");
+                        if (cJSON_IsString(jnome) && jnome->valuestring) nome_field = g_strdup(jnome->valuestring);
+
+                        cJSON *jdesc = cJSON_GetObjectItemCaseSensitive(j, "descricao");
+                        if (cJSON_IsString(jdesc) && jdesc->valuestring) descricao = g_strdup(jdesc->valuestring);
+
+                        cJSON_Delete(j);
+                    } else {
+                        debug_log("UPLOAD_CSV: invalid JSON payload");
+                    }
+                } else {
+                    /* Caso 2: tokenized key=value pairs. First token sem '=' é tratado como path */
+                    char *tmp = g_strdup(rest);
+                    char *saveptr = NULL;
+                    char *tk = strtok_r(tmp, " ", &saveptr);
+                    if (tk) {
+                        if (strchr(tk, '=') == NULL) {
+                            path = g_strdup(tk);
+                            tk = strtok_r(NULL, " ", &saveptr);
+                        }
+                    }
+                    while (tk) {
+                        char *eq = strchr(tk, '=');
+                        if (eq) {
+                            *eq = '\0';
+                            char *k = tk;
+                            char *v = eq + 1;
+
+                            /* strip surrounding quotes if present */
+                            size_t vlen = strlen(v);
+                            if (vlen >= 2 && ((v[0] == '"' && v[vlen-1] == '"') || (v[0] == '\'' && v[vlen-1] == '\''))) {
+                                v[vlen-1] = '\0';
+                                v++;
+                            }
+
+                            if (g_strcmp0(k, "user_id") == 0 || g_strcmp0(k, "usuario_id") == 0) {
+                                user_id = atoi(v);
+                            } else if (g_strcmp0(k, "enviado_por_nome") == 0) {
+                                g_free(enviado_por_nome); enviado_por_nome = g_strdup(v);
+                            } else if (g_strcmp0(k, "enviado_por_email") == 0) {
+                                g_free(enviado_por_email); enviado_por_email = g_strdup(v);
+                            } else if (g_strcmp0(k, "nome") == 0) {
+                                g_free(nome_field); nome_field = g_strdup(v);
+                            } else if (g_strcmp0(k, "descricao") == 0) {
+                                g_free(descricao); descricao = g_strdup(v);
+                            } else if (g_strcmp0(k, "path") == 0 || g_strcmp0(k, "file") == 0) {
+                                if (!path) path = g_strdup(v);
+                            } else {
+                                /* ignore unknown keys */
+                            }
+                        }
+                        tk = strtok_r(NULL, " ", &saveptr);
+                    }
+                    g_free(tmp);
+                }
+
+                /* path é obrigatório para o upload */
+                if (!path) {
+                    debug_log("UPLOAD_CSV: missing path");
+                } else {
+                    /* Chama a função existente corretamente, passando &response para que ela aloque/retorne a resposta */
+                    if (!api_upload_csv_with_meta(path,
+                                                  user_id,
+                                                  (enviado_por_nome && *enviado_por_nome) ? enviado_por_nome : NULL,
+                                                  (enviado_por_email && *enviado_por_email) ? enviado_por_email : NULL,
+                                                  (nome_field && *nome_field) ? nome_field : NULL,
+                                                  (descricao && *descricao) ? descricao : NULL,
+                                                  &response)) {
+                        /* Se a função retornou false, response pode ou não ter sido preenchido; manter como está e deixar o fluxo tratar */
+                        debug_log("UPLOAD_CSV: upload function returned failure");
+                    }
+                    /* NOTA: não liberar 'response' aqui — o fluxo posterior de run_api_command faz process_api_response(response) e depois free(response) */
+                }
+
+                /* liberar temporários alocados */
+                if (path) g_free(path);
+                if (enviado_por_nome) g_free(enviado_por_nome);
+                if (enviado_por_email) g_free(enviado_por_email);
+                if (nome_field) g_free(nome_field);
+                if (descricao) g_free(descricao);
+            }
+        }
+    }
+
+    else if (token && strcmp(token, "GET_DATASET") == 0) {
+        // pega resto da linha (nome do dataset -- pode conter espaços)
+        token = strtok(NULL, "");
+        if (token) {
+            // trim leading spaces
+            while (*token == ' ') token++;
+            if (*token != '\0') {
+                api_get_dataset_by_name(token, &response);
+            }
+        }
+    }
+
+
     if (token && strcmp(token, "GET_USER_JSON") == 0) {
         token = strtok(NULL, " ");
         if (token) {
@@ -520,3 +851,5 @@ WCHAR* run_api_command(const WCHAR *command) {
     
     return NULL;
 }
+
+#endif

@@ -34,3 +34,47 @@ def create_user(cnx: mysql.connector.MySQLConnection, nome: str, email: str, pas
         return {"id": uid, "nome": nome, "email": email}
     finally:
         cur.close()
+
+def create_dataset(cnx, user_id: int,
+                   enviado_por_nome: str,
+                   enviado_por_email: str,
+                   nome: str,
+                   descricao: str,
+                   url: str,
+                   tamanho: str):
+    """
+    Insere um novo dataset na tabela `dataset` conforme schema fornecido.
+    Retorna um dict com os campos do dataset inserido (incluindo iddataset).
+    Pode lançar exceção (IntegrityError, etc) que o caller deve tratar.
+    """
+    cur = cnx.cursor()
+    try:
+        sql = """
+            INSERT INTO dataset
+              (usuario_idusuario, enviado_por_nome, enviado_por_email,
+               nome, descricao, url, tamanho, dataCadastro)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        cur.execute(sql, (user_id, enviado_por_nome, enviado_por_email,
+                          nome, descricao, url, tamanho))
+        try:
+            cnx.commit()
+        except Exception:
+            # Alguns connectors podem estar em autocommit; ignore erro de commit se já commitado.
+            pass
+
+        dataset_id = cur.lastrowid
+        return {
+            "iddataset": dataset_id,
+            "usuario_idusuario": user_id,
+            "enviado_por_nome": enviado_por_nome,
+            "enviado_por_email": enviado_por_email,
+            "nome": nome,
+            "descricao": descricao,
+            "url": url,
+            "tamanho": tamanho
+        }
+    finally:
+        cur.close()
+
+

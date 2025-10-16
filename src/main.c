@@ -14,8 +14,22 @@
 #include "interface/environment.h"
 #include "interface/login.h"
 
-GtkWidget* create_main_window(void) {
+GtkWidget* create_main_window(UserSession *session) {
     EnvCtx *env = g_new0(EnvCtx, 1);
+
+    /* guardar sessão no env para acesso por outras tabs */
+    if (session) {
+        env->current_user_id = session->id;
+        env->current_user_name = session->nome ? g_strdup(session->nome) : NULL;
+        env->current_user_email = session->email ? g_strdup(session->email) : NULL;
+        /* a env passa a assumir a posse dos strings (g_strdup acima): liberá-los quando o env for destruído */
+        /* liberar a struct session (somente a struct) — NÃO liberar as strings, pois já duplicadas */
+        user_session_free(session);
+    } else {
+        env->current_user_id = 0;
+        env->current_user_name = NULL;
+        env->current_user_email = NULL;
+    }
 
     GtkWidget *main_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(main_win), "AI For Dummies - Main");
@@ -27,7 +41,7 @@ GtkWidget* create_main_window(void) {
     GtkWidget *nb = gtk_notebook_new();
     gtk_container_add(GTK_CONTAINER(main_win), nb);
 
-    add_datasets_tab(GTK_NOTEBOOK(nb));
+    add_datasets_tab(GTK_NOTEBOOK(nb), env);
     add_environment_tab(GTK_NOTEBOOK(nb), env);
 
     gtk_widget_show_all(main_win);
@@ -35,10 +49,20 @@ GtkWidget* create_main_window(void) {
 }
 
 static void open_main_after_login(GtkWidget *login_window, gpointer user_data) {
-    GtkWidget *main_win = create_main_window();
+    UserSession *session = (UserSession*) user_data;
+
+    /* Passa a session para a criação da janela principal */
+    GtkWidget *main_win = create_main_window(session);
     gtk_widget_show_all(main_win);
+
+    /* destrói janela de login */
     if (login_window) gtk_widget_destroy(login_window);
+
+    /* NOTA: create_main_window deve guardar os dados da sessão (no EnvCtx).
+       Não liberamos 'session' aqui — create_main_window / EnvCtx fica dono da struct.
+    */
 }
+
 
 int main(int argc, char **argv) {
 

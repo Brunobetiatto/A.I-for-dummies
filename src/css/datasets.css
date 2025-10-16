@@ -202,3 +202,43 @@ scrollbar slider {
     color: #ff5500;
     text-decoration: underline;
 }
+
+
+/* Estilo para o upload */
+
+/* upload dialog status — success / error */
+.upload-success {
+  color: #0b6623; /* dark green */
+  font-weight: 700;
+  background: rgba(0,170,0,0.06);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0,170,0,0.12);
+}
+
+.upload-error {
+  color: #8b0000; /* dark red */
+  font-weight: 700;
+  background: rgba(255,0,0,0.04);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,0,0,0.12);
+}
+
+/* pequena margem entre ícone e texto do status */
+.upload-dialog .status-box image,
+#upload-dialog .status-box image {
+  margin-right: 8px;
+}
+
+
+#upload-toast {
+  background: #f0f0f0;
+  border: 1px solid #909090;
+  border-radius: 6px;
+  padding: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  font-weight: 700;
+}
+#upload-toast label { color: #111; }
+

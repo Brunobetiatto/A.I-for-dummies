@@ -270,41 +270,8 @@ static gboolean poll_fit_image_cb(gpointer user_data) {
     }
 
     /* tamanho disponível no widget da aba Plot */
-    /* depois de criar GdkPixbuf *pix a partir do arquivo... */
     GtkAllocation alloc;
     gtk_widget_get_allocation(GTK_WIDGET(ctx->plot_img), &alloc);
-    if (alloc.width <= 1 || alloc.height <= 1) {
-        GtkWidget *p = gtk_widget_get_parent(GTK_WIDGET(ctx->plot_img));
-        if (p) gtk_widget_get_allocation(p, &alloc);
-    }
-
-    const int tw = MAX(32, alloc.width);
-    const int th = MAX(32, alloc.height);
-
-    const int pw = gdk_pixbuf_get_width(pix);
-    const int ph = gdk_pixbuf_get_height(pix);
-
-    /* escala para COBRIR (cover), mantendo proporção */
-    double sx = (double)tw / (double)pw;
-    double sy = (double)th / (double)ph;
-    double s  = MAX(sx, sy);
-    int sw = MAX(1, (int)floor(pw * s + 0.5));
-    int sh = MAX(1, (int)floor(ph * s + 0.5));
-
-    GdkPixbuf *fit = gdk_pixbuf_scale_simple(pix, sw, sh, GDK_INTERP_NEAREST);
-
-    /* recorta central para exatamente (tw x th), sem letterbox */
-    int ox = (sw - tw) / 2; if (ox < 0) ox = 0;
-    int oy = (sh - th) / 2; if (oy < 0) oy = 0;
-    int cw = MIN(tw, sw), ch = MIN(th, sh);
-    GdkPixbuf *cropped = gdk_pixbuf_new_subpixbuf(fit, ox, oy, cw, ch);
-
-    gtk_image_set_from_pixbuf(ctx->plot_img, cropped);
-
-    g_object_unref(cropped);
-    g_object_unref(fit);
-    g_object_unref(pix);
-
 
     /* fallback para o pai caso a alocação do image ainda seja 0x0 */
     if (alloc.width <= 1 || alloc.height <= 1) {

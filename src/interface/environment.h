@@ -327,12 +327,33 @@ static gboolean poll_metrics_cb(gpointer user_data) {
 static const char* algo_to_flag(GtkComboBoxText *c) {
     const gchar *t = gtk_combo_box_text_get_active_text(c);
     if (!t) return "linreg";
-    if (g_str_has_prefix(t, "Linear")) return "linreg";
-    if (g_str_has_prefix(t, "Ridge"))  return "ridge";
-    if (g_str_has_prefix(t, "Lasso"))  return "lasso";
-    if (g_str_has_prefix(t, "MLP (Reg")) return "mlp_reg";
-    if (g_str_has_prefix(t, "Logistic")) return "logreg";
-    if (g_str_has_prefix(t, "MLP (Cl"))  return "mlp_cls";
+
+    /* regression (torch) */
+    if (g_str_has_prefix(t, "Linear Regression"))  return "linreg";
+    if (g_str_has_prefix(t, "Ridge"))              return "ridge";
+    if (g_str_has_prefix(t, "Lasso"))              return "lasso";
+    if (g_str_has_prefix(t, "MLP (Regression)"))   return "mlp_reg";
+
+    /* classification (torch) */
+    if (g_str_has_prefix(t, "Logistic (Classification)"))   return "logreg";
+    if (g_str_has_prefix(t, "MLP (Classification)"))        return "mlp_cls";
+
+    /* classical — classification */
+    if (g_str_has_prefix(t, "Decision Tree (Classification)"))   return "dt_cls";
+    if (g_str_has_prefix(t, "Random Forest (Classification)"))   return "rf_cls";
+    if (g_str_has_prefix(t, "KNN (Classification)"))             return "knn_cls";
+    if (g_str_has_prefix(t, "Naive Bayes (Classification)"))     return "nb_cls";
+    if (g_str_has_prefix(t, "SVM (Classification)"))             return "svm_cls";
+    if (g_str_has_prefix(t, "Gradient Boosting (Classification)")) return "gb_cls";
+
+    /* classical — regression */
+    if (g_str_has_prefix(t, "Decision Tree (Regression)"))   return "dt_reg";
+    if (g_str_has_prefix(t, "Random Forest (Regression)"))   return "rf_reg";
+    if (g_str_has_prefix(t, "KNN (Regression)"))             return "knn_reg";
+    if (g_str_has_prefix(t, "Naive Bayes (Regression)"))     return "nb_reg";
+    if (g_str_has_prefix(t, "SVM (Regression)"))             return "svm_reg";
+    if (g_str_has_prefix(t, "Gradient Boosting (Regression)")) return "gb_reg";
+
     return "linreg";
 }
 
@@ -479,6 +500,42 @@ done:
 }
 #endif
 
+static char* build_hparams_json(EnvCtx *ctx) {
+    if (!ctx || !ctx->model_params_box) return NULL;
+    cJSON *root = cJSON_CreateObject();
+
+    GList *stack = NULL; stack = g_list_prepend(stack, ctx->model_params_box);
+    while (stack) {
+        GtkWidget *w = stack->data; stack = g_list_delete_link(stack, stack);
+
+        const char *key = g_object_get_data(G_OBJECT(w), "hp-key");
+        if (key) {
+            if (GTK_IS_SPIN_BUTTON(w)) {
+                int v = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(w));
+                cJSON_AddNumberToObject(root, key, v);
+            } else if (GTK_IS_ENTRY(w)) {
+                const char *t = gtk_entry_get_text(GTK_ENTRY(w));
+                char *end = NULL; double d = g_ascii_strtod(t ? t : "", &end);
+                if (t && end && *end == '\0') cJSON_AddNumberToObject(root, key, d);
+                else cJSON_AddStringToObject(root, key, t ? t : "");
+            } else if (GTK_IS_COMBO_BOX_TEXT(w)) {
+                char *t = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(w));
+                cJSON_AddStringToObject(root, key, t ? t : "");
+                g_free(t);
+            }
+        }
+
+        if (GTK_IS_CONTAINER(w)) {
+            GList *ch = gtk_container_get_children(GTK_CONTAINER(w));
+            for (GList *l = ch; l; l = l->next) stack = g_list_prepend(stack, l->data);
+            g_list_free(ch);
+        }
+    }
+
+    char *out = cJSON_PrintUnformatted(root); // malloc'ed
+    cJSON_Delete(root);
+    return out; // free() after spawn
+}
 
 /* --- Função spawn_python_training atualizada para usar o helper no Windows --- */
 static gboolean spawn_python_training(EnvCtx *ctx) {
@@ -513,6 +570,7 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
     }
     append_log(ctx, "[debug] CWD=%s", cwd);
 
+    /* train/test split slider and epoch controls */
     gdouble train_pct = gtk_range_get_value(GTK_RANGE(ctx->split_scale)) / 100.0;
     gchar *train_s  = g_strdup_printf("%.3f", train_pct);
 
@@ -523,39 +581,91 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 
     const gchar *proj  = proj_to_flag(ctx->proj_combo);
     const gchar *color = color_to_flag(ctx->colorby_combo);
-    const gchar *algo  = algo_to_flag(ctx->algo_combo);
+    const gchar *algo  = algo_to_flag(GTK_COMBO_BOX_TEXT(ctx->algo_combo));
 
-    gchar *out_plot = g_strdup(ctx->fit_img_path ? ctx->fit_img_path : "out_plot.png");
-    gchar *out_metrics = g_strdup(ctx->metrics_path ? ctx->metrics_path : "metrics.json");
+    gchar *out_plot   = g_strdup(ctx->fit_img_path   ? ctx->fit_img_path   : "out_plot.png");
+    gchar *out_metrics= g_strdup(ctx->metrics_path   ? ctx->metrics_path   : "metrics.txt");
 
-    gchar *argv[] = {
-        python, script,
-        "--csv",  (gchar*)ctx->current_dataset_path,
-        "--x",    (gchar*)xname,
-        "--y",    (gchar*)yname,
-        "--x-label", (gchar*)xname,
-        "--y-label", (gchar*)yname,
-        "--model",    (gchar*)algo,
-        "--epochs",   epochs_s,
-        "--train-pct",train_s,
-        "--proj",     (gchar*)proj,
-        "--color-by", (gchar*)color,
-        "--frame-every", frame_s,
-        "--out-plot",    out_plot,
-        "--out-metrics", out_metrics,
-        NULL
-    };
-    append_log(ctx, "[debug] TRAIN PCT: %.3f", train_s);
-    for (int i = 0; argv[i] != NULL; ++i) append_log(ctx, "[debug] argv[%d] = %s", i, argv[i]);
+    /* collect hyperparameters JSON from the dynamic panel */
+    char *hp_json = build_hparams_json(ctx); /* may be NULL or "" */
 
+    /* ---- Data Treatment controls (from Pre-processing tab) ---- */
+    GtkComboBoxText *cmb_scale  = g_object_get_data(G_OBJECT(ctx->preproc_box), "scale_combo");
+    GtkComboBoxText *cmb_impute = g_object_get_data(G_OBJECT(ctx->preproc_box), "impute_combo");
+    GtkToggleButton *chk_onehot = g_object_get_data(G_OBJECT(ctx->preproc_box), "onehot_check");
+
+    gchar *scale_flag  = g_strdup("standard");
+    gchar *impute_flag = g_strdup("mean");
+
+    if (cmb_scale) {
+        gchar *t = gtk_combo_box_text_get_active_text(cmb_scale);
+        if (t) {
+            if      (g_str_has_prefix(t, "Standard")) scale_flag = g_strdup("standard");
+            else if (g_str_has_prefix(t, "Min-Max"))  scale_flag = g_strdup("minmax");
+            else                                      scale_flag = g_strdup("none");
+            g_free(t);
+        }
+    }
+    if (cmb_impute) {
+        gchar *t = gtk_combo_box_text_get_active_text(cmb_impute);
+        if (t) {
+            if      (g_str_has_suffix(t, "median"))        impute_flag = g_strdup("median");
+            else if (g_str_has_suffix(t, "most_frequent")) impute_flag = g_strdup("most_frequent");
+            else if (g_str_has_suffix(t, "zero"))          impute_flag = g_strdup("zero");
+            else                                           impute_flag = g_strdup("mean");
+            g_free(t);
+        }
+    }
+    gboolean onehot_on = (chk_onehot && gtk_toggle_button_get_active(chk_onehot)) ? TRUE : FALSE;
+
+    /* ---- Build argv dynamically so optional flags are easy ---- */
+    GPtrArray *vec = g_ptr_array_new();
+    g_ptr_array_add(vec, python);
+    g_ptr_array_add(vec, script);
+
+    g_ptr_array_add(vec, "--csv");         g_ptr_array_add(vec, (gchar*)ctx->current_dataset_path);
+    g_ptr_array_add(vec, "--x");           g_ptr_array_add(vec, (gchar*)xname);
+    g_ptr_array_add(vec, "--y");           g_ptr_array_add(vec, (gchar*)yname);
+    g_ptr_array_add(vec, "--x-label");     g_ptr_array_add(vec, (gchar*)xname);
+    g_ptr_array_add(vec, "--y-label");     g_ptr_array_add(vec, (gchar*)yname);
+    g_ptr_array_add(vec, "--model");       g_ptr_array_add(vec, (gchar*)algo);
+    g_ptr_array_add(vec, "--epochs");      g_ptr_array_add(vec, epochs_s);
+    g_ptr_array_add(vec, "--train-pct");   g_ptr_array_add(vec, train_s);
+    g_ptr_array_add(vec, "--proj");        g_ptr_array_add(vec, (gchar*)proj);
+    g_ptr_array_add(vec, "--color-by");    g_ptr_array_add(vec, (gchar*)color);
+    g_ptr_array_add(vec, "--frame-every"); g_ptr_array_add(vec, frame_s);
+    g_ptr_array_add(vec, "--out-plot");    g_ptr_array_add(vec, out_plot);
+    g_ptr_array_add(vec, "--out-metrics"); g_ptr_array_add(vec, out_metrics);
+
+    /* data-treatment -> CLI */
+    g_ptr_array_add(vec, "--scale");       g_ptr_array_add(vec, scale_flag);
+    g_ptr_array_add(vec, "--impute");      g_ptr_array_add(vec, impute_flag);
+    if (onehot_on) g_ptr_array_add(vec, "--onehot");
+
+    /* only pass --hparams if we actually have JSON */
+    if (hp_json && hp_json[0]) {
+        g_ptr_array_add(vec, "--hparams");
+        g_ptr_array_add(vec, hp_json);
+    }
+
+    /* NULL-terminate for g_spawn */
+    g_ptr_array_add(vec, NULL);
+
+    /* logging — now shows the *real* train pct */
+    append_log(ctx, "[debug] TRAIN PCT: %.3f", train_pct);
+    for (guint i = 0; i + 1 < vec->len; ++i) {
+        append_log(ctx, "[debug] argv[%u] = %s", i, (gchar*)g_ptr_array_index(vec, i));
+    }
+
+    /* spawn with pipes */
     gint out_fd = -1, err_fd = -1;
     GError *err = NULL; GPid pid = 0;
     GSpawnFlags flags = 0;
     if (!g_path_is_absolute(python)) flags = G_SPAWN_SEARCH_PATH;
 
+    gchar **argv = (gchar**)vec->pdata; /* already NULL-terminated */
     gboolean ok = g_spawn_async_with_pipes(
-        NULL, argv, NULL,
-        flags,
+        NULL, argv, NULL, flags,
         NULL, NULL, &pid,
         NULL, &out_fd, &err_fd, &err
     );
@@ -565,21 +675,51 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
         if (err) g_error_free(err);
 
 #ifdef G_OS_WIN32
-        /* Tentativa: usar CreateProcessW + pipes (mais robusto no Windows) */
+        /* Fallback: CreateProcessW with pipes */
         append_log(ctx, "[warn] spawn_async_with_pipes falhou; tentando CreateProcessW + pipes...");
-        GError *werr = NULL;
-        /* construir cmdline (colocar aspas onde necessário) */
-        gchar *cmdline = g_strdup_printf("\"%s\" \"%s\" --csv \"%s\" --x \"%s\" --y \"%s\" --x-label \"%s\" --y-label \"%s\" --model \"%s\" --epochs %s --train-pct %s --proj \"%s\" --color-by \"%s\" --frame-every %s --out-plot \"%s\" --out-metrics \"%s\"",
-                                         python, script,
-                                         ctx->current_dataset_path,
-                                         xname, yname, xname, yname,
-                                         algo, epochs_s, train_s, proj, color, frame_s,
-                                         out_plot, out_metrics);
+
+        /* Build a safe cmdline. We must quote JSON because it contains quotes. */
+        gchar *onehot_part = onehot_on ? " --onehot" : "";
+
+        gchar *hp_part = NULL;
+        if (hp_json && hp_json[0]) {
+            /* quote and escape " -> \" */
+            GString *qs = g_string_new("\"");
+            for (const char *p = hp_json; *p; ++p) {
+                if (*p == '\"') g_string_append(qs, "\\\"");
+                else            g_string_append_c(qs, *p);
+            }
+            g_string_append_c(qs, '\"');
+            hp_part = g_strdup_printf(" --hparams %s", qs->str);
+            g_string_free(qs, TRUE);
+        } else {
+            hp_part = g_strdup("");
+        }
+
+        gchar *cmdline = g_strdup_printf(
+            "\"%s\" \"%s\""
+            " --csv \"%s\" --x \"%s\" --y \"%s\""
+            " --x-label \"%s\" --y-label \"%s\""
+            " --model \"%s\" --epochs %s --train-pct %s"
+            " --proj \"%s\" --color-by \"%s\" --frame-every %s"
+            " --out-plot \"%s\" --out-metrics \"%s\""
+            " --scale %s --impute %s%s%s",
+            python, script,
+            ctx->current_dataset_path,
+            xname, yname,
+            xname, yname,
+            algo, epochs_s, train_s,
+            proj, color, frame_s,
+            out_plot, out_metrics,
+            scale_flag, impute_flag, onehot_part, hp_part
+        );
 
         PROCESS_INFORMATION pi;
         int win_out_fd = -1, win_err_fd = -1;
+        GError *werr = NULL;
+
         if (spawn_process_with_pipes_win(python, cmdline, &win_out_fd, &win_err_fd, &pi, &werr)) {
-            /* criar GIOChannels a partir dos fds Windows */
+            /* stdout/stderr channels */
             GIOChannel *ch_out = (win_out_fd >= 0) ? g_io_channel_win32_new_fd(win_out_fd) : NULL;
             GIOChannel *ch_err = (win_err_fd >= 0) ? g_io_channel_win32_new_fd(win_err_fd) : NULL;
             if (ch_out) {
@@ -591,40 +731,49 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
                 g_io_add_watch(ch_err, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx);
             }
 
-            /* opcional: podes guardar pi.hProcess para esperar término mais tarde.
-               Aqui fechamos handles do PROCESS_INFORMATION para evitar leak; se precisares
-               de esperar pelo processo, guarda pi em ctx e fecha quando terminar. */
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
 
             ctx->trainer_running = TRUE;
             append_log(ctx, "[info] started child via CreateProcessW (with pipes).");
-            if (ctx->status) gtk_label_set_text(ctx->status, "Training…");
+            if (ctx->status)   gtk_label_set_text(ctx->status, "Training…");
             if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
-            if (ctx->right_nb && ctx->plot_page_idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+            if (ctx->right_nb && ctx->plot_page_idx >= 0)
+                gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
 
             g_free(cmdline);
-            /* limpar alocações */
+            g_free(hp_part);
+            /* clean up after spawn */
+            if (hp_json) free(hp_json);
+            g_free(scale_flag);
+            g_free(impute_flag);
+            g_ptr_array_free(vec, TRUE);
             g_free(train_s); g_free(epochs_s); g_free(frame_s);
             g_free(script);  g_free(python); g_free(cwd);
             g_free(out_plot); g_free(out_metrics);
             return TRUE;
+
         } else {
             append_log(ctx, "[error] CreateProcessW helper falhou: %s", werr ? werr->message : "(unknown)");
             if (werr) g_error_free(werr);
             g_free(cmdline);
+            g_free(hp_part);
 
-            /* último recurso: tentar _spawnv (sem pipes), para pelo menos iniciar o processo */
+            /* last resort: _spawnv (no pipes) */
             append_log(ctx, "[warn] tentando fallback _spawnv() no Windows (sem pipes)...");
-            char **spawn_argv = g_new0(char*, 40);
+            char **spawn_argv = g_new0(char*, (int)vec->len);
             int ai = 0;
-            for (int i = 0; argv[i] != NULL && ai < 38; ++i) spawn_argv[ai++] = argv[i];
+            for (guint i = 0; i + 1 < vec->len; ++i) spawn_argv[ai++] = (char*)g_ptr_array_index(vec, i);
             spawn_argv[ai] = NULL;
 
             intptr_t spawn_ret = _spawnv(_P_NOWAIT, (const char*)python, (const char * const*)spawn_argv);
             if (spawn_ret == -1) {
                 append_log(ctx, "[error] _spawnv failed (errno=%d).", errno);
                 g_free(spawn_argv);
+                if (hp_json) free(hp_json);
+                g_free(scale_flag);
+                g_free(impute_flag);
+                g_ptr_array_free(vec, TRUE);
                 g_free(train_s); g_free(epochs_s); g_free(frame_s);
                 g_free(script);  g_free(python); g_free(cwd);
                 g_free(out_plot); g_free(out_metrics);
@@ -632,10 +781,16 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
             } else {
                 append_log(ctx, "[info] started child via _spawnv pid=%ld", (long)spawn_ret);
                 ctx->trainer_running = TRUE;
-                if (ctx->status) gtk_label_set_text(ctx->status, "Training…");
+                if (ctx->status)   gtk_label_set_text(ctx->status, "Training…");
                 if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
-                if (ctx->right_nb && ctx->plot_page_idx >= 0) gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+                if (ctx->right_nb && ctx->plot_page_idx >= 0)
+                    gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
+
                 g_free(spawn_argv);
+                if (hp_json) free(hp_json);
+                g_free(scale_flag);
+                g_free(impute_flag);
+                g_ptr_array_free(vec, TRUE);
                 g_free(train_s); g_free(epochs_s); g_free(frame_s);
                 g_free(script);  g_free(python); g_free(cwd);
                 g_free(out_plot); g_free(out_metrics);
@@ -643,8 +798,12 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
             }
         }
 #else
-        /* Em Unix, se falhou, abortamos */
+        /* Unix: no extra fallback */
         append_log(ctx, "[error] spawn_async_with_pipes falhou e não há fallback disponível neste OS.");
+        if (hp_json) free(hp_json);
+        g_free(scale_flag);
+        g_free(impute_flag);
+        g_ptr_array_free(vec, TRUE);
         g_free(train_s); g_free(epochs_s); g_free(frame_s);
         g_free(script);  g_free(python); g_free(cwd);
         g_free(out_plot); g_free(out_metrics);
@@ -652,7 +811,7 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 #endif
     }
 
-    /* Se spawn com pipes funcionou (POSIX ou Windows caso raro), cria canais e segue */
+    /* If spawn succeeded, hook stdout/stderr and update UI */
 #ifdef G_OS_WIN32
     GIOChannel *ch_out = (out_fd >= 0) ? g_io_channel_win32_new_fd(out_fd) : NULL;
     GIOChannel *ch_err = (err_fd >= 0) ? g_io_channel_win32_new_fd(err_fd) : NULL;
@@ -662,6 +821,11 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 #endif
     if (ch_out) { g_io_channel_set_encoding(ch_out, NULL, NULL); g_io_add_watch(ch_out, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
     if (ch_err) { g_io_channel_set_encoding(ch_err, NULL, NULL); g_io_add_watch(ch_err, G_IO_IN | G_IO_HUP, (GIOFunc)on_python_stdout, ctx); }
+
+    if (hp_json) free(hp_json);
+    g_free(scale_flag);
+    g_free(impute_flag);
+    g_ptr_array_free(vec, TRUE);
 
     g_free(train_s); g_free(epochs_s); g_free(frame_s);
     g_free(script);  g_free(python); g_free(cwd);
@@ -833,6 +997,166 @@ static void on_split_entry_changed(GtkEditable *editable, gpointer user_data) {
     set_split_ui(ctx, train);
 }
 
+// remove todos os filhos de um container (útil pra reconstruir hyperparams)
+static void destroy_all_children(GtkWidget *box) {
+    GList *ch = gtk_container_get_children(GTK_CONTAINER(box));
+    for (GList *l = ch; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(ch);
+}
+
+// reconstrói a UI de hyperparâmetros conforme o modelo escolhido
+static void rebuild_hparams_ui(EnvCtx *ctx) {
+    if (!ctx || !ctx->model_params_box || !ctx->algo_combo) return;
+    destroy_all_children(ctx->model_params_box);
+
+    const char *flag = algo_to_flag(ctx->algo_combo);
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    int r = 0;
+
+    /* Torch MLPs */
+    if (g_strcmp0(flag, "mlp_cls") == 0 || g_strcmp0(flag, "mlp_reg") == 0) {
+        GtkWidget *sp_hidden = gtk_spin_button_new_with_range(1, 4096, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_hidden), 64);
+        GtkWidget *sp_layers = gtk_spin_button_new_with_range(1, 8, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_layers), 2);
+        GtkWidget *ent_lr = gtk_entry_new();
+        gtk_entry_set_text(GTK_ENTRY(ent_lr), "0.001");
+        GtkWidget *cb_act = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_act), "relu");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_act), "tanh");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(cb_act), 0);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Hidden units"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_hidden,                    1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Layers"),      0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_layers,                    1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Learning rate"),0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), ent_lr,                       1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Activation"),  0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), cb_act,                       1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(sp_hidden), "hp-key", "hidden");
+        g_object_set_data(G_OBJECT(sp_layers), "hp-key", "layers");
+        g_object_set_data(G_OBJECT(ent_lr),    "hp-key", "lr");
+        g_object_set_data(G_OBJECT(cb_act),    "hp-key", "activation");
+
+    } else if (g_strcmp0(flag, "logreg") == 0) {
+        GtkWidget *ent_C = gtk_entry_new();
+        gtk_entry_set_text(GTK_ENTRY(ent_C), "1.0");
+        GtkWidget *cb_pen = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_pen), "L2");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_pen), "L1");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(cb_pen), 0);
+        GtkWidget *sp_maxit = gtk_spin_button_new_with_range(10, 10000, 10);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_maxit), 200);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("C"),             0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), ent_C,                          1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Penalty"),       0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), cb_pen,                         1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Max iterations"),0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_maxit,                       1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(ent_C),    "hp-key", "C");
+        g_object_set_data(G_OBJECT(cb_pen),   "hp-key", "penalty");
+        g_object_set_data(G_OBJECT(sp_maxit), "hp-key", "max_iter");
+
+    /* Classical models – show only the knobs `models.py` actually reads */
+    } else if (g_strcmp0(flag, "rf_cls") == 0 || g_strcmp0(flag, "rf_reg") == 0) {
+        GtkWidget *sp_n = gtk_spin_button_new_with_range(1, 10000, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_n), 200);
+        GtkWidget *sp_seed = gtk_spin_button_new_with_range(0, 999999, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_seed), 42);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("n_estimators"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_n,                          1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("seed"),         0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_seed,                       1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(sp_n),    "hp-key", "n_estimators");
+        g_object_set_data(G_OBJECT(sp_seed), "hp-key", "seed");
+
+    } else if (g_strcmp0(flag, "dt_cls") == 0 || g_strcmp0(flag, "dt_reg") == 0
+            || g_strcmp0(flag, "gb_cls") == 0 || g_strcmp0(flag, "gb_reg") == 0) {
+        GtkWidget *sp_seed = gtk_spin_button_new_with_range(0, 999999, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_seed), 42);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("seed"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_seed,               1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(sp_seed), "hp-key", "seed");
+
+    } else if (g_strcmp0(flag, "knn_cls") == 0 || g_strcmp0(flag, "knn_reg") == 0) {
+        GtkWidget *sp_k = gtk_spin_button_new_with_range(1, 2048, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_k), 7);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("n_neighbors"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_k,                         1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(sp_k), "hp-key", "n_neighbors");
+
+    } else if (g_strcmp0(flag, "nb_cls") == 0) {
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("No specific hyperparameters."), 0, r++, 2, 1);
+
+    } else if (g_strcmp0(flag, "nb_reg") == 0) {
+        GtkWidget *sp_bins = gtk_spin_button_new_with_range(2, 1000, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_bins), 10);
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("nb_reg_bins"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), sp_bins,                      1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(sp_bins), "hp-key", "nb_reg_bins");
+
+    } else if (g_strcmp0(flag, "svm_cls") == 0 || g_strcmp0(flag, "svm_reg") == 0) {
+        GtkWidget *cb_kernel = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_kernel), "rbf");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_kernel), "linear");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_kernel), "poly");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(cb_kernel), "sigmoid");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(cb_kernel), 0);
+
+        GtkWidget *ent_C = gtk_entry_new();     gtk_entry_set_text(GTK_ENTRY(ent_C), "1.0");
+        GtkWidget *ent_g = gtk_entry_new();     gtk_entry_set_text(GTK_ENTRY(ent_g), "scale");
+
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("kernel"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), cb_kernel,               1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("C"),      0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), ent_C,                   1, r++, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("gamma"),  0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), ent_g,                   1, r++, 1, 1);
+
+        g_object_set_data(G_OBJECT(cb_kernel), "hp-key", "kernel");
+        g_object_set_data(G_OBJECT(ent_C),     "hp-key", "C");
+        g_object_set_data(G_OBJECT(ent_g),     "hp-key", "gamma");
+
+        if (g_strcmp0(flag, "svm_reg") == 0) {
+            GtkWidget *ent_eps = gtk_entry_new(); gtk_entry_set_text(GTK_ENTRY(ent_eps), "0.1");
+            gtk_grid_attach(GTK_GRID(grid), gtk_label_new("epsilon"), 0, r, 1, 1);
+            gtk_grid_attach(GTK_GRID(grid), ent_eps,                  1, r++, 1, 1);
+            g_object_set_data(G_OBJECT(ent_eps), "hp-key", "epsilon");
+        }
+
+    } else if (g_strcmp0(flag, "ridge") == 0 || g_strcmp0(flag, "lasso") == 0) {
+        GtkWidget *ent_alpha = gtk_entry_new();
+        gtk_entry_set_text(GTK_ENTRY(ent_alpha), "1.0");
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("alpha"), 0, r, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), ent_alpha,              1, r++, 1, 1);
+        g_object_set_data(G_OBJECT(ent_alpha), "hp-key", "alpha");
+
+    } else {
+        gtk_grid_attach(GTK_GRID(grid), gtk_label_new("No specific hyperparameters."), 0, r++, 2, 1);
+    }
+
+    gtk_box_pack_start(GTK_BOX(ctx->model_params_box), grid, FALSE, FALSE, 0);
+    gtk_widget_show_all(ctx->model_params_box);
+}
+
+static void on_algo_changed(GtkComboBox *box, gpointer user_data) {
+    rebuild_hparams_ui((EnvCtx*)user_data);
+}
 
 /* Build the Environment tab (LEFT controls | RIGHT notebook) */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
@@ -869,6 +1193,12 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* =============== LEFT controls =============== */
     GtkWidget *left_col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
+    // --- cria o notebook da esquerda com duas páginas
+    GtkWidget *pre_box  = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget *model_box= gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget *left_nb  = gtk_notebook_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(left_nb), "w95-notebook");
+
     /* Dataset row (single, not duplicated) */
     {
         GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -889,6 +1219,17 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_selected_dataset),  ctx);
     }
 
+    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), pre_box,  gtk_label_new("Pre-processing"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), model_box, gtk_label_new("Model"));
+
+    // guarda em ctx (se precisar depois)
+    ctx->left_nb     = GTK_NOTEBOOK(left_nb);
+    ctx->preproc_box = pre_box;
+    ctx->model_box   = model_box;
+
+    // o notebook fica no topo da coluna; "Actions" vai abaixo
+    gtk_box_pack_start(GTK_BOX(left_col), left_nb, TRUE, TRUE, 0);
+
     /* trainees row */
     {
         GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -896,7 +1237,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_combo_box_text_append_text(ctx->model_combo, "(new)");
         gtk_box_pack_start(GTK_BOX(tr_row), gtk_label_new(""), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(tr_row), GTK_WIDGET(ctx->model_combo), TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Trainee", tr_row), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(model_box), group_panel("Trainee", tr_row), FALSE, FALSE, 0);
     }
 
     /* Regressor + epochs */
@@ -909,6 +1250,23 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_combo_box_text_append_text(ctx->algo_combo, "MLP (Regression)");
         gtk_combo_box_text_append_text(ctx->algo_combo, "Logistic (Classification)");
         gtk_combo_box_text_append_text(ctx->algo_combo, "MLP (Classification)");
+
+        /* classical — classification */
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Decision Tree (Classification)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Random Forest (Classification)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "KNN (Classification)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Naive Bayes (Classification)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "SVM (Classification)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Gradient Boosting (Classification)");
+
+        /* classical — regression */
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Decision Tree (Regression)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Random Forest (Regression)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "KNN (Regression)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Naive Bayes (Regression)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "SVM (Regression)");
+        gtk_combo_box_text_append_text(ctx->algo_combo, "Gradient Boosting (Regression)");
+
         gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->algo_combo), 0);
 
         GtkWidget *lab_ep = gtk_label_new("Epochs:");
@@ -921,7 +1279,15 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_end  (GTK_BOX(row), GTK_WIDGET(ctx->epochs_spin), FALSE, FALSE, 0);
         gtk_box_pack_end  (GTK_BOX(row), lab_ep, FALSE, FALSE, 6);
 
-        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Regressor", row), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(model_box), group_panel("Model", row), FALSE, FALSE, 0);
+
+        // área dinâmica de hyperparameters
+        ctx->model_params_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_box_pack_start(GTK_BOX(model_box), group_panel("Hyperparameters", ctx->model_params_box), FALSE, FALSE, 0);
+
+        // quando o algoritmo mudar, reconstruir a área de hyperparams
+        g_signal_connect(ctx->algo_combo, "changed", G_CALLBACK(on_algo_changed), ctx);
+        rebuild_hparams_ui(ctx); // inicial
     }
 
     /* Projection / Color */
@@ -941,7 +1307,38 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->proj_combo), TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->colorby_combo), TRUE, TRUE, 0);
 
-        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Projection & Color", row), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Projection & Color", row), FALSE, FALSE, 0);
+    }
+
+    /* Data Treatment (impute/scale/onehot) */
+    {
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
+        GtkComboBoxText *cmb_scale  = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+        gtk_combo_box_text_append_text(cmb_scale, "Standard Scale");
+        gtk_combo_box_text_append_text(cmb_scale, "Min-Max Scale");
+        gtk_combo_box_text_append_text(cmb_scale, "No Scaling");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(cmb_scale), 0);
+
+        GtkComboBoxText *cmb_impute = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+        gtk_combo_box_text_append_text(cmb_impute, "Impute: mean");
+        gtk_combo_box_text_append_text(cmb_impute, "Impute: median");
+        gtk_combo_box_text_append_text(cmb_impute, "Impute: most_frequent");
+        gtk_combo_box_text_append_text(cmb_impute, "Impute: zero");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(cmb_impute), 0);
+
+        GtkWidget *chk_onehot = gtk_check_button_new_with_label("One-hot encode categoricals");
+
+        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(cmb_scale),  TRUE,  TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(cmb_impute), TRUE,  TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(row), chk_onehot,             FALSE, FALSE, 0);
+
+        gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Data Treatment", row), FALSE, FALSE, 0);
+
+        /* store pointers without touching EnvCtx fields */
+        g_object_set_data(G_OBJECT(pre_box), "scale_combo",  cmb_scale);
+        g_object_set_data(G_OBJECT(pre_box), "impute_combo", cmb_impute);
+        g_object_set_data(G_OBJECT(pre_box), "onehot_check", chk_onehot);
     }
 
     /* Split controls */
@@ -975,7 +1372,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
         gtk_box_pack_start(GTK_BOX(box), labels, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(box), scale,  FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(left_col), group_panel("Split (Train/Test)", box), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Split (Train/Test)", box), FALSE, FALSE, 0);
         gtk_widget_set_name(lab_tr, "split-train-label");
         gtk_widget_set_name(lab_te, "split-test-label");
         set_split_ui(ctx, 70.0);

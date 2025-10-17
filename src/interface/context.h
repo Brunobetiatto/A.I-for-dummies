@@ -82,8 +82,10 @@ typedef struct {
 
     GtkProgressBar  *progress;
 
-
-
+    GtkNotebook *left_nb;         // novo: notebook da coluna esquerda
+    GtkWidget   *preproc_box;     // vbox da aba "Pre-processing"
+    GtkWidget   *model_box;       // vbox da aba "Model"
+    GtkWidget   *model_params_box;// área dinâmica p/ hyperparams por modelo
     
     GtkButton       *btn_debug;
 

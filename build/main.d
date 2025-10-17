@@ -7,7 +7,7 @@ build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  C:/msys64/mingw64/lib/glib-2.0/include/glibconfig.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gmacros.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gversionmacros.h \
- C:/msys64/mingw64/include/glib-2.0/glib/glib-visibility.h \
+ C:/msys64/mingw64/include/glib-2.0/glib/glib-visibility.h \ 
  C:/msys64/mingw64/include/glib-2.0/glib/garray.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gasyncqueue.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gthread.h \

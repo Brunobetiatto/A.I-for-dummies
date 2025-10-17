@@ -1,0 +1,169 @@
+/* profile_tab.css - Windows 95 Style para Aba de Perfil */
+
+/* Container principal */
+.profile-tab-container {
+    background-color: #c0c0c0;
+    border: 2px solid;
+    border-color: #dfdfdf #808080 #808080 #dfdfdf;
+    padding: 16px;
+    margin: 8px;
+}
+
+/* Header da aba */
+.profile-header {
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: #000080;
+    background: #c0c0c0;
+    padding: 8px 6px;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #808080;
+}
+
+/* Container do avatar */
+.avatar-container {
+    background: #c0c0c0;
+    border: 2px solid;
+    border-color: #808080 #dfdfdf #dfdfdf #808080;
+    padding: 6px;
+    margin: 8px 0;
+}
+
+.avatar-image {
+    border: 1px solid #808080;
+}
+
+.avatar-container:hover {
+    border-color: #000080;
+}
+
+/* Container de informações */
+.info-container {
+    background: #ffffff;
+    border: 2px inset #c0c0c0;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+/* Labels estáticos */
+.info-label {
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    font-weight: bold;
+    color: #000000;
+    background: #c0c0c0;
+    padding: 4px 6px;
+    margin: 2px 0;
+}
+
+/* Labels editáveis */
+.editable-label {
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    color: #000000;
+    background: #c0c0c0;
+    border: 1px dotted #808080;
+    padding: 6px 8px;
+    margin: 4px 0;
+    min-height: 18px;
+}
+
+.editable-label:hover {
+    background: #d4d0c8;
+    border: 1px dotted #000080;
+}
+
+/* Campos de entrada */
+.editable-entry {
+    background: #ffffff;
+    border: 2px inset #c0c0c0;
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    padding: 4px 6px;
+    margin: 4px 0;
+}
+
+.editable-textview {
+    background: #ffffff;
+    border: 2px inset #c0c0c0;
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    padding: 6px;
+    margin: 4px 0;
+}
+
+/* Email (readonly) */
+.email-display {
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    color: #404040;
+    background: #c0c0c0;
+    border: 1px solid #808080;
+    padding: 6px 8px;
+    margin: 4px 0;
+    font-style: italic;
+}
+
+/* Botões */
+.save-button {
+    background: #c0c0c0;
+    border: 2px outset #c0c0c0;
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 11px;
+    font-weight: bold;
+    color: #000000;
+    padding: 6px 16px;
+    margin: 8px 4px;
+    min-width: 120px;
+}
+
+.save-button:hover {
+    background: #d4d0c8;
+}
+
+.save-button:active {
+    border: 2px inset #c0c0c0;
+    padding: 7px 15px 5px 17px;
+}
+
+.save-button:disabled {
+    color: #808080;
+}
+
+/* Status messages */
+.status-message {
+    font-family: "MS Sans Serif", sans-serif;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 6px 10px;
+    margin: 8px 0;
+    border: 1px solid #808080;
+    background: #c0c0c0;
+}
+
+.status-success {
+    color: #000080;
+    border-color: #000080;
+}
+
+.status-error {
+    color: #800000;
+    border-color: #800000;
+}
+
+/* Container de ações */
+.actions-container {
+    background: #c0c0c0;
+    border: 2px solid;
+    border-color: #dfdfdf #808080 #808080 #dfdfdf;
+    padding: 10px;
+    margin-top: 12px;
+}
+
+/* Separador */
+.separator {
+    background: #808080;
+    border: 1px solid #808080;
+    margin: 12px 0;
+}

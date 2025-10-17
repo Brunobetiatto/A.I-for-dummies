@@ -1102,7 +1102,7 @@ WCHAR* run_api_command(const WCHAR *command) {
         return NULL;
     }
 
-    else if (token && strcmp(token, "UPDATE_USER_AVATAR") == 0) {
+    else if (token && strcmp(token, "UPDATE_USER") == 0) {
         token = strtok(NULL, ""); /* resto é JSON */
         if (token) {
             /* token é JSON: {"user_id":29,"nome":"x","bio":"y","avatar":"/path/to/file"} */

@@ -13,6 +13,7 @@
 #include "interface/datasets.h"
 #include "interface/environment.h"
 #include "interface/login.h"
+#include "interface/profile_tab.h"
 
 GtkWidget* create_main_window(UserSession *session) {
     EnvCtx *env = g_new0(EnvCtx, 1);
@@ -43,6 +44,7 @@ GtkWidget* create_main_window(UserSession *session) {
 
     add_datasets_tab(GTK_NOTEBOOK(nb), env);
     add_environment_tab(GTK_NOTEBOOK(nb), env);
+    add_profile_tab(GTK_NOTEBOOK(nb), env);
 
     gtk_widget_show_all(main_win);
     return main_win;

@@ -242,3 +242,155 @@ scrollbar slider {
 }
 #upload-toast label { color: #111; }
 
+/* profile_tab.css - Estilo Windows 95 melhorado para a aba de perfil */
+
+/* Container principal */
+#profile-tab {
+  background-color: #c0c0c0;
+  border: 2px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  padding: 12px;
+  margin: 8px;
+}
+
+/* Área do avatar */
+.profile-avatar-container {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #808080 #dfdfdf #dfdfdf #808080;
+  padding: 4px;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+
+.profile-avatar-container:hover {
+  border-color: #000080;
+}
+
+.profile-avatar-image {
+  border: 1px solid #808080;
+}
+
+/* Labels de informações */
+.profile-info-label {
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  color: #000000;
+  background: #c0c0c0;
+  padding: 2px 4px;
+  margin: 4px 0;
+}
+
+/* Campos editáveis quando em modo label */
+.profile-editable-label {
+  background: #c0c0c0;
+  border: 1px dotted #808080;
+  padding: 4px 6px;
+  margin: 2px 0;
+  min-height: 18px;
+  cursor: text;
+}
+
+.profile-editable-label:hover {
+  background: #d4d0c8;
+  border: 1px dotted #000080;
+}
+
+/* Campos de entrada quando editando */
+.profile-editable-entry {
+  background: #ffffff;
+  border: 2px inset #c0c0c0;
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 11px;
+  padding: 3px 5px;
+  margin: 2px 0;
+}
+
+.profile-editable-textview {
+  background: #ffffff;
+  border: 2px inset #c0c0c0;
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 11px;
+  padding: 4px;
+  margin: 2px 0;
+}
+
+/* Botão Save */
+.profile-save-btn {
+  background: #c0c0c0;
+  border: 2px outset #c0c0c0;
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  color: #000000;
+  padding: 4px 12px;
+  margin-top: 8px;
+  min-width: 80px;
+}
+
+.profile-save-btn:hover {
+  background: #d4d0c8;
+}
+
+.profile-save-btn:active {
+  border: 2px inset #c0c0c0;
+  padding: 5px 11px 3px 13px;
+}
+
+/* Status message */
+.profile-status {
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 4px 8px;
+  margin-top: 6px;
+  border: 1px solid #808080;
+}
+
+.profile-status.success {
+  background: #c0c0c0;
+  color: #000080;
+  border-color: #000080;
+}
+
+.profile-status.error {
+  background: #c0c0c0;
+  color: #800000;
+  border-color: #800000;
+}
+
+/* Container de informações */
+.profile-info-container {
+  background: #c0c0c0;
+  border: 2px inset #c0c0c0;
+  padding: 8px;
+  margin: 8px 0;
+}
+
+/* Linha de informações */
+.profile-info-row {
+  margin: 6px 0;
+  padding: 2px;
+}
+
+/* Email (não editável) */
+.profile-email {
+  background: #c0c0c0;
+  color: #404040;
+  font-style: italic;
+  padding: 4px 6px;
+  border: 1px dotted #808080;
+}
+
+/* Títulos das seções */
+.profile-section-title {
+  font-family: "MS Sans Serif", sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  color: #000080;
+  background: #c0c0c0;
+  padding: 6px 4px;
+  margin: 8px 0 4px 0;
+  border-bottom: 1px solid #808080;
+}

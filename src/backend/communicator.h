@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <curl/curl.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h> 
 #include <stdbool.h>
 #include <cjson/cJSON.h>
 #include <gtk/gtk.h>
@@ -103,6 +107,250 @@ char* api_request(const char *method, const char *endpoint, const char *data) {
 
     curl_global_cleanup();
     return chunk.data;
+}
+
+
+bool api_get_user_avatar_to_temp(int user_id, char **out_path);
+
+/* Internal: list of temp files to cleanup at exit */
+static GPtrArray *g_temp_files_array = NULL;
+static gboolean g_temp_files_registered = FALSE;
+
+static void communicator_cleanup_temp_files(void) {
+    if (!g_temp_files_array) return;
+    for (guint i = 0; i < g_temp_files_array->len; ++i) {
+        char *p = (char*) g_temp_files_array->pdata[i];
+        if (p) {
+            /* Best-effort remove */
+            remove(p);
+            g_free(p);
+        }
+    }
+    g_ptr_array_free(g_temp_files_array, TRUE);
+    g_temp_files_array = NULL;
+    g_temp_files_registered = FALSE;
+}
+
+static void communicator_register_tempfile(const char *path) {
+    if (!path) return;
+    if (!g_temp_files_array) {
+        g_temp_files_array = g_ptr_array_new_with_free_func(g_free);
+    }
+    g_ptr_array_add(g_temp_files_array, g_strdup(path));
+    if (!g_temp_files_registered) {
+        atexit(communicator_cleanup_temp_files);
+        g_temp_files_registered = TRUE;
+        /* seed rand for name uniqueness */
+        srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
+    }
+}
+
+/* helper: map content-type to extension */
+static const char* _content_type_to_ext(const char *ct) {
+    if (!ct) return ".tmp";
+    if (g_strrstr(ct, "png")) return ".png";
+    if (g_strrstr(ct, "jpeg") || g_strrstr(ct, "jpg")) return ".jpg";
+    if (g_strrstr(ct, "gif")) return ".gif";
+    if (g_strrstr(ct, "bmp")) return ".bmp";
+    if (g_strrstr(ct, "svg")) return ".svg";
+    if (g_strrstr(ct, "webp")) return ".webp";
+    return ".tmp";
+}
+
+/* write callback to save to FILE* (used above in file download func too) */
+static size_t write_file_callback_curl(void *ptr, size_t size, size_t nmemb, void *stream) {
+    return fwrite(ptr, size, nmemb, (FILE *)stream);
+}
+
+/* Implementation: download avatar into tmp dir and return path via out_path (caller g_free) */
+bool api_get_user_avatar_to_temp(int user_id, char **out_path) {
+    if (!out_path) return false;
+    *out_path = NULL;
+
+    CURL *curl = NULL;
+    CURLcode res;
+    bool ok = false;
+    FILE *fp = NULL;
+    char tmp_path[1024] = {0};
+    char final_path[1024] = {0};
+    char url[512];
+
+    snprintf(url, sizeof(url), "http://localhost:5000/user/%d/avatar", user_id);
+
+    const char *tmpdir = g_get_tmp_dir();
+    if (!tmpdir) tmpdir = "/tmp";
+
+    /* create unique temp filename (no extension initially) */
+    unsigned int rnd = (unsigned int)rand();
+    time_t t = time(NULL);
+    snprintf(tmp_path, sizeof(tmp_path), "%s/aifd_avatar_%d_%u_%lu.tmp",
+             tmpdir, user_id, rnd, (unsigned long)t);
+
+    fp = fopen(tmp_path, "wb");
+    if (!fp) {
+        debug_log("api_get_user_avatar_to_temp: failed to open temp file '%s' errno=%d", tmp_path, errno);
+        return false;
+    }
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (!curl) {
+        fclose(fp);
+        remove(tmp_path);
+        debug_log("api_get_user_avatar_to_temp: curl_easy_init failed");
+        return false;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file_callback_curl);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+    /* set a modest timeout */
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+
+    /* perform */
+    res = curl_easy_perform(curl);
+
+    /* obtain content-type if available */
+    char *content_type = NULL;
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
+    }
+
+    curl_easy_cleanup(curl);
+    fclose(fp);
+
+    if (res != CURLE_OK) {
+        debug_log("api_get_user_avatar_to_temp: curl failed: %s", curl_easy_strerror(res));
+        remove(tmp_path);
+        curl_global_cleanup();
+        return false;
+    }
+
+    /* determine extension */
+    const char *ext = _content_type_to_ext(content_type);
+    /* build final filename by replacing .tmp with ext (or appending if .tmp not present) */
+    if (g_str_has_suffix(tmp_path, ".tmp")) {
+        size_t base_len = strlen(tmp_path) - 4;
+        snprintf(final_path, sizeof(final_path), "%.*s%s", (int)base_len, tmp_path, ext);
+        /* rename file */
+        if (rename(tmp_path, final_path) != 0) {
+            /* rename failed: keep original tmp name */
+            debug_log("api_get_user_avatar_to_temp: rename failed errno=%d, keeping %s", errno, tmp_path);
+            g_snprintf(final_path, sizeof(final_path), "%s", tmp_path);
+        }
+    } else {
+        /* just append extension */
+        snprintf(final_path, sizeof(final_path), "%s%s", tmp_path, ext);
+        if (rename(tmp_path, final_path) != 0) {
+            /* if rename fails, try to copy fallback (rare) */
+            debug_log("api_get_user_avatar_to_temp: rename append failed errno=%d", errno);
+            /* leave tmp_path as-is */
+            snprintf(final_path, sizeof(final_path), "%s", tmp_path);
+        }
+    }
+
+    /* register file for cleanup at exit */
+    communicator_register_tempfile(final_path);
+
+    /* success: return path */
+    *out_path = g_strdup(final_path);
+    ok = true;
+
+    curl_global_cleanup();
+    return ok;
+}
+
+bool api_update_user_with_avatar(int user_id,
+                                 const char *nome,
+                                 const char *bio,
+                                 const char *avatar_path,
+                                 char **response) {
+    CURL *curl = NULL;
+    CURLcode res;
+    struct ResponseData chunk;
+    char url[512];
+
+    if (!response) return false;
+    *response = NULL;
+
+    chunk.data = malloc(1);
+    chunk.size = 0;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (!curl) {
+        free(chunk.data);
+        curl_global_cleanup();
+        return false;
+    }
+
+    /* Endpoint: POST /user/<id>/avatar */
+    snprintf(url, sizeof(url), "http://localhost:5000/user/%d/avatar", user_id);
+    debug_log(">> API_UPDATE_USER_AVATAR: %s", url);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    /* multipart/form-data */
+    curl_mime *form = curl_mime_init(curl);
+    if (!form) {
+        debug_log("!! api_update_user_with_avatar: curl_mime_init failed");
+        free(chunk.data);
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+        return false;
+    }
+
+    /* avatar file part (if provided) */
+    if (avatar_path && avatar_path[0] != '\0') {
+        curl_mimepart *filep = curl_mime_addpart(form);
+        curl_mime_name(filep, "avatar");
+        curl_mime_filedata(filep, avatar_path);
+    }
+
+    /* nome */
+    if (nome && nome[0] != '\0') {
+        curl_mimepart *np = curl_mime_addpart(form);
+        curl_mime_name(np, "nome");
+        curl_mime_data(np, nome, CURL_ZERO_TERMINATED);
+    }
+
+    /* bio */
+    if (bio && bio[0] != '\0') {
+        curl_mimepart *bp = curl_mime_addpart(form);
+        curl_mime_name(bp, "bio");
+        curl_mime_data(bp, bio, CURL_ZERO_TERMINATED);
+    }
+
+    /* user_id (forte redundância, já está no path, mas enviar como campo também não faz mal) */
+    char uid_str[32];
+    snprintf(uid_str, sizeof(uid_str), "%d", user_id);
+    curl_mimepart *uidp = curl_mime_addpart(form);
+    curl_mime_name(uidp, "user_id");
+    curl_mime_data(uidp, uid_str, CURL_ZERO_TERMINATED);
+
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, form);
+
+    /* executa */
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        debug_log("!! api_update_user_with_avatar curl failed: %s", curl_easy_strerror(res));
+        free(chunk.data);
+        chunk.data = NULL;
+    } else {
+        debug_log("<< API_RESPONSE (update avatar): %s", chunk.data ? chunk.data : "(null)");
+    }
+
+    curl_mime_free(form);
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
+
+    *response = chunk.data; /* caller must free */
+
+    return (*response != NULL);
 }
 
 
@@ -782,6 +1030,109 @@ WCHAR* run_api_command(const WCHAR *command) {
                 if (nome_field) g_free(nome_field);
                 if (descricao) g_free(descricao);
             }
+        }
+    }
+
+
+    else if (token && strcmp(token, "GET_USER_AVATAR") == 0) {
+        /* Accept either: GET_USER_AVATAR 29
+                         GET_USER_AVATAR {"user_id":29}   */
+        token = strtok(NULL, ""); /* pega resto da linha (pode ser JSON ou id) */
+        if (token) {
+            /* trim leading spaces */
+            while (*token == ' ') token++;
+            if (*token != '\0') {
+                int uid = 0;
+                char *tmp_path = NULL;
+
+                /* Try simple numeric id first */
+                char *endptr = NULL;
+                long v = strtol(token, &endptr, 10);
+                if (endptr != token && ( *endptr == '\0' || *endptr == ' ')) {
+                    uid = (int)v;
+                } else if (token[0] == '{') {
+                    /* try parse JSON { "user_id": ... } */
+                    cJSON *j = cJSON_Parse(token);
+                    if (j) {
+                        cJSON *ju = cJSON_GetObjectItemCaseSensitive(j, "user_id");
+                        if (cJSON_IsNumber(ju)) {
+                            uid = ju->valueint;
+                        } else {
+                            /* also accept string id in json */
+                            cJSON *jus = cJSON_GetObjectItemCaseSensitive(j, "id");
+                            if (cJSON_IsNumber(jus)) uid = jus->valueint;
+                            else if (cJSON_IsString(jus) && jus->valuestring) uid = atoi(jus->valuestring);
+                        }
+                        cJSON_Delete(j);
+                    } else {
+                        /* not JSON and not numeric -> try atoi fallback */
+                        uid = atoi(token);
+                    }
+                } else {
+                    /* fallback: attempt atoi on token */
+                    uid = atoi(token);
+                }
+
+                if (uid > 0) {
+                    if (api_get_user_avatar_to_temp(uid, &tmp_path) && tmp_path) {
+                        /* convert tmp_path (UTF-8) to WCHAR and return (caller frees) */
+                        int wchar_size = MultiByteToWideChar(CP_UTF8, 0, tmp_path, -1, NULL, 0);
+                        WCHAR *wchar_response = (WCHAR*)malloc((size_t)wchar_size * sizeof(WCHAR));
+                        if (wchar_response) {
+                            MultiByteToWideChar(CP_UTF8, 0, tmp_path, -1, wchar_response, wchar_size);
+                        } else {
+                            /* allocation failed */
+                            g_free(tmp_path);
+                            free(utf8_command);
+                            return NULL;
+                        }
+                        g_free(tmp_path);
+                        free(utf8_command);
+                        return wchar_response;
+                    } else {
+                        /* download failed: return NULL so caller can handle */
+                        if (tmp_path) g_free(tmp_path);
+                        free(utf8_command);
+                        return NULL;
+                    }
+                }
+            }
+        }
+        free(utf8_command);
+        return NULL;
+    }
+
+    else if (token && strcmp(token, "UPDATE_USER_AVATAR") == 0) {
+        token = strtok(NULL, ""); /* resto é JSON */
+        if (token) {
+            /* token é JSON: {"user_id":29,"nome":"x","bio":"y","avatar":"/path/to/file"} */
+            cJSON *j = cJSON_Parse(token);
+            if (j) {
+                cJSON *ju = cJSON_GetObjectItemCaseSensitive(j, "user_id");
+                cJSON *jn = cJSON_GetObjectItemCaseSensitive(j, "nome");
+                cJSON *jb = cJSON_GetObjectItemCaseSensitive(j, "bio");
+                cJSON *ja = cJSON_GetObjectItemCaseSensitive(j, "avatar");
+                int uid = 0;
+                const char *nome = NULL;
+                const char *bio = NULL;
+                const char *avatar = NULL;
+                if (cJSON_IsNumber(ju)) uid = ju->valueint;
+                else if (cJSON_IsString(ju)) uid = atoi(ju->valuestring);
+                if (cJSON_IsString(jn)) nome = jn->valuestring;
+                if (cJSON_IsString(jb)) bio = jb->valuestring;
+                if (cJSON_IsString(ja)) avatar = ja->valuestring;
+
+                if (uid > 0) {
+                    api_update_user_with_avatar(uid, nome, bio, avatar, &response);
+                } else {
+                    debug_log("UPDATE_USER_AVATAR: missing/invalid user_id");
+                }
+                cJSON_Delete(j);
+            } else {
+                debug_log("UPDATE_USER_AVATAR: invalid JSON payload");
+            }
+        } else {
+            debug_log("UPDATE_USER_AVATAR: no payload");
         }
     }
 

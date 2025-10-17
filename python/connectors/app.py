@@ -7,10 +7,11 @@ from email.mime.multipart import MIMEMultipart
 import secrets
 import datetime
 from datetime import timedelta
+from urllib.parse import urlparse
 import re
 import uuid
 from werkzeug.utils import secure_filename
-from flask import send_from_directory
+from flask import send_from_directory, make_response
 from db import DB_CONFIG, UPLOAD_FOLDER, DATASET_FOLDER
 
 
@@ -23,7 +24,7 @@ if PARENT not in sys.path:
 
 from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
-from database.CRUD.update import reset_user_password
+from database.CRUD.update import reset_user_password, update_user_info
 from database.CRUD.read import get_user_by_id, get_datasets_by_user
 
 app = Flask(__name__)
@@ -416,6 +417,179 @@ def api_get_user_datasets(user_id):
     finally:
         cnx.close()
 
+
+AVATAR_FOLDER = os.path.join(UPLOAD_FOLDER, 'avatars')
+os.makedirs(AVATAR_FOLDER, exist_ok=True)
+
+DEFAULT_AVATAR_PATH = os.path.join(PARENT, 'assets', 'default_avatar.png')
+
+
+@app.route('/user/<int:user_id>/avatar', methods=['GET'])
+def api_get_user_avatar(user_id):
+    cnx = None
+    try:
+        cnx = get_db_connection()
+        user = get_user_by_id(cnx, user_id)
+        if not user:
+            return jsonify({'status': 'ERROR', 'message': 'User not found'}), 404
+
+        # pega valor do campo avatar_url (compatível com dict ou objeto)
+        avatar_val = None
+        if isinstance(user, dict):
+            avatar_val = user.get('avatar_url') or user.get('avatar') or None
+        else:
+            try:
+                avatar_val = user[7]  # fallback para tuplas
+            except Exception:
+                avatar_val = None
+
+        candidate_filename = None
+
+        if avatar_val and isinstance(avatar_val, str) and avatar_val.strip():
+            v = avatar_val.strip()
+            try:
+                parsed = urlparse(v)
+                if parsed.scheme in ('http', 'https') and parsed.path:
+                    candidate = os.path.basename(parsed.path)
+                    if candidate:
+                        candidate_filename = secure_filename(candidate)
+                else:
+                    # pode ser "uploads/avatars/file.png" ou apenas "file.png"
+                    candidate = os.path.basename(v)
+                    if candidate:
+                        candidate_filename = secure_filename(candidate)
+            except Exception:
+                candidate = os.path.basename(v)
+                candidate_filename = secure_filename(candidate) if candidate else None
+
+        # função utilitária para aplicar cache header e retornar resposta
+        def send_with_cache(directory, filename, max_age=3600):
+            resp = send_from_directory(directory, filename, as_attachment=False)
+            # garantir Response para poder modificar headers
+            if not hasattr(resp, 'headers'):
+                resp = make_response(resp)
+            resp.headers['Cache-Control'] = f'public, max-age={int(max_age)}'
+            return resp
+
+        # 1) primeiro tenta AVATAR_FOLDER
+        if candidate_filename:
+            p1 = os.path.join(AVATAR_FOLDER, candidate_filename)
+            if os.path.isfile(p1):
+                return send_with_cache(AVATAR_FOLDER, candidate_filename)
+
+            # 2) fallback para raiz de uploads
+            p2 = os.path.join(UPLOAD_FOLDER, candidate_filename)
+            if os.path.isfile(p2):
+                return send_with_cache(UPLOAD_FOLDER, candidate_filename)
+
+        # 3) se avatar_val aponta para um path absoluto dentro do diretório de uploads, sirva-o
+        if avatar_val:
+            try:
+                abs_path = os.path.abspath(avatar_val)
+                uploads_abs = os.path.abspath(UPLOAD_FOLDER)
+                if abs_path.startswith(uploads_abs) and os.path.isfile(abs_path):
+                    base_dir = os.path.dirname(abs_path)
+                    fname = os.path.basename(abs_path)
+                    return send_with_cache(base_dir, fname)
+            except Exception:
+                pass
+
+        # 4) nada encontrado -> serve default avatar se existir
+        if os.path.isfile(DEFAULT_AVATAR_PATH):
+            assets_dir = os.path.dirname(DEFAULT_AVATAR_PATH)
+            default_name = os.path.basename(DEFAULT_AVATAR_PATH)
+            return send_with_cache(assets_dir, default_name)
+
+        # 5) sem default -> 404 curto
+        return jsonify({'status': 'ERROR', 'message': 'Avatar not found'}), 404
+
+    except Exception as e:
+        print("Error in api_get_user_avatar:", e)
+        return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+    finally:
+        if cnx:
+            cnx.close()
+
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+
+def allowed_image(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+# rota para servir avatares
+@app.route('/avatars/<path:filename>', methods=['GET'])
+def avatar_file(filename):
+    try:
+        return send_from_directory(AVATAR_FOLDER, filename, as_attachment=False)
+    except Exception as e:
+        app.logger.exception("Error serving avatar: %s", e)
+        return jsonify({'status':'ERROR','message':'Avatar not found'}), 404
+
+# rota para atualizar nome/bio/avatar (multipart/form-data)
+@app.route('/user/<int:user_id>/avatar', methods=['POST'])
+def api_update_user_avatar(user_id):
+    try:
+        # Pode receber multipart/form-data com: avatar (file), nome, bio
+        nome = request.form.get('nome')
+        bio = request.form.get('bio')
+
+        avatar_file = request.files.get('avatar')
+
+        avatar_url = None
+
+        cnx = get_db_connection()
+        try:
+            # ensure user exists
+            user = get_user_by_id(cnx, user_id)
+            if not user:
+                return jsonify({'status':'ERROR','message':'User not found'}), 404
+
+            # if avatar provided, save file
+            if avatar_file and avatar_file.filename:
+                if not allowed_image(avatar_file.filename):
+                    return jsonify({'status':'ERROR','message':'Invalid avatar file type'}), 400
+
+                orig_filename = secure_filename(avatar_file.filename)
+                unique_suffix = uuid.uuid4().hex[:12]
+                saved_filename = f"{os.path.splitext(orig_filename)[0]}_{unique_suffix}{os.path.splitext(orig_filename)[1]}"
+                save_path = os.path.join(AVATAR_FOLDER, saved_filename)
+                avatar_file.save(save_path)
+
+                # public URL
+                avatar_url = request.host_url.rstrip('/') + '/avatars/' + saved_filename
+
+            # build updates dict
+            updates = {}
+            if nome is not None:
+                updates['nome'] = nome
+            if bio is not None:
+                updates['bio'] = bio
+            if avatar_url is not None:
+                updates['avatar_url'] = avatar_url
+
+            if updates:
+                # update_user_info imported from database.CRUD.update
+                update_user_info(cnx, user_id, updates)
+
+            # return updated user sanitized
+            user_updated = get_user_by_id(cnx, user_id)
+            if not user_updated:
+                return jsonify({'status':'ERROR','message':'User not found after update'}), 500
+
+            resp = {
+                "id": user_updated.get("idusuario"),
+                "nome": user_updated.get("nome"),
+                "email": user_updated.get("email"),
+                "dataCadastro": user_updated.get("dataCadastro").isoformat() if user_updated.get("dataCadastro") else None,
+                "bio": user_updated.get("bio"),
+                "avatar_url": user_updated.get("avatar_url"),
+                "role": user_updated.get("role") if user_updated.get("role") else "user"
+            }
+            return jsonify({'status':'OK','user':resp})
+        finally:
+            cnx.close()
+    except Exception as e:
+        app.logger.exception("Error in api_update_user_avatar: %s", e)
+        return jsonify({'status':'ERROR','message':str(e)}), 500
 
 # Função para enviar email com o código
 def send_reset_code_email(to_email, user_name, reset_code):

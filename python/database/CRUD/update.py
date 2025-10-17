@@ -2,6 +2,8 @@
 import base64
 import os
 import hashlib
+import traceback
+import pymysql
 
 PBKDF2_ROUNDS = 100_000
 
@@ -27,5 +29,47 @@ def reset_user_password(cnx, user_id: int, new_password: str):
             (hash_b64, salt_b64, user_id)
         )
         cnx.commit()
+    finally:
+        cur.close()
+
+def update_user_info(cnx, user_id: int, updates: dict):
+    """
+    Atualiza campos do usuário. `updates` é um dict com chaves permitidas:
+    nome, email, bio, avatar_url, role
+
+    Retorna o dicionário do usuário atualizado (chave idusuario etc) usando get_user_by_id
+    (não importe get_user_by_id aqui para evitar ciclos; quem chamar pode re-obter).
+    """
+    if not updates or not isinstance(updates, dict):
+        return False
+
+    allowed = ['nome', 'email', 'bio', 'avatar_url', 'role']
+    set_clauses = []
+    params = []
+    for k in allowed:
+        if k in updates:
+            set_clauses.append(f"`{k}` = %s")
+            params.append(updates[k])
+
+    if not set_clauses:
+        # nada a atualizar
+        return True
+
+    params.append(user_id)
+    sql = "UPDATE usuario SET " + ", ".join(set_clauses) + " WHERE idusuario = %s"
+
+    cur = cnx.cursor()
+    try:
+        cur.execute(sql, tuple(params))
+        cnx.commit()
+        return True
+    except pymysql.IntegrityError as ie:
+        # Por exemplo violação de unique email
+        # Propaga a exceção ao chamador para tratamento
+        raise
+    except Exception as e:
+        # Log e repassa
+        traceback.print_exc()
+        raise
     finally:
         cur.close()

@@ -4,6 +4,13 @@ from typing import Tuple, List, Optional, Dict, Any, Union
 from pathlib import Path
 import os, sys, json, time, argparse
 
+if os.name == "nt":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import numpy as np
 import torch
 import torch.nn as nn

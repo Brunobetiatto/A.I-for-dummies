@@ -375,67 +375,89 @@ gboolean on_user_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data) {
     return TRUE;
 }
 
+/* Helper used by enable_drop_on_env_entries (pure C). */
+static void reset_drop(GtkWidget *w, gboolean is_y, gpointer ctx, GtkTargetList *tl) {
+    if (!w) return;
 
+    /* Disconnect any previous handlers (match both NULL and ctx user_data). */
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(on_drop_drag_motion), NULL);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(on_drop_drag_leave),  NULL);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(is_y ? on_y_drag_drop : on_x_drag_drop), NULL);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(is_y ? on_y_drag_data_received : on_x_drag_data_received), NULL);
+
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(on_drop_drag_motion), ctx);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(on_drop_drag_leave),  ctx);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(is_y ? on_y_drag_drop : on_x_drag_drop), ctx);
+    g_signal_handlers_disconnect_by_func(w, G_CALLBACK(is_y ? on_y_drag_data_received : on_x_drag_data_received), ctx);
+
+    gtk_drag_dest_unset(w);
+    gtk_drag_dest_set(w, 0 /* no defaults */, NULL, 0, GDK_ACTION_COPY);
+    gtk_drag_dest_set_target_list(w, tl);
+
+    g_signal_connect(w, "drag-motion",        G_CALLBACK(on_drop_drag_motion),       NULL);
+    g_signal_connect(w, "drag-leave",         G_CALLBACK(on_drop_drag_leave),        NULL);
+    g_signal_connect(w, "drag-drop",          G_CALLBACK(is_y ? on_y_drag_drop : on_x_drag_drop),            ctx);
+    g_signal_connect(w, "drag-data-received", G_CALLBACK(is_y ? on_y_drag_data_received : on_x_drag_data_received), ctx);
+
+    gtk_widget_set_tooltip_text(
+        w, is_y ? "Drag a column header here to set Y (target)"
+                : "Drag column headers here to add X features");
+}
+
+/* Idempotent: clears old handlers/targets on X/Y, then re-applies them. */
 static void enable_drop_on_env_entries(EnvCtx *ctx) {
+    GtkTargetList *tl;
     if (!ctx) return;
 
-    GtkTargetList *tl = gtk_target_list_new(NULL, 0);
-    gtk_target_list_add(tl, get_col_atom(), 0, 99);   /* prefer our atom */
-    gtk_target_list_add_text_targets(tl, 0);          /* fallback(s): text/plain, utf8 */
+    tl = gtk_target_list_new(NULL, 0);
+    gtk_target_list_add(tl, get_col_atom(), 0, 99);   /* private atom preferred */
+    gtk_target_list_add_text_targets(tl, 0);          /* fallbacks */
 
-    if (ctx->x_feat && GTK_IS_ENTRY(ctx->x_feat)) {
-        GtkWidget *w = GTK_WIDGET(ctx->x_feat);
-        gtk_drag_dest_set(w, 0 /* no defaults */, NULL, 0, GDK_ACTION_COPY);
-        gtk_drag_dest_set_target_list(w, tl);
-        g_signal_connect(w, "drag-motion",        G_CALLBACK(on_drop_drag_motion),       NULL);
-        g_signal_connect(w, "drag-leave",         G_CALLBACK(on_drop_drag_leave),        NULL);
-        g_signal_connect(w, "drag-drop",          G_CALLBACK(on_x_drag_drop),            ctx);
-        g_signal_connect(w, "drag-data-received", G_CALLBACK(on_x_drag_data_received),   ctx);
-        gtk_widget_set_tooltip_text(w, "Drag column headers here to add X features");
-    }
-
-    if (ctx->y_feat && GTK_IS_ENTRY(ctx->y_feat)) {
-        GtkWidget *w = GTK_WIDGET(ctx->y_feat);
-        gtk_drag_dest_set(w, 0 /* no defaults */, NULL, 0, GDK_ACTION_COPY);
-        gtk_drag_dest_set_target_list(w, tl);
-        g_signal_connect(w, "drag-motion",        G_CALLBACK(on_drop_drag_motion),       NULL);
-        g_signal_connect(w, "drag-leave",         G_CALLBACK(on_drop_drag_leave),        NULL);
-        g_signal_connect(w, "drag-drop",          G_CALLBACK(on_y_drag_drop),            ctx);
-        g_signal_connect(w, "drag-data-received", G_CALLBACK(on_y_drag_data_received),   ctx);
-        gtk_widget_set_tooltip_text(w, "Drag a column header here to set Y (target)");
-    }
+    if (ctx->x_feat && GTK_IS_ENTRY(ctx->x_feat))
+        reset_drop(GTK_WIDGET(ctx->x_feat), FALSE, ctx, tl);
+    if (ctx->y_feat && GTK_IS_ENTRY(ctx->y_feat))
+        reset_drop(GTK_WIDGET(ctx->y_feat), TRUE,  ctx, tl);
 
     gtk_target_list_unref(tl);
 }
 
 static void wire_treeview_headers_for_dnd(EnvCtx *ctx, GtkTreeView *tv) {
+    GList *cols, *l;
+
     (void)ctx;
     if (!tv || !GTK_IS_TREE_VIEW(tv)) return;
 
     gtk_tree_view_set_rules_hint(tv, TRUE);
 
-    GList *cols = gtk_tree_view_get_columns(tv);
-    for (GList *l = cols; l; l = l->next) {
+    cols = gtk_tree_view_get_columns(tv);
+    for (l = cols; l; l = l->next) {
         GtkTreeViewColumn *col = GTK_TREE_VIEW_COLUMN(l->data);
-        const gchar *title = gtk_tree_view_column_get_title(col);
-        if (!title) title = "col";
+        const gchar *title0 = gtk_tree_view_column_get_title(col);
+        const gchar *title  = (title0 && *title0) ? title0 : "col";
 
+        /* Fresh header widget every call to avoid stale wiring */
         GtkWidget *eb  = gtk_event_box_new();
         GtkWidget *lab = gtk_label_new(title);
+        GtkTargetList *tl = NULL;
+        gchar *name_copy;
+
         gtk_container_add(GTK_CONTAINER(eb), lab);
         gtk_widget_set_tooltip_text(eb, "Drag to X or Y");
         gtk_widget_show_all(eb);
         gtk_tree_view_column_set_widget(col, eb);
 
-        GtkTargetList *tl = gtk_target_list_new(NULL, 0);
+        /* Source targets */
+        tl = gtk_target_list_new(NULL, 0);
         gtk_target_list_add(tl, get_col_atom(), 0, 99);
         gtk_target_list_add_text_targets(tl, 0);
 
+        gtk_drag_source_unset(eb);
         gtk_drag_source_set(eb, GDK_BUTTON1_MASK, NULL, 0, GDK_ACTION_COPY);
         gtk_drag_source_set_target_list(eb, tl);
         gtk_target_list_unref(tl);
 
-        gchar *name_copy = g_strdup(title);
+        /* Handlers: data-get + cosmetics; keep name_copy alive while eb lives */
+        name_copy = g_strdup(title);
         g_signal_connect(eb, "drag-data-get", G_CALLBACK(on_header_drag_data_get), name_copy);
         g_signal_connect(eb, "drag-begin",    G_CALLBACK(on_header_drag_begin),    name_copy);
         g_signal_connect(eb, "drag-end",      G_CALLBACK(on_header_drag_end),      name_copy);
@@ -1467,53 +1489,122 @@ static gint find_notebook_page_by_label(GtkNotebook *nb, const char *label) {
     return -1;
 }
 
+/* Find the right-notebook page flagged as our unique preview tab. */
+static gint find_preview_page(GtkNotebook *nb) {
+    if (!nb) return -1;
+    gint n = gtk_notebook_get_n_pages(nb);
+    for (gint i = 0; i < n; ++i) {
+        GtkWidget *child = gtk_notebook_get_nth_page(nb, i);
+        if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child), "is-preview-page")) == 1)
+            return i;
+    }
+    return -1;
+}
+
+/* Make sure both ends are (re)wired. Safe to call anytime. */
+static void ensure_preview_dnd_ready(EnvCtx *ctx) {
+    if (!ctx) return;
+    enable_drop_on_env_entries(ctx);
+    if (ctx->ds_preview_tv && GTK_IS_TREE_VIEW(ctx->ds_preview_tv)) {
+        wire_treeview_headers_for_dnd(ctx, ctx->ds_preview_tv);
+    }
+}
+
+/* When you switch pages in the right notebook, if it's the preview page, rewire. */
+static void on_right_nb_switch_page(GtkNotebook *nb, GtkWidget *page, guint page_num, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    GtkWidget *child;
+    GtkWidget *tab;
+    gboolean is_preview = FALSE;
+
+    (void)page;
+    if (!ctx || !nb) return;
+
+    child = gtk_notebook_get_nth_page(nb, page_num);
+    if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child), "is-preview-page")) == 1) {
+        is_preview = TRUE;
+    } else {
+        tab = gtk_notebook_get_tab_label(nb, child);
+        if (GTK_IS_LABEL(tab)) {
+            const gchar *txt = gtk_label_get_text(GTK_LABEL(tab));
+            if (txt && g_strcmp0(txt, "Preview dataset") == 0) is_preview = TRUE;
+        }
+    }
+    if (is_preview) ensure_preview_dnd_ready(ctx);
+}
+
+/* If columns are reconfigured (sorting, autosize, etc.), headers get rebuilt: rewire. */
+static void on_tv_columns_changed(GtkTreeView *tv, gpointer user_data) {
+    EnvCtx *ctx = (EnvCtx*)user_data;
+    if (!ctx) return;
+    if (tv == ctx->ds_preview_tv) wire_treeview_headers_for_dnd(ctx, tv);
+}
+
 static void start_load_file(EnvCtx *ctx, const char *path) {
     if (!ctx || !path || !*path) return;
 
-    g_free(ctx->current_dataset_path);
+    if (ctx->current_dataset_path) g_free(ctx->current_dataset_path);
     ctx->current_dataset_path = g_strdup(path);
 
     if (ctx->status)   gtk_label_set_text(ctx->status, "Loading…");
     if (ctx->progress) gtk_progress_bar_pulse(ctx->progress);
 
-    const char *TAB_NAME = "Preview dataset";
-    GtkTreeView *tv = ctx->ds_preview_tv;
-    gint page_idx = find_notebook_page_by_label(ctx->right_nb, TAB_NAME);
+    {
+        gint page_idx = find_preview_page(ctx->right_nb);
+        if (!ctx->ds_preview_tv || page_idx < 0) {
+            GtkWidget *page_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+            GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+            GtkWidget *tvw = gtk_tree_view_new();
+            GtkWidget *placeholder = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+            gint page;
 
-    if (!tv || page_idx < 0) {
-        /* first time: build page = [ scroller(table) ; picker-bar ] */
-        GtkWidget *page_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+            gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc),
+                                           GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+            gtk_container_add(GTK_CONTAINER(sc), tvw);
+            gtk_box_pack_start(GTK_BOX(page_box), sc, TRUE, TRUE, 0);
+            gtk_box_pack_start(GTK_BOX(page_box), placeholder, FALSE, FALSE, 0);
 
-        GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
-        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-        GtkWidget *tvw = gtk_tree_view_new();
-        gtk_container_add(GTK_CONTAINER(sc), tvw);
-        gtk_box_pack_start(GTK_BOX(page_box), sc, TRUE, TRUE, 0);
+            ctx->ds_preview_tv = GTK_TREE_VIEW(tvw);
+            g_object_set_data(G_OBJECT(tvw), "picker-parent", page_box);
+            g_object_set_data(G_OBJECT(page_box), "is-preview-page", GINT_TO_POINTER(1));
 
-        /* picker bar placeholder (we’ll create real combos after CSV is parsed) */
-        GtkWidget *placeholder = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        gtk_box_pack_start(GTK_BOX(page_box), placeholder, FALSE, FALSE, 0);
+            page = gtk_notebook_append_page(ctx->right_nb, page_box, gtk_label_new("Preview dataset"));
+            gtk_widget_show_all(page_box);
+            gtk_notebook_set_current_page(ctx->right_nb, page);
 
-        ctx->ds_preview_tv = GTK_TREE_VIEW(tvw);
-        /* remember parent vbox for later */
-        g_object_set_data(G_OBJECT(tvw), "picker-parent", page_box);
+            /* columns-changed rewire hook — connect once per TreeView instance */
+            if (!GPOINTER_TO_INT(g_object_get_data(G_OBJECT(ctx->ds_preview_tv), "columns-hook"))) {
+                g_signal_connect(ctx->ds_preview_tv, "columns-changed",
+                                 G_CALLBACK(on_tv_columns_changed), ctx);
+                g_object_set_data(G_OBJECT(ctx->ds_preview_tv), "columns-hook", GINT_TO_POINTER(1));
+            }
+        } else {
+            gtk_notebook_set_current_page(ctx->right_nb, page_idx);
+        }
+    }
 
-        gint page = gtk_notebook_append_page(ctx->right_nb, page_box, gtk_label_new(TAB_NAME));
-        gtk_widget_show_all(page_box);
-        gtk_notebook_set_current_page(ctx->right_nb, page);
-    } else {
-        gtk_notebook_set_current_page(ctx->right_nb, page_idx);
+    /* Ensure DnD is alive immediately after showing the page */
+    ensure_preview_dnd_ready(ctx);
+
+    /* Hook notebook switch-page once to rewire whenever user returns to preview */
+    if (ctx->right_nb && !GPOINTER_TO_INT(g_object_get_data(G_OBJECT(ctx->right_nb), "dnd-switch-hook"))) {
+        g_signal_connect(ctx->right_nb, "switch-page", G_CALLBACK(on_right_nb_switch_page), ctx);
+        g_object_set_data(G_OBJECT(ctx->right_nb), "dnd-switch-hook", GINT_TO_POINTER(1));
     }
 
     /* Launch worker and tell it where to render */
-    LoadTaskData *td = g_new0(LoadTaskData, 1);
-    td->path = g_strdup(path);
-    td->target_tv = ctx->ds_preview_tv;
+    {
+        LoadTaskData *td = g_new0(LoadTaskData, 1);
+        GTask *t;
 
-    GTask *t = g_task_new(NULL, NULL, on_task_done, ctx);
-    g_task_set_task_data(t, td, (GDestroyNotify)free_load_task_data);
-    g_task_run_in_thread(t, task_read_preview);
-    g_object_unref(t);
+        td->path = g_strdup(path);
+        td->target_tv = ctx->ds_preview_tv;
+
+        t = g_task_new(NULL, NULL, on_task_done, ctx);
+        g_task_set_task_data(t, td, (GDestroyNotify)free_load_task_data);
+        g_task_run_in_thread(t, task_read_preview);
+        g_object_unref(t);
+    }
 }
 
 
@@ -1521,14 +1612,23 @@ static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 
-    gchar *path = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+    const gchar *path = gtk_combo_box_get_active_id(GTK_COMBO_BOX(ctx->ds_combo));
     if (!path) {
-        if (ctx->status) gtk_label_set_text(ctx->status, "No dataset selected");
+        /* Fallback for legacy entries that were appended as plain text */
+        gchar *txt = gtk_combo_box_text_get_active_text(ctx->ds_combo);
+        if (!txt) {
+            if (ctx->status) gtk_label_set_text(ctx->status, "No dataset selected");
+            return;
+        }
+        path = txt; /* use text as path for old entries */
+        if (ctx->status) gtk_label_set_text(ctx->status, "Loading…");
+        start_load_file(ctx, path);
+        g_free(txt);
         return;
     }
+
     if (ctx->status) gtk_label_set_text(ctx->status, "Loading…");
     start_load_file(ctx, path);
-    g_free(path);
 }
 
 /* --- File Chooser (Load) --- */
@@ -1630,24 +1730,21 @@ static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
     }
 
     if (ctx->ds_combo) {
-        gtk_combo_box_text_append_text(ctx->ds_combo, path);
-        GtkTreeModel *m = gtk_combo_box_get_model(GTK_COMBO_BOX(ctx->ds_combo));
-        if (m) {
-            gint n = gtk_tree_model_iter_n_children(m, NULL);
-            if (n > 0) gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), n - 1);
-        }
+        gchar *base = g_path_get_basename(path);
+        /* display = basename; id = full path */
+        gtk_combo_box_text_append(ctx->ds_combo, path, base);
+        g_free(base);
+        gtk_combo_box_set_active_id(GTK_COMBO_BOX(ctx->ds_combo), path);
     }
     if (ctx->status) gtk_label_set_text(ctx->status, "Ready to load");
     g_free(path);
 }
 
 
-/* --- Popular combo de datasets a partir de ./datasets --- */
 static void on_refresh_local_datasets(GtkButton *btn, gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 
-    /* limpa combo de forma correta e sem leaks */
     gtk_combo_box_text_remove_all(ctx->ds_combo);
 
     gchar *cwd = g_get_current_dir();
@@ -1658,7 +1755,8 @@ static void on_refresh_local_datasets(GtkButton *btn, gpointer user_data) {
         while ((name = g_dir_read_name(dir))) {
             if (g_str_has_suffix(name, ".csv") || g_str_has_suffix(name, ".tsv")) {
                 gchar *full = g_build_filename(datasets_dir, name, NULL);
-                gtk_combo_box_text_append_text(ctx->ds_combo, full);
+                /* display = basename; id = full path */
+                gtk_combo_box_text_append(ctx->ds_combo, full, name);
                 g_free(full);
             }
         }
@@ -1667,13 +1765,10 @@ static void on_refresh_local_datasets(GtkButton *btn, gpointer user_data) {
     g_free(datasets_dir);
     g_free(cwd);
 
-    /* seleciona o primeiro, se houver */
+    /* select first item if any */
     GtkTreeModel *m = gtk_combo_box_get_model(GTK_COMBO_BOX(ctx->ds_combo));
-    if (m && gtk_tree_model_iter_n_children(m, NULL) > 0) {
+    if (m && gtk_tree_model_iter_n_children(m, NULL) > 0)
         gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->ds_combo), 0);
-    }
-
-    if (ctx->status) gtk_label_set_text(ctx->status, "Datasets refreshed");
 }
 
 

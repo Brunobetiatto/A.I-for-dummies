@@ -28,21 +28,6 @@ from database.CRUD.read import get_user_by_id, get_datasets_by_user
 
 app = Flask(__name__)
 
-# Configurações do banco de dados
-<<<<<<< HEAD
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': int(os.getenv('DB_PORT', 3306)),
-    'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'pepsi@123'),
-    'database': os.getenv('DB_NAME', 'aifordummies'),
-    'autocommit': True,
-    'cursorclass': pymysql.cursors.DictCursor
-}
-=======
-
->>>>>>> 17e208e134aa35cbc4cc8cd03b22eff5b0915d7e
-
 # --- configuração (no topo do arquivo, junto com app config) ---
 UPLOAD_FOLDER = os.path.join(PARENT, 'uploads')  # caminho absoluto para a pasta uploads
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)

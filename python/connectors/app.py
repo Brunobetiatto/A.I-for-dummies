@@ -11,6 +11,7 @@ import re
 import uuid
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
+from db import DB_CONFIG, UPLOAD_FOLDER, DATASET_FOLDER
 
 
 # Adiciona o diretório pai ao sys.path para permitir imports absolutos como "database.*"
@@ -28,6 +29,7 @@ from database.CRUD.read import get_user_by_id, get_datasets_by_user
 app = Flask(__name__)
 
 # Configurações do banco de dados
+<<<<<<< HEAD
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': int(os.getenv('DB_PORT', 3306)),
@@ -37,6 +39,9 @@ DB_CONFIG = {
     'autocommit': True,
     'cursorclass': pymysql.cursors.DictCursor
 }
+=======
+
+>>>>>>> 17e208e134aa35cbc4cc8cd03b22eff5b0915d7e
 
 # --- configuração (no topo do arquivo, junto com app config) ---
 UPLOAD_FOLDER = os.path.join(PARENT, 'uploads')  # caminho absoluto para a pasta uploads

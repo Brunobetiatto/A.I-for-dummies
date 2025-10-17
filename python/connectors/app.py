@@ -29,9 +29,6 @@ from database.CRUD.read import get_user_by_id, get_datasets_by_user
 
 app = Flask(__name__)
 
-# Configurações do banco de dados
-
-
 # --- configuração (no topo do arquivo, junto com app config) ---
 UPLOAD_FOLDER = os.path.join(PARENT, 'uploads')  # caminho absoluto para a pasta uploads
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)

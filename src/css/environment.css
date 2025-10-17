@@ -501,3 +501,16 @@ headerbar#w95-titlebar button.envbar-btn image {
 .w95-plot image{ -gtk-icon-filter:none; }
 
 #env-right-panel.metal-panel { padding: 0; }
+
+/* ==== Win95 tabs for left config notebook ==== */
+#env-left-panel notebook.w95-notebook > header > tabs > tab {
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  box-shadow: inset -1px -1px 0 var(--darkshadow), inset 1px 1px 0 var(--highlight);
+  padding: 2px 6px;
+  margin-right: 2px;
+}
+
+#env-left-panel notebook.w95-notebook > header > tabs > tab:checked {
+  box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--highlight);
+}

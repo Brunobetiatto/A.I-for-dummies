@@ -33,6 +33,8 @@ bool api_login(const char *email, const char *password, char **response);
 bool api_get_user_by_id(int user_id, char **response);
 bool api_get_user_datasets(int user_id, char **response);
 
+static char *g_auth_token = NULL;
+
 
 char* process_api_response(const char *api_response);   // processa a resposta da API e formata para o main.c
 WCHAR* run_api_command(const WCHAR *command);           // executa comandos via API
@@ -55,10 +57,30 @@ size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     return realsize;
 }
 
+void communicator_set_token(const char *token) {
+    if (g_auth_token) { free(g_auth_token); g_auth_token = NULL; }
+    if (token && *token) {
+        g_auth_token = strdup(token);
+    }
+}
+
+void communicator_clear_token(void) {
+    if (g_auth_token) { free(g_auth_token); g_auth_token = NULL; }
+}
+
+/* Provide accessor for api_request to use */
+const char* communicator_get_token(void) {
+    return g_auth_token;
+}
+
+/* api_request: faz request HTTP e retorna resposta (malloc'd) ou NULL.
+   Usa g_auth_token se presente para enviar Authorization: Bearer <token>
+*/
 char* api_request(const char *method, const char *endpoint, const char *data) {
     CURL *curl;
     CURLcode res;
     struct ResponseData chunk;
+    struct curl_slist *headers = NULL;
 
     chunk.data = malloc(1);
     chunk.size = 0;
@@ -66,48 +88,66 @@ char* api_request(const char *method, const char *endpoint, const char *data) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
 
-    if(curl) {
-        char url[256];
-        snprintf(url, sizeof(url), "http://localhost:5000%s", endpoint);
-
-        // 🔹 LOG de saída
-        debug_log(">> API_REQUEST: %s %s", method, url);
-        if (data) debug_log(">> Payload: %s", data);
-
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-
-        if(strcmp(method, "POST") == 0) {
-            curl_easy_setopt(curl, CURLOPT_POST, 1L);
-            if(data) {
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
-            }
-        }
-
-        // Set headers for JSON
-        struct curl_slist *headers = NULL;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        res = curl_easy_perform(curl);
-
-        if(res != CURLE_OK) {
-            debug_log("!! curl_easy_perform() failed: %s", curl_easy_strerror(res));
-            free(chunk.data);
-            chunk.data = NULL;
-        } else {
-            // 🔹 LOG de entrada (resposta bruta)
-            debug_log("<< API_RESPONSE: %s", chunk.data ? chunk.data : "(null)");
-        }
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+    if (!curl) {
+        debug_log("!! api_request: curl_easy_init() failed");
+        free(chunk.data);
+        curl_global_cleanup();
+        return NULL;
     }
 
+    char url[1024];
+    snprintf(url, sizeof(url), "http://localhost:5000%s", endpoint);
+
+    debug_log(">> API_REQUEST: %s %s", method, url);
+    if (data) debug_log(">> Payload: %s", data);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+    if (g_strcmp0(method, "POST") == 0) {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        if (data) {
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(data));
+        }
+    }
+
+    /* headers: Content-Type JSON + optional Authorization */
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    extern char *g_auth_token; /* declarado em communicator.c/h */
+    if (g_auth_token && *g_auth_token) {
+        char auth_hdr[1024];
+        snprintf(auth_hdr, sizeof(auth_hdr), "Authorization: Bearer %s", g_auth_token);
+        debug_log(">> Header: %s", auth_hdr);
+        headers = curl_slist_append(headers, auth_hdr);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    /* timeout and safety options (optional but recommended) */
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        debug_log("!! curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        free(chunk.data);
+        chunk.data = NULL;
+    } else {
+        debug_log("<< API_RESPONSE: %s", chunk.data ? chunk.data : "(null)");
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
     curl_global_cleanup();
+
     return chunk.data;
 }
+
 
 
 bool api_get_user_avatar_to_temp(int user_id, char **out_path);
@@ -361,10 +401,23 @@ bool api_list_tables(char **response) {
 }
 
 bool api_dump_table(const char *table_name, char **response) {
+    if (!table_name || !*table_name) {
+        debug_log("api_dump_table: invalid table name");
+        return false;
+    }
+
     char endpoint[256];
     snprintf(endpoint, sizeof(endpoint), "/table/%s", table_name);
+
     *response = api_request("GET", endpoint, NULL);
-    return (*response != NULL);
+
+    if (*response == NULL) {
+        debug_log("api_dump_table: no response from API");
+        return false;
+    }
+
+    debug_log("api_dump_table: got response");
+    return true;
 }
 
 // Adicione estas funções para os novos endpoints de recuperação de senha

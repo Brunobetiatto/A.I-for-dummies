@@ -56,6 +56,9 @@ typedef struct {
     LoginHandlers handlers;
 
     GtkButton *btn_debug;               // botão para abrir janela de debug/backlog
+
+    char *token;
+
 } LoginCtx;
 
 GtkWidget* create_login_window(const LoginHandlers *handlers);
@@ -75,13 +78,15 @@ typedef struct {
     int id;
     char *nome;
     char *email;
+    char *token;
 } UserSession;
 
-static UserSession* user_session_new(int id, const char *nome, const char *email) {
+static UserSession* user_session_new(int id, const char *nome, const char *email, const char *token) {
     UserSession *s = g_new0(UserSession, 1);
     s->id = id;
     s->nome = nome ? g_strdup(nome) : NULL;
     s->email = email ? g_strdup(email) : NULL;
+    s->token = token ? g_strdup(token) : NULL;
     return s;
 }
 static void user_session_free(UserSession *s) {
@@ -201,17 +206,18 @@ void on_login_button_clicked(GtkButton *button, gpointer user_data) {
         return;
     }
 
+    debug_log("on_login_button_clicked: raw login response: %s", resp);
+
     cJSON *root = cJSON_Parse(resp);
     free(resp);
-
     if (!root) {
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Erro: resposta inválida");
         return;
     }
 
     cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
-        if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) {
-        /* -> extrair user do JSON (esperando {"status":"OK","user":{...}}) */
+    if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) {
+        /* extrair user do JSON (esperando {"status":"OK","user":{...}, "access_token": "..."}) */
         cJSON *userobj = cJSON_GetObjectItemCaseSensitive(root, "user");
         int uid = 0;
         const char *uname = NULL;
@@ -226,26 +232,50 @@ void on_login_button_clicked(GtkButton *button, gpointer user_data) {
             if (cJSON_IsString(je)) uemail = je->valuestring;
         }
 
-        /* Cria sessão do usuário e passa como user_data para o callback on_success */
-        UserSession *session = user_session_new(uid, uname, uemail);
+        /* extrai token: primeiro tenta access_token, depois token (fallback) */
+        const char *token_str = NULL;
+        cJSON *ctok = cJSON_GetObjectItemCaseSensitive(root, "access_token");
+        if (cJSON_IsString(ctok) && ctok->valuestring && *ctok->valuestring) {
+            token_str = ctok->valuestring;
+            debug_log("on_login_button_clicked: found access_token in response");
+        } else {
+            cJSON *ctok2 = cJSON_GetObjectItemCaseSensitive(root, "token");
+            if (cJSON_IsString(ctok2) && ctok2->valuestring && *ctok2->valuestring) {
+                token_str = ctok2->valuestring;
+                debug_log("on_login_button_clicked: found token in response (fallback)");
+            } else {
+                debug_log("on_login_button_clicked: no token in response");
+            }
+        }
+
+        /* Se tiver token, passe para o communicator AGORA */
+        if (token_str && *token_str) {
+            communicator_set_token(token_str);
+            debug_log("on_login_button_clicked: communicator_set_token called");
+        }
+
+        /* Cria sessão do usuário e passa como user_data para o callback on_success.
+           user_session_new duplica as strings internamente. */
+        UserSession *session = user_session_new(uid, uname, uemail, token_str);
 
         gtk_label_set_text(GTK_LABEL(ctx->status_label), "Login OK — abrindo app.");
         while (gtk_events_pending()) gtk_main_iteration();
 
         if (ctx->handlers.on_success) {
-            /* passamos a session para on_success, que deverá receber e usar */
+            /* passamos a session para on_success, que deverá receber e usar.
+               NOTE: create_main_window toma posse da session (como seu código faz). */
             ctx->handlers.on_success(ctx->window, session);
         } else {
             gtk_widget_destroy(ctx->window);
             /* se não houver callback, liberar session */
             user_session_free(session);
         }
+
         cJSON_Delete(root);
         return;
     }
 
-
-    // Exibe mensagem de erro vinda da API (quando houver)
+    /* se não OK, exibe mensagem de erro vinda da API (quando houver) */
     cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
     if (cJSON_IsString(msg) && msg->valuestring && *msg->valuestring) {
         gtk_label_set_text(GTK_LABEL(ctx->status_label), msg->valuestring);

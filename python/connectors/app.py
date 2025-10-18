@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import pymysql
 import os, sys
 import smtplib
@@ -13,6 +13,7 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import send_from_directory, make_response
 from db import DB_CONFIG, UPLOAD_FOLDER, DATASET_FOLDER
+from auth import create_jwt_token, decode_jwt_token, require_jwt, JWT_EXP_SECONDS
 
 
 # Adiciona o diretório pai ao sys.path para permitir imports absolutos como "database.*"
@@ -37,6 +38,12 @@ ALLOWED_EXTENSIONS = {'csv'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+@app.before_request
+def log_auth_header():
+    # apenas debug
+    app.logger.debug("Authorization header: %s", request.headers.get('Authorization'))
+
+
 # rota para servir os arquivos enviados (ajuste se estiver servindo static de outra forma)
 @app.route('/uploads/<filename>', methods=['GET'])
 def uploaded_file(filename):
@@ -59,6 +66,7 @@ def list_tables():
         return jsonify({'status': 'ERROR', 'message': str(e)}), 500
 
 @app.route('/table/<table_name>', methods=['GET'])
+@require_jwt()
 def dump_table(table_name):
     # validação simples do nome da tabela
     if not re.match(r'^[A-Za-z0-9_]+$', table_name):
@@ -93,30 +101,7 @@ def dump_table(table_name):
         result = {'status': 'OK', 'columns': cols, 'data': rows}
         return jsonify(result)
     except Exception as e:
-        return jsonify({'status': 'ERROR', 'message': str(e)}), 500
-
-@app.route('/schema/<table_name>', methods=['GET'])
-def describe_table(table_name):
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute(f"DESCRIBE `{table_name}`")
-            schema = cur.fetchall()
-        return jsonify({'status': 'OK', 'schema': schema})
-    except Exception as e:
-        return jsonify({'status': 'ERROR', 'message': str(e)}), 500
-
-@app.route('/user', methods=['POST'])
-def create_user_route():
-    try:
-        data = request.get_json()
-        if not data or 'nome' not in data or 'email' not in data or 'password' not in data:
-            return jsonify({'status': 'ERROR', 'message': 'Missing required fields'}), 400
-        
-        conn = get_db_connection()
-        result = create_user(conn, data['nome'], data['email'], data['password'])
-        return jsonify({'status': 'OK', 'user': result})
-    except Exception as e:
+        app.logger.exception("dump_table error")
         return jsonify({'status': 'ERROR', 'message': str(e)}), 500
 
 import traceback
@@ -132,7 +117,18 @@ def login_route():
         user = verify_login(conn, data['email'], data['password'])
         
         if user:
-            return jsonify({'status': 'OK', 'user': user})
+            # user retornado contem id, nome, email
+            token = create_jwt_token(user_id=user['id'], role=user.get('role','user'))
+            resp = {
+                'status': 'OK',
+                'user': user,
+                'access_token': token,
+                'expires_in': JWT_EXP_SECONDS
+            }
+            # opcional: set cookie seguro (se for uma app desktop, talvez não queira cookie)
+            response = jsonify(resp)
+            # response.set_cookie('access_token', token, httponly=True, max_age=JWT_EXP_SECONDS, samesite='Lax')
+            return response
         else:
             return jsonify({'status': 'ERROR', 'message': 'Invalid credentials'}), 401
             
@@ -332,18 +328,17 @@ def datasets_upload():
         enviado_por_nome = request.form.get('enviado_por_nome')
         enviado_por_email = request.form.get('enviado_por_email')
 
-        if not user_id:
+        form_user_id = request.form.get('user_id') or request.form.get('usuario_id')
+        if not form_user_id:
             return jsonify({'status': 'ERROR', 'message': 'user_id is required'}), 400
-
         try:
-            user_id_int = int(user_id)
+            user_id_int = int(form_user_id)
         except ValueError:
-            return jsonify({'status': 'ERROR', 'message': 'user_id must be an integer'}), 400
+            return jsonify({'status': 'ERROR','message':'user_id must be an integer'}), 400
 
-        if file.filename == '':
-            return jsonify({'status': 'ERROR', 'message': 'No selected file'}), 400
-        if not allowed_file(file.filename):
-            return jsonify({'status': 'ERROR', 'message': 'Invalid file type. Only CSV allowed'}), 400
+        # Permitir upload se for o próprio usuário ou um admin
+        if g.user_id != user_id_int and g.user_role != 'admin':
+            return jsonify({'status':'ERROR','message':'Forbidden'}), 403
 
         # salvar arquivo com nome seguro + sufixo único
         orig_filename = secure_filename(file.filename)

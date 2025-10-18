@@ -102,6 +102,8 @@ typedef struct {
     char *current_user_name;
     char *current_user_email;
 
+    char *token;
+
 
 } EnvCtx;
 

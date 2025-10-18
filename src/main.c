@@ -23,6 +23,7 @@ GtkWidget* create_main_window(UserSession *session) {
         env->current_user_id = session->id;
         env->current_user_name = session->nome ? g_strdup(session->nome) : NULL;
         env->current_user_email = session->email ? g_strdup(session->email) : NULL;
+        env->token = session->token ? g_strdup(session->token) : NULL;
         /* a env passa a assumir a posse dos strings (g_strdup acima): liberá-los quando o env for destruído */
         /* liberar a struct session (somente a struct) — NÃO liberar as strings, pois já duplicadas */
         user_session_free(session);
@@ -53,16 +54,19 @@ GtkWidget* create_main_window(UserSession *session) {
 static void open_main_after_login(GtkWidget *login_window, gpointer user_data) {
     UserSession *session = (UserSession*) user_data;
 
-    /* Passa a session para a criação da janela principal */
+    // set token in communicator (if session->token is present)
+    if (session && session->token && *session->token) {
+        communicator_set_token(session->token);
+        debug_log("open_main_after_login: communicator_set_token called (len=%d)", (int)strlen(session->token));
+    } else {
+        communicator_clear_token();
+        debug_log("open_main_after_login: no token in session; communicator_clear_token called");
+    }
+
     GtkWidget *main_win = create_main_window(session);
     gtk_widget_show_all(main_win);
 
-    /* destrói janela de login */
     if (login_window) gtk_widget_destroy(login_window);
-
-    /* NOTA: create_main_window deve guardar os dados da sessão (no EnvCtx).
-       Não liberamos 'session' aqui — create_main_window / EnvCtx fica dono da struct.
-    */
 }
 
 

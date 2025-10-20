@@ -20,6 +20,69 @@
 */
 #include "context.h"
 
+
+/* helper */
+static void upload_titlebar_on_max(GtkButton *btn, gpointer win_) {
+    (void)btn;
+    GtkWindow *win = GTK_WINDOW(win_);
+    if (gtk_window_is_maximized(win)) gtk_window_unmaximize(win);
+    else                               gtk_window_maximize(win);
+}
+
+/* Titlebar Win95 para o diálogo de upload */
+static void install_upload_w95_titlebar(GtkWindow *win, const char *title_text) {
+    GtkWidget *hb = gtk_header_bar_new();
+    gtk_widget_set_name(hb, "w95-titlebar");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+    gtk_header_bar_set_title(GTK_HEADER_BAR(hb), NULL);
+
+    /* Esquerda: ícone + título */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GdkPixbuf *pb_logo = gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
+    GtkWidget *logo = gtk_image_new_from_pixbuf(pb_logo);
+    if (pb_logo) g_object_unref(pb_logo);
+    gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), logo, FALSE, FALSE, 0);
+
+    GtkWidget *title = gtk_label_new(title_text ? title_text : "Upload dataset");
+    gtk_widget_set_name(title, "w95-title");
+    gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
+
+    /* Direita: botões PNG 12px */
+    GtkWidget *btn_min   = gtk_button_new();
+    GtkWidget *btn_max   = gtk_button_new();
+    GtkWidget *btn_close = gtk_button_new();
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "envbar-btn");
+
+    GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+    if (pb_min)   gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
+    if (pb_max)   gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
+    if (pb_close) gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
+    if (pb_min)   g_object_unref(pb_min);
+    if (pb_max)   g_object_unref(pb_max);
+    if (pb_close) g_object_unref(pb_close);
+
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
+
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
+
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close),   win);
+    g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
+    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(upload_titlebar_on_max), win);
+
+    gtk_window_set_titlebar(win, hb);
+}
+
 /* Public: open a modal dialog where the user can choose a CSV and fill metadata.
    parent: optional GtkWindow parent
    env: pointer to EnvCtx (may be NULL). If env provides current_user info, it will be used.
@@ -309,130 +372,136 @@ static void on_upload_clicked(GtkButton *btn, gpointer user_data) {
 
 /* Build and show the dialog */
 static void show_dataset_upload_dialog(GtkWindow *parent, EnvCtx *env) {
-    const char *DATASETS_CSS = parse_CSS_file("datasets.css");
+    const char *UPLOAD_CSS = parse_CSS_file("datasets_upload.css");
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons("Upload dataset",
-                                                     parent,
-                                                     (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
-                                                     "_Fechar", GTK_RESPONSE_CLOSE,
-                                                     NULL);
+    GtkWidget *dialog = gtk_dialog_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Upload dataset");
     gtk_window_set_default_size(GTK_WINDOW(dialog), 560, 320);
 
-    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    /* titlebar Win95 com PNGs */
+    install_upload_w95_titlebar(GTK_WINDOW(dialog), "Upload dataset");
 
-    /* layout */
+    /* === CRIE O CONTENT, O BOX VERTICAL E O GRID AQUI === */
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *action  = gtk_dialog_get_action_area(GTK_DIALOG(dialog));
+
+    gtk_widget_set_no_show_all(action, TRUE);
+    gtk_widget_hide(action);
+
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(v), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(content), 0);
+    if (GTK_IS_BOX(content)) gtk_box_set_spacing(GTK_BOX(content), 0);
 
     GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_row_spacing   (GTK_GRID(grid), 8);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    /* ==================================================== */
 
     /* file chooser row */
-    GtkWidget *lbl_file = gtk_label_new("Arquivo:");
+    GtkWidget *lbl_file   = gtk_label_new("Arquivo:");
     GtkWidget *file_label = gtk_label_new("(nenhum arquivo selecionado)");
     gtk_label_set_xalign(GTK_LABEL(file_label), 0.0);
     GtkWidget *btn_choose = gtk_button_new_with_label("Escolher CSV...");
 
-    gtk_grid_attach(GTK_GRID(grid), lbl_file, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), file_label, 1, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), btn_choose, 2, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_file,    0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), file_label,  1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), btn_choose,  2, 0, 1, 1);
 
-    /* metadata rows: dataset name + description (uploader from session) */
-    GtkWidget *lbl_nome = gtk_label_new("Nome do dataset:");
+    /* metadata rows */
+    GtkWidget *lbl_nome  = gtk_label_new("Nome do dataset:");
     GtkWidget *entry_nome = gtk_entry_new();
-    gtk_grid_attach(GTK_GRID(grid), lbl_nome, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_nome,   0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), entry_nome, 1, 1, 2, 1);
 
-    GtkWidget *lbl_desc = gtk_label_new("Descrição:");
+    GtkWidget *lbl_desc  = gtk_label_new("Descrição:");
     GtkWidget *entry_desc = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry_desc), "Breve descrição (opcional)");
-    gtk_grid_attach(GTK_GRID(grid), lbl_desc, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_desc,   0, 2, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), entry_desc, 1, 2, 2, 1);
 
-    /* Show who will be used as uploader (from session) - small hint only */
-    int uid = 0;
-    const char *uname = NULL;
-    const char *uemail = NULL;
-    if (env) {
-        uid = env->current_user_id;
-        uname = env->current_user_name;
-        uemail = env->current_user_email;
-    }
-    char uploader_info[256] = "(não autenticado)";
+    /* uploader info */
+    int uid = 0; const char *uname = NULL; const char *uemail = NULL;
+    if (env) { uid = env->current_user_id; uname = env->current_user_name; uemail = env->current_user_email; }
+    char uploader_info[256];
     if (uid > 0) {
         if (uname && uemail) snprintf(uploader_info, sizeof(uploader_info), "Enviando como: %s %s", uname, uemail);
-        else if (uname) snprintf(uploader_info, sizeof(uploader_info), "Enviando como: %s", uname);
-        else if (uemail) snprintf(uploader_info, sizeof(uploader_info), "Enviando como: %s", uemail);
-        else snprintf(uploader_info, sizeof(uploader_info), "Enviando como usuário %d", uid);
-    } else {
-        snprintf(uploader_info, sizeof(uploader_info), "Não autenticado");
-    }
+        else if (uname)      snprintf(uploader_info, sizeof(uploader_info), "Enviando como: %s", uname);
+        else if (uemail)     snprintf(uploader_info, sizeof(uploader_info), "Enviando como: %s", uemail);
+        else                 snprintf(uploader_info, sizeof(uploader_info), "Enviando como usuário %d", uid);
+    } else snprintf(uploader_info, sizeof(uploader_info), "Não autenticado");
+
     GtkWidget *lbl_uploader = gtk_label_new(uploader_info);
     gtk_label_set_xalign(GTK_LABEL(lbl_uploader), 0.0);
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new(" "), 0, 3, 1, 1); /* spacer */
-    gtk_grid_attach(GTK_GRID(grid), lbl_uploader, 1, 3, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_uploader,       1, 3, 2, 1);
 
-    /* status box (icon + short label) */
-    GtkWidget *status_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *status_icon = gtk_image_new();
+    /* status (ícone + label) */
+    GtkWidget *status_box   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *status_icon  = gtk_image_new();
     GtkWidget *status_label = gtk_label_new("");
-    gtk_box_pack_start(GTK_BOX(status_box), status_icon, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(status_box), status_label, TRUE, TRUE, 0);
+    gtk_widget_set_name(status_box, "status-box");
+    gtk_style_context_add_class(gtk_widget_get_style_context(status_box), "status-box");
+    gtk_box_pack_start(GTK_BOX(status_box), status_icon,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(status_box), status_label, TRUE,  TRUE,  0);
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Status:"), 0, 4, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), status_box, 1, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), status_box,               1, 4, 2, 1);
 
-    /* actions: upload button */
+    /* ações: Enviar (esq) + Fechar (dir) dentro da barra cinza */
     GtkWidget *h_actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_name(h_actions, "upload-actions");
     GtkWidget *btn_upload = gtk_button_new_with_label("Enviar");
+    GtkWidget *btn_close  = gtk_button_new_with_label("Fechar");
     gtk_box_pack_start(GTK_BOX(h_actions), btn_upload, FALSE, FALSE, 0);
+    gtk_box_pack_end  (GTK_BOX(h_actions), btn_close,  FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(v), grid, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(v), h_actions, FALSE, FALSE, 0);
+    /* monta o container vertical */
+    gtk_box_pack_start(GTK_BOX(v), grid,       TRUE,  TRUE,  0);
+    gtk_box_pack_start(GTK_BOX(v), h_actions,  FALSE, FALSE, 0);
 
-    GtkWidget *wrapped = wrap_CSS(DATASETS_CSS, "metal-panel", v, "upload-dialog");
-    gtk_container_add(GTK_CONTAINER(content), wrapped);
+    /* aplica CSS escopado e adiciona ao content area */
+    GtkWidget *wrapped = wrap_CSS(UPLOAD_CSS, "metal-panel", v, "upload-window");
 
-    /* allocate UploadUI and wire callbacks */
+    gtk_box_pack_start(GTK_BOX(content), wrapped, TRUE, TRUE, 0);
+    gtk_widget_set_hexpand(wrapped, TRUE);
+    gtk_widget_set_vexpand(wrapped, TRUE);
+
+    /* opcional, ajuda também */
+    gtk_widget_set_hexpand(v, TRUE);
+    gtk_widget_set_vexpand(v, TRUE);
+
+    /* wiring/estado */
     UploadUI *u = g_new0(UploadUI, 1);
-    u->dialog = dialog;
-    u->file_label = file_label;
-    u->btn_choose = btn_choose;
-    u->entry_nome = entry_nome;
-    u->entry_desc = entry_desc;
-
-    /* copy session info into UploadUI (owned by UI; freed on exit) */
-    u->user_id = uid;
-    u->user_name = uname ? g_strdup(uname) : NULL;
-    u->user_email = uemail ? g_strdup(uemail) : NULL;
-
-    u->btn_upload = btn_upload;
-    u->status_box = status_box;
+    u->dialog      = dialog;
+    u->file_label  = file_label;
+    u->btn_choose  = btn_choose;
+    u->entry_nome  = entry_nome;
+    u->entry_desc  = entry_desc;
+    u->user_id     = uid;
+    u->user_name   = uname ? g_strdup(uname)  : NULL;
+    u->user_email  = uemail ? g_strdup(uemail): NULL;
+    u->btn_upload  = btn_upload;
+    u->status_box  = status_box;
     u->status_icon = status_icon;
-    u->status_label = status_label;
-    u->chosen_path = NULL;
+    u->status_label= status_label;
 
     g_signal_connect(btn_choose, "clicked", G_CALLBACK(on_choose_file_clicked), u);
-    g_signal_connect(btn_upload, "clicked", G_CALLBACK(on_upload_clicked), u);
+    g_signal_connect(btn_upload, "clicked", G_CALLBACK(on_upload_clicked),      u);
+    g_signal_connect_swapped(btn_close,  "clicked", G_CALLBACK(gtk_widget_destroy), dialog);
 
-    /* hint dataset name from username */
     if (u->user_name && *u->user_name) {
-        char hint[256];
-        snprintf(hint, sizeof(hint), "%s_dataset", u->user_name);
+        char hint[256]; snprintf(hint, sizeof(hint), "%s_dataset", u->user_name);
         gtk_entry_set_text(GTK_ENTRY(entry_nome), hint);
     }
 
     gtk_widget_show_all(dialog);
-
-    /* run dialog (modal) */
     gtk_dialog_run(GTK_DIALOG(dialog));
 
-    /* cleanup */
     if (u->chosen_path) g_free(u->chosen_path);
-    if (u->user_name) g_free(u->user_name);
-    if (u->user_email) g_free(u->user_email);
+    if (u->user_name)   g_free(u->user_name);
+    if (u->user_email)  g_free(u->user_email);
     g_free(u);
     gtk_widget_destroy(dialog);
 }
+
 
 #endif /* DATASETS_UPLOAD_H */

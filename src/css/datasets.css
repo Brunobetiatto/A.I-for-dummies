@@ -87,7 +87,7 @@ progressbar progress {
 scrollbar slider {
   background-image: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
   border: 1px solid #7a7a7a;
-};
+}
 
 /* css/datasets.css
    A simple "Metal" theme for GTK4 apps on desktop platforms.
@@ -393,4 +393,143 @@ scrollbar slider {
   padding: 6px 4px;
   margin: 8px 0 4px 0;
   border-bottom: 1px solid #808080;
+}
+
+
+/* ====== Botões 3D ====== */
+#datasets-window button,
+#datasets-window button#ds-refresh {
+  border-width: 2px;
+  border-style: outset;
+  border-color: buttonface;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  background: silver;
+  color: black;
+  padding: 4px 6px;
+  border-radius: 1px;
+  cursor: pointer;
+}
+#datasets-window button:hover,
+#datasets-window button:focus,
+#datasets-window button:active,
+#datasets-window button#ds-refresh:hover,
+#datasets-window button#ds-refresh:focus,
+#datasets-window button#ds-refresh:active{
+  border: 2px inset #818181;
+  background: silver;
+  color:#424242;
+  box-shadow: -1px -1px #000;
+}
+#datasets-window button:disabled{
+  cursor: default;
+  background-color: silver;
+  border-style: outset;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  color: grey;
+  text-shadow: 1px 1px #fff;
+}
+
+/* ====== Lista de datasets no estilo Win95 ====== */
+/* limpa o estilo padrão das rows do GtkListBox */
+#datasets-window .ds-list > row{
+  background: transparent;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+#datasets-window .ds-list > row:selected,
+#datasets-window .ds-list > row:hover{
+  background: transparent;
+}
+
+/* “cartão” com relevo Win95 (aplicado no EventBox de cada item) */
+#datasets-window .ds-card{
+  background: #c0c0c0;
+  color:#000;
+  margin: 6px 6px;          /* espaço entre itens */
+  padding: 8px 10px;
+  border: 2px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  border-left-color:#fff;
+  border-top-color:#fff;
+  box-shadow: 1px 1px #000; /* leve sombra para destacar */
+}
+
+/* hover/press “afundando” o cartão (feedback Win95) */
+#datasets-window .ds-card:hover,
+#datasets-window .ds-card:active{
+  border: 2px inset #818181;
+  box-shadow: -1px -1px #000;
+}
+
+/* Titlebar Win95 — estado inativo (backdrop) */
+headerbar#w95-titlebar:backdrop {
+  background-image: linear-gradient(to right, #7f7f7f, #b5b5b5);
+  color:#e6e6e6;
+}
+
+/* Botões da titlebar quando a janela está inativa */
+headerbar#w95-titlebar button.envbar-btn:backdrop {
+  border-width:2px;
+  border-style:outset;
+  border-color:buttonface;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  background:silver;
+  color:#4a4a4a;         /* um pouco mais “apagado” */
+  box-shadow:none;       /* mantém o 3D sem hover */
+}
+
+/* garante que os ícones não ganhem filtro no backdrop */
+headerbar#w95-titlebar button.envbar-btn:backdrop image {
+  -gtk-icon-filter: none;
+}
+
+/* ===== Win95 header para a lista de datasets ===== */
+.win95-list treeview header button {
+  background-image: linear-gradient(to bottom, #e7e7e7, #c9c9c9);
+  border: 2px outset #c0c0c0;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  padding: 3px 6px;
+  font-weight: 700;
+  font-family: "MS Sans Serif", sans-serif;
+}
+.win95-list treeview header button:hover {
+  background-image: linear-gradient(to bottom, #f0f0f0, #d5d5d5);
+}
+.win95-list treeview header button:active {
+  border: 2px inset #808080;
+}
+
+/* Seletor específico pro seu TreeView com name "ds-tv" */
+#ds-tv row:selected,
+#ds-tv row:selected:focus {
+  background-color: #cfe8ff; /* claro o suficiente */
+}
+
+#ds-tv .cell:selected,
+#ds-tv .cell:selected:focus {
+  color: #000;               /* garante texto visível */
+}
+
+/* Hover azul claro quando NÃO está selecionado */
+#ds-tv row:hover:not(:selected) {
+  background-color: #eaf3ff;  /* azul clarinho */
+}
+
+/* Mantém seleção com azul claro diferente (se quiser) */
+#ds-tv row:selected,
+#ds-tv row:selected:focus {
+  background-color: #cfe8ff;
+}
+
+/* Garante texto legível em hover/seleção clara */
+#ds-tv row:hover .cell,
+#ds-tv row:selected .cell,
+#ds-tv .cell:selected {
+  color: #000;
 }

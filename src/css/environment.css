@@ -379,7 +379,7 @@ combobox popover list row:hover:not(:selected){
   padding: 12px 14px;
 }
 
-/* Botões 3D (mesmo do login) */
+/* Botões 3D */
 #env-window button{
   border-width: 2px;
   border-style: outset;

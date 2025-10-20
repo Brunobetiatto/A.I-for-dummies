@@ -572,7 +572,9 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 
     /* train/test split slider and epoch controls */
     gdouble train_pct = gtk_range_get_value(GTK_RANGE(ctx->split_scale)) / 100.0;
-    gchar *train_s  = g_strdup_printf("%.3f", train_pct);
+    char tb[32];
+    g_ascii_formatd(tb, sizeof tb, "%.3f", (double)train_pct);
+    gchar *train_s = g_strdup(tb);
 
     gint epochs = gtk_spin_button_get_value_as_int(ctx->epochs_spin);
     gint frame_every = MAX(1, epochs / 40);

@@ -671,10 +671,10 @@ build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  src/backend/backlogger.h src/interface/context.h \
  src/interface/datasets.h src/interface/../css/css.h \
  src/interface/debug_window.h src/interface/../backend/communicator.h \
- src/interface/../backend/../interface/debug_window.h \
- src/interface/../backend/../interface/../css/css.h \
- src/interface/context.h src/interface/profile.h \
- src/interface/dataset_upload.h src/interface/environment.h \
+ C:/A.I-for-dummies/src/interface/debug_window.h \
+ C:/A.I-for-dummies/src/css/css.h src/interface/context.h \
+ src/interface/profile.h src/interface/dataset_upload.h \
+ src/interface/environment.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gstdio.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gprintf.h src/interface/login.h \
  src/interface/profile_tab.h
@@ -1355,8 +1355,8 @@ src/interface/datasets.h:
 src/interface/../css/css.h:
 src/interface/debug_window.h:
 src/interface/../backend/communicator.h:
-src/interface/../backend/../interface/debug_window.h:
-src/interface/../backend/../interface/../css/css.h:
+C:/A.I-for-dummies/src/interface/debug_window.h:
+C:/A.I-for-dummies/src/css/css.h:
 src/interface/context.h:
 src/interface/profile.h:
 src/interface/dataset_upload.h:

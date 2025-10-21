@@ -335,9 +335,7 @@ def datasets_upload():
         except ValueError:
             return jsonify({'status': 'ERROR','message':'user_id must be an integer'}), 400
 
-        # Permitir upload se for o próprio usuário ou um admin
-        if g.user_id != user_id_int and g.user_role != 'admin':
-            return jsonify({'status':'ERROR','message':'Forbidden'}), 403
+        
 
         # salvar arquivo com nome seguro + sufixo único
         orig_filename = secure_filename(file.filename)

@@ -214,6 +214,7 @@ bool api_get_user_avatar_to_temp(int user_id, char **out_path) {
     char tmp_path[1024] = {0};
     char final_path[1024] = {0};
     char url[512];
+    struct curl_slist *headers = NULL;
 
     snprintf(url, sizeof(url), "http://localhost:5000/user/%d/avatar", user_id);
 
@@ -259,6 +260,17 @@ bool api_get_user_avatar_to_temp(int user_id, char **out_path) {
 
     curl_easy_cleanup(curl);
     fclose(fp);
+
+    /* headers: Content-Type JSON + optional Authorization */
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    extern char *g_auth_token; /* declarado em communicator.c/h */
+    if (g_auth_token && *g_auth_token) {
+        char auth_hdr[1024];
+        snprintf(auth_hdr, sizeof(auth_hdr), "Authorization: Bearer %s", g_auth_token);
+        debug_log(">> Header: %s", auth_hdr);
+        headers = curl_slist_append(headers, auth_hdr);
+    }
 
     if (res != CURLE_OK) {
         debug_log("api_get_user_avatar_to_temp: curl failed: %s", curl_easy_strerror(res));

@@ -8,6 +8,7 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <ctype.h>
 
 #ifndef DATASETS_H
 #define DATASETS_H
@@ -18,7 +19,7 @@ static const GtkTargetEntry DND_TARGETS[] = {
 
 #ifndef gdk_atom_equal
 #  define gdk_atom_equal(a,b) ((a) == (b))
-#endif /* DATASETS_H */
+#endif
 
 typedef struct {
     GtkTreeView  *tv;
@@ -42,10 +43,11 @@ typedef struct {
 
 /* === LIST (Win95) model === */
 enum {
-    DS_COL_NAME = 0,
+    DS_COL_ICON = 0,
+    DS_COL_NAME,
     DS_COL_DESC,
     DS_COL_SIZE,
-    DS_COL_META,      /* GHashTable* com os campos brutos dessa linha */
+    DS_COL_META,
     DS_N_COLS
 };
 
@@ -68,6 +70,60 @@ static char* collapse_double(const char *txt) {
         if (strncmp(txt, txt + h, h) == 0) return g_strndup(txt, h);
     }
     return g_strdup(txt);
+}
+
+/* --- Helpers de conversão de tamanho para MB --- */
+static gboolean parse_to_mb(const char *s, double *out_mb) {
+    if (!s || !*s || !out_mb) return FALSE;
+
+    char *tmp = g_strdup(s);
+    trim_spaces(tmp);
+
+    /* lower-case e tira "bytes"/"byte" do final, se tiver */
+    for (char *p = tmp; *p; ++p) *p = (char)g_ascii_tolower(*p);
+    size_t len = strlen(tmp);
+    if (len >= 5 && g_str_has_suffix(tmp, "bytes")) { tmp[len-5] = '\0'; trim_spaces(tmp); }
+    else if (len >= 4 && g_str_has_suffix(tmp, "byte")) { tmp[len-4] = '\0'; trim_spaces(tmp); }
+
+    char *end = NULL;
+    double v = g_ascii_strtod(tmp, &end);
+    if (end == tmp) { g_free(tmp); return FALSE; }
+
+    while (end && *end && g_ascii_isspace(*end)) end++;
+
+    double mb = 0.0;
+    if (!end || !*end) {
+        /* sem sufixo => assume bytes */
+        mb = v / (1024.0 * 1024.0);
+    } else if (*end == 'k') {                       /* kb/kib */
+        mb = v / 1024.0;
+    } else if (*end == 'm') {                       /* mb/mib */
+        mb = v;
+    } else if (*end == 'g') {                       /* gb/gib */
+        mb = v * 1024.0;
+    } else if (*end == 't') {                       /* tb/tib */
+        mb = v * 1024.0 * 1024.0;
+    } else if (*end == 'b') {                       /* b */
+        mb = v / (1024.0 * 1024.0);
+    } else {
+        /* sufixo desconhecido -> tenta como bytes */
+        mb = v / (1024.0 * 1024.0);
+    }
+
+    g_free(tmp);
+    *out_mb = mb;
+    return TRUE;
+}
+
+static char* size_to_mb_string(const char *s) {
+    double mb = 0.0;
+    if (!parse_to_mb(s, &mb)) return g_strdup(s ? s : "");
+    return g_strdup_printf("%.1f MB", mb);
+}
+
+static char* size_bytes_to_mb_string(double bytes) {
+    double mb = bytes / (1024.0 * 1024.0);
+    return g_strdup_printf("%.1f MB", mb);
 }
 
 /* Single place to get our private DnD atom (lazy init, thread-safe in GTK main thread) */
@@ -104,6 +160,31 @@ static char* normalize_drag_text_strict(const char *raw) {
 
     trim_spaces(tmp);
     return tmp;
+}
+
+/* Protótipos (iguais aos de login.h) para o compilador conhecer antes do uso */
+static gboolean on_enter(GtkWidget *w, GdkEventCrossing *e, gpointer u);
+static gboolean on_leave(GtkWidget *w, GdkEventCrossing *e, gpointer u);
+
+
+/* === Cursor helpers: aplica enter/leave a 1 widget e percorre containers === */
+
+static void apply_hand_cursor_to(GtkWidget *w) {
+    if (!w) return;
+    gtk_widget_add_events(w, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+    g_signal_connect(w, "enter-notify-event", G_CALLBACK(on_enter), NULL);
+    g_signal_connect(w, "leave-notify-event", G_CALLBACK(on_leave), NULL);
+}
+
+/* percorre recursivamente e aplica em botões, eventboxes e link-buttons */
+static void hand_cursor_forall(GtkWidget *child, gpointer user_data) {
+    (void)user_data;
+    if (GTK_IS_BUTTON(child) || GTK_IS_EVENT_BOX(child) || GTK_IS_LINK_BUTTON(child)) {
+        apply_hand_cursor_to(child);
+    }
+    if (GTK_IS_CONTAINER(child)) {
+        gtk_container_forall(GTK_CONTAINER(child), hand_cursor_forall, NULL);
+    }
 }
 
 /* Canonicalize a comma-separated list (trim + de-dup) */
@@ -455,6 +536,7 @@ static void wire_treeview_headers_for_dnd(EnvCtx *ctx, GtkTreeView *tv) {
         GtkTargetList *tl = NULL;
         gchar *name_copy;
 
+        apply_hand_cursor_to(eb);
         gtk_container_add(GTK_CONTAINER(eb), lab);
         gtk_widget_set_tooltip_text(eb, "Drag to X or Y");
         gtk_widget_show_all(eb);
@@ -613,8 +695,9 @@ static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer u
     /* Prepare size pretty string (pretty_size returns allocated string or NULL) */
     char *size_pp = NULL;
     if (v_size && *v_size) {
-        size_pp = pretty_size(v_size);
+        size_pp = size_to_mb_string(v_size);
     }
+
 
     /* Compose display for user: prefer name, otherwise show email, otherwise dash */
     char user_display[256] = "—";
@@ -747,9 +830,7 @@ static void fill_details_from_meta(DatasetsUI *dui, GHashTable *meta, const char
     const char *v_rows  = meta ? meta_get_any(meta, A_ROWS,  G_N_ELEMENTS(A_ROWS))  : NULL;
     const char *v_link  = meta ? meta_get_any(meta, A_LINK,  G_N_ELEMENTS(A_LINK))  : NULL;
     const char *v_desc  = meta ? meta_get_any(meta, A_DESC,  G_N_ELEMENTS(A_DESC))  : NULL;
-
-    /* tamanho “bonito” se der */
-    char *size_pp = v_size && *v_size ? pretty_size(v_size) : NULL;
+    char *size_pp = (v_size && *v_size) ? size_to_mb_string(v_size) : NULL;
 
     char user_display[256] = "—";
     if (v_user && *v_user) g_strlcpy(user_display, v_user, sizeof(user_display));
@@ -874,25 +955,26 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
             if (cJSON_IsString(cell) && cell->valuestring) g_strlcpy(desc_buf, cell->valuestring, sizeof(desc_buf));
         }
         if (idx_size >= 0) {
-            cJSON *cell = cJSON_GetArrayItem(row, idx_size);
-            if (cJSON_IsString(cell) && cell->valuestring) {
-                char *pp = pretty_size(cell->valuestring);
-                g_strlcpy(size_buf, pp ? pp : cell->valuestring, sizeof(size_buf));
-                g_free(pp);
-            } else if (cJSON_IsNumber(cell)) {
-                char tmp[64]; g_snprintf(tmp, sizeof(tmp), "%g", cell->valuedouble);
-                char *pp = pretty_size(tmp);
-                g_strlcpy(size_buf, pp ? pp : tmp, sizeof(size_buf));
-                g_free(pp);
-            }
+        cJSON *cell = cJSON_GetArrayItem(row, idx_size);
+        if (cJSON_IsString(cell) && cell->valuestring) {
+            char *pp = size_to_mb_string(cell->valuestring);
+            g_strlcpy(size_buf, pp ? pp : cell->valuestring, sizeof(size_buf));
+            g_free(pp);
+        } else if (cJSON_IsNumber(cell)) {
+            char *pp = size_bytes_to_mb_string(cell->valuedouble); /* assume número em bytes */
+            g_strlcpy(size_buf, pp ? pp : "", sizeof(size_buf));
+            g_free(pp);
         }
+    }
 
         /* meta K/V para detalhes e cliques */
         GHashTable *meta = make_row_meta(columns, row);
+        GdkPixbuf *row_icon = g_object_get_data(G_OBJECT(dui->list.store), "row-icon");
 
         GtkTreeIter it;
         gtk_list_store_append(dui->list.store, &it);
         gtk_list_store_set(dui->list.store, &it,
+            DS_COL_ICON, row_icon,
             DS_COL_NAME, name_buf,
             DS_COL_DESC, desc_buf,
             DS_COL_SIZE, size_buf,
@@ -902,6 +984,11 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
     /* volta para a página List ao atualizar */
     gtk_stack_set_visible_child_name(dui->stack, "list");
 
+    GtkEntry *search_entry = ctx ? ctx->entry : NULL;
+    if (search_entry) {
+        GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(search_entry), "ds-filter"));
+        if (filter) gtk_tree_model_filter_refilter(filter);
+    }
     cJSON_Delete(root);
 }
 
@@ -1086,6 +1173,15 @@ static void on_import_to_environment(GtkButton *btn, gpointer user_data) {
     free(resp);
 }
 
+/* Forward declarations de callbacks usados antes da definição */
+static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data);
+
+/* Forward declarations (busca) */
+static void on_search_changed(GtkEditable *e, gpointer user_data);
+static void on_search_activate(GtkEntry *e, gpointer user_data);
+static void on_search_icon_press(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, gpointer u);
+static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data);
+static void on_clear_clicked(GtkButton *btn, gpointer user_data);
 
 static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     const char *DATASETS_CSS = parse_CSS_file("datasets.css");
@@ -1097,34 +1193,71 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
 
     /* Top bar: search + upload + refresh */
     GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
+    /* Entry + botão clear */
+    GtkWidget *entry_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     GtkWidget *entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Search datasets…");
-    gtk_box_pack_start(GTK_BOX(top), entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(entry_box), entry, TRUE, TRUE, 0);
 
-    /* --- NEW: Upload button --- */
-    GtkWidget *btn_upload_ui = gtk_button_new(); /* we'll set an image if available, else text */
+    /* Botão “clear”*/
+    GtkWidget *clear_btn = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(clear_btn), GTK_RELIEF_NONE);  /* estilo “flat” */
+    gtk_widget_set_tooltip_text(clear_btn, "Limpar busca");
+
+    gtk_widget_set_name(clear_btn, "entry-clear");
+
     {
         GError *err = NULL;
-        GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file("./assets/upload_button.png", &err);
+        GdkPixbuf *pix = gdk_pixbuf_new_from_file("./assets/clear.png", &err);
+        GtkWidget *img = NULL;
+        if (pix) {
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 28, 28, GDK_INTERP_BILINEAR);
+            img = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
+            if (scaled) g_object_unref(scaled);
+            g_object_unref(pix);
+        } else {
+            /* fallback do tema */
+            img = gtk_image_new_from_icon_name("edit-clear-symbolic", GTK_ICON_SIZE_BUTTON);
+            if (err) g_error_free(err);
+        }
+    #if !GTK_CHECK_VERSION(4,0,0)
+        gtk_button_set_always_show_image(GTK_BUTTON(clear_btn), TRUE);
+    #endif
+        gtk_button_set_image(GTK_BUTTON(clear_btn), img);
+    }
+
+    /* coloca o botão à direita do entry */
+    gtk_box_pack_start(GTK_BOX(entry_box), clear_btn, FALSE, FALSE, 0);
+
+    /* agora empacote o entry_box no top */
+    gtk_box_pack_start(GTK_BOX(top), entry_box, TRUE, TRUE, 0);
+
+    /* limpar ao clicar */
+    g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_clicked), entry);
+
+    /* --- Upload button --- */
+    GtkWidget *btn_upload_ui = gtk_button_new();
+    {
+        GError *err = NULL;
+        GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file("./assets/upload.png", &err);
         if (pixbuf) {
-            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, 24, 24, GDK_INTERP_BILINEAR);
-            if (scaled) {
-                gtk_button_set_image(GTK_BUTTON(btn_upload_ui), gtk_image_new_from_pixbuf(scaled));
-                g_object_unref(scaled);
-            }
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, 40, 40, GDK_INTERP_BILINEAR);
+            GtkWidget *img = gtk_image_new_from_pixbuf(scaled ? scaled : pixbuf);
+            gtk_button_set_image(GTK_BUTTON(btn_upload_ui), img);
+    #if !GTK_CHECK_VERSION(4,0,0)
+            gtk_button_set_always_show_image(GTK_BUTTON(btn_upload_ui), TRUE);
+    #endif
+            if (scaled) g_object_unref(scaled);
             g_object_unref(pixbuf);
         } else {
-            /* fallback: label */
+            /* fallback: texto se a imagem não existir */
             gtk_button_set_label(GTK_BUTTON(btn_upload_ui), "Upload");
             if (err) g_error_free(err);
         }
     }
-    /* place upload button to the right of entry but before refresh */
     gtk_box_pack_start(GTK_BOX(top), btn_upload_ui, FALSE, FALSE, 0);
     g_signal_connect(btn_upload_ui, "clicked", G_CALLBACK(on_open_upload_dialog), env);
-
-
-
 
     /* existing refresh button */
     GtkWidget *btn_refresh = gtk_button_new();
@@ -1162,21 +1295,65 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_style_context_add_class(tvsc, "win95-list");     /* CSS */
 
     GtkListStore *store = gtk_list_store_new(DS_N_COLS,
+        GDK_TYPE_PIXBUF,  /* icon  */
         G_TYPE_STRING,   /* name  */
         G_TYPE_STRING,   /* desc  */
         G_TYPE_STRING,   /* size  */
         G_TYPE_POINTER); /* meta* */
+    
+    /* Ícone padrão das linhas (16x16) */
+    {
+        GError *err = NULL;
+        GdkPixbuf *row_icon = gdk_pixbuf_new_from_file("./assets/dataset.png", &err);
+        if (row_icon) {
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(row_icon, 16, 16, GDK_INTERP_BILINEAR);
+            if (scaled) { g_object_unref(row_icon); row_icon = scaled; }
+            /* guarda no store para recuperar no refresh */
+            g_object_set_data_full(G_OBJECT(store), "row-icon",
+                                g_object_ref(row_icon), g_object_unref);
+            g_object_unref(row_icon);
+        } else if (err) {
+            g_error_free(err);
+        }
+    }
+    /* === NOVO: filter (para busca) + sort (para manter ordenação nas colunas) === */
+    GtkTreeModel *filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(store), NULL);
+    gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(filter),
+                                        search_visible_func, entry, NULL);
+    GtkTreeModel *sort = gtk_tree_model_sort_new_with_model(filter);
 
-    gtk_tree_view_set_model(GTK_TREE_VIEW(tv), GTK_TREE_MODEL(store));
+    /* o TreeView passa a enxergar sort->filter->store */
+    gtk_tree_view_set_model(GTK_TREE_VIEW(tv), sort);
+
+    /* guarde refs e ponteiros pra reuso */
+    g_object_ref(store);
+    g_object_set_data(G_OBJECT(entry), "ds-filter", filter);   /* pra refilter no "changed" */
+
+    /* atualiza dinamicamente enquanto digita */
+    g_signal_connect(entry, "changed",   G_CALLBACK(on_search_changed), NULL);
+    /* Enter: se só sobrar 1 linha, abre detalhes */
+    g_signal_connect(entry, "activate", G_CALLBACK(on_search_activate), NULL);
+    /* clique no X limpa e refiltra */
+    g_signal_connect(entry, "icon-press", G_CALLBACK(on_search_icon_press), NULL);
+
     /* guardamos um ref próprio para usar no refresh */
     g_object_ref(store);
 
     gtk_container_add(GTK_CONTAINER(list_sc), tv);
     gtk_stack_add_titled(GTK_STACK(stack), list_sc, "list", "List");
 
+    GtkCellRenderer *ri = gtk_cell_renderer_pixbuf_new();
+    g_object_set(ri, "xpad", 4, NULL);
+
     /* colunas */
     GtkCellRenderer *r1 = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *c_name = gtk_tree_view_column_new_with_attributes("Name", r1, "text", DS_COL_NAME, NULL);
+    GtkTreeViewColumn *c_name = gtk_tree_view_column_new();
+    gtk_tree_view_column_set_title(c_name, "Name");
+    gtk_tree_view_column_pack_start(c_name, ri, FALSE);
+    gtk_tree_view_column_add_attribute(c_name, ri, "pixbuf", DS_COL_ICON);
+    gtk_tree_view_column_pack_start(c_name, r1, TRUE);
+    gtk_tree_view_column_add_attribute(c_name, r1, "text", DS_COL_NAME);
+
     gtk_tree_view_column_set_resizable(c_name, TRUE);
     gtk_tree_view_column_set_sort_column_id(c_name, DS_COL_NAME);
     gtk_tree_view_column_set_sort_indicator(c_name, TRUE);
@@ -1301,6 +1478,9 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
     g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui->stack);
 
+    /* aplica “mãozinha” em todos os botões/eventboxes da aba de datasets */
+    hand_cursor_forall(outer, NULL);
+    
     gtk_widget_show_all(outer);
 
     /* First fill */
@@ -1469,6 +1649,94 @@ static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCa
         return;
     }
     g_task_return_pointer(task, pv, (GDestroyNotify)csv_preview_free);
+}
+
+/* --- SEARCH / FILTER helpers --- */
+static gboolean str_contains_ci(const char *hay, const char *needle) {
+    if (!needle || !*needle) return TRUE;
+    if (!hay || !*hay) return FALSE;
+    gchar *a = g_utf8_casefold(hay, -1);
+    gchar *b = g_utf8_casefold(needle, -1);
+    gboolean ok = (a && b) ? (g_strstr_len(a, -1, b) != NULL) : FALSE;
+    g_free(a); g_free(b);
+    return ok;
+}
+
+/* todas as palavras (separadas por espaço) devem aparecer em pelo menos um dos campos */
+static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data) {
+    GtkEntry *entry = GTK_ENTRY(user_data);
+    const char *q = gtk_entry_get_text(entry);
+    if (!q || !*q) return TRUE;
+
+    gchar *name=NULL, *desc=NULL, *size=NULL;
+    gtk_tree_model_get(model, iter,
+        DS_COL_NAME, &name,
+        DS_COL_DESC, &desc,
+        DS_COL_SIZE, &size, -1);
+
+    gboolean visible = TRUE;
+    gchar **tokens = g_strsplit(q, " ", -1);
+    for (int i=0; tokens && tokens[i]; ++i) {
+        const char *t = tokens[i];
+        if (!t || !*t) continue;
+        if (!(str_contains_ci(name, t) || str_contains_ci(desc, t) || str_contains_ci(size, t))) {
+            visible = FALSE; break;
+        }
+    }
+    g_strfreev(tokens);
+    g_free(name); g_free(desc); g_free(size);
+    return visible;
+}
+
+static void on_search_changed(GtkEditable *e, gpointer user_data) {
+    GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(e), "ds-filter"));
+    if (filter) gtk_tree_model_filter_refilter(filter);
+}
+
+static void on_search_activate(GtkEntry *e, gpointer user_data) {
+    (void)user_data;
+    DatasetsUI *dui = (DatasetsUI*) g_object_get_data(G_OBJECT(e), "datasets-ui");
+    if (!dui || !GTK_IS_TREE_VIEW(dui->list.tv)) return;
+
+    GtkTreeModel *m = gtk_tree_view_get_model(dui->list.tv);
+    GtkTreeIter it;
+    if (!gtk_tree_model_get_iter_first(m, &it)) return;
+
+    int count = 0;
+    GtkTreeIter first = {0};
+    do {
+        if (count == 0) first = it;
+        count++;
+    } while (gtk_tree_model_iter_next(m, &it));
+
+    if (count == 1) {
+        gchar *name=NULL,*desc=NULL,*size=NULL;
+        GHashTable *meta=NULL;
+        gtk_tree_model_get(m, &first,
+            DS_COL_NAME, &name,
+            DS_COL_DESC, &desc,
+            DS_COL_SIZE, &size,
+            DS_COL_META, &meta, -1);
+        gchar *mk = g_markup_printf_escaped("<b>%s</b>", name ? name : "Dataset");
+        fill_details_from_meta(dui, meta, mk);
+        g_free(mk); g_free(name); g_free(desc); g_free(size);
+    }
+}
+
+/* clique no ícone secundário (x) limpa a busca */
+static void on_search_icon_press(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, gpointer u) {
+    if (pos == GTK_ENTRY_ICON_SECONDARY) {
+        gtk_entry_set_text(e, "");
+        on_search_changed(GTK_EDITABLE(e), NULL);
+    }
+}
+
+static void on_clear_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    GtkEntry *e = GTK_ENTRY(user_data);
+    gtk_entry_set_text(e, "");
+    on_search_changed(GTK_EDITABLE(e), NULL);  /* refiltra a lista */
+    gtk_widget_grab_focus(GTK_WIDGET(e));
 }
 
 /* --- Callback após worker --- */

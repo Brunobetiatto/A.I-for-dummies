@@ -533,3 +533,5 @@ headerbar#w95-titlebar button.envbar-btn:backdrop image {
 #ds-tv .cell:selected {
   color: #000;
 }
+
+#datasets-window #entry-clear { margin-left: 6px; }

@@ -322,7 +322,6 @@ def datasets_upload():
             return jsonify({'status': 'ERROR', 'message': 'No file part'}), 400
         file = request.files['file']
 
-        user_id = request.form.get('user_id') or request.form.get('usuario_id')
         nome_field = request.form.get('nome') or ''
         descricao = request.form.get('descricao') or ''
         enviado_por_nome = request.form.get('enviado_por_nome')

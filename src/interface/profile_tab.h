@@ -535,7 +535,34 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     /* Wrap with CSS */
     GtkWidget *wrapped = wrap_CSS(PROFILE_CSS, "profile-tab-container", main_container, "profile-tab");
 
-    gtk_notebook_append_page(nb, wrapped, gtk_label_new("Perfil"));
+    /* --- Tab "Perfil" com ícone + texto --- */
+    GtkWidget *tab_box  = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    GtkWidget *tab_text = gtk_label_new("Perfil");
+    GtkWidget *tab_img  = NULL;
+
+    /* carrega ./assets/user.png (escala para ~16px) com fallback */
+    {
+        GError *err = NULL;
+        GdkPixbuf *pix = gdk_pixbuf_new_from_file("./assets/user.png", &err);
+        if (pix) {
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 16, 16, GDK_INTERP_BILINEAR);
+            tab_img = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
+            if (scaled) g_object_unref(scaled);
+            g_object_unref(pix);
+        } else {
+            /* fallback para um ícone do tema, se a imagem não existir */
+            tab_img = gtk_image_new_from_icon_name("user-identity-symbolic", GTK_ICON_SIZE_MENU);
+            if (err) g_error_free(err);
+        }
+    }
+
+    /* empacota imagem à esquerda do texto */
+    gtk_box_pack_start(GTK_BOX(tab_box), tab_img,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(tab_box), tab_text, FALSE, FALSE, 0);
+
+    /* usa o box como rótulo da aba */
+    gtk_notebook_append_page(nb, wrapped, tab_box);
+    gtk_widget_show_all(tab_box);
 
     ctx->container = wrapped;
 

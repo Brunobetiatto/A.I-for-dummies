@@ -1,8 +1,7 @@
 @echo off
-set "HOME=C:\Users\Mohamad_Diab"
 set "MSYS2=C:\msys64\mingw64"
-set "PATH=%MSYS2%\bin;C:\msys64\usr\bin;%SystemRoot%\System32;%SystemRoot%;%PATH%"
+set "PATH=%MSYS2%\bin;%PATH%"
 set "PKG_CONFIG_PATH=%MSYS2%\lib\pkgconfig;%MSYS2%\share\pkgconfig"
 set "PKG_CONFIG_LIBDIR=%MSYS2%\lib\pkgconfig"
-mingw32-make %*
-mingw32-make bundle-ntldd
+make %*
+make bundle-ntldd

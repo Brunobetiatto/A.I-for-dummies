@@ -1165,7 +1165,28 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_name(outer, "env-window");
     GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
-    if (GTK_IS_WINDOW(tl)) install_env_w95_titlebar(GTK_WINDOW(tl), "AI for Dummies");
+    if (GTK_IS_WINDOW(tl)) {
+        GtkWindow *w = GTK_WINDOW(tl);
+
+        /* mesma barra Win95 */
+        install_env_w95_titlebar(w, "AI for Dummies");
+
+        /* IMPORTANTES para o toggle funcionar igual ao login: */
+        gtk_window_set_resizable(w, TRUE);  // deixa o WM memorizar o “normal size”
+
+        // Tela “proporcional” igual ao login
+        GdkScreen *screen = gdk_screen_get_default();
+        gint sw = gdk_screen_get_width(screen);
+        gint sh = gdk_screen_get_height(screen);
+        gtk_window_set_default_size(
+            w,
+            CLAMP(sw * 0.45, 420, 1200),
+            CLAMP(sh * 0.4,  320, 900)
+        );
+
+        gtk_window_set_position(w, GTK_WIN_POS_CENTER);
+        gtk_container_set_border_width(GTK_CONTAINER(w), 12);
+    }
 
     /* top switcher (kept) */
     ctx->stack = GTK_STACK(gtk_stack_new());

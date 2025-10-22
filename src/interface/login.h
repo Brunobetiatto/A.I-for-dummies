@@ -68,10 +68,30 @@ void on_forgot_clicked(GtkButton *btn, gpointer user_data);
 void on_recovery_request(GtkButton *btn, LoginCtx *ctx);
 void on_recovery_verify(GtkButton *btn, LoginCtx *ctx);
 
+static void stop_recovery_timer(LoginCtx *ctx);
+
 // Função para destruir a janela de login
 static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
     LoginCtx *ctx = (LoginCtx *)user_data;
-    g_free(ctx);
+
+    if (ctx) {
+        stop_recovery_timer(ctx);              // garante que o timer não fique vivo
+        if (ctx->recovery_token) g_free(ctx->recovery_token);
+        g_free(ctx);
+    }
+
+    // se não houver outra janela toplevel visível, encerra o loop principal
+    gboolean have_other = FALSE;
+    GList *tops = gtk_window_list_toplevels();
+    for (GList *l = tops; l; l = l->next) {
+        GtkWidget *w = l->data;
+        if (w != widget && gtk_widget_get_visible(w)) { have_other = TRUE; break; }
+    }
+    g_list_free(tops);
+
+    if (!have_other) {
+        gtk_main_quit();
+    }
 }
 
 typedef struct {

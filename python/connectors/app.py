@@ -26,7 +26,7 @@ if PARENT not in sys.path:
 from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
 from database.CRUD.update import reset_user_password, update_user_info
-from database.CRUD.read import get_user_by_id, get_datasets_by_user
+from database.CRUD.read import get_user_by_id, get_datasets_by_user, get_dataset_by_name
 
 app = Flask(__name__)
 
@@ -578,7 +578,53 @@ def api_update_user_avatar(user_id):
             cnx.close()
     except Exception as e:
         app.logger.exception("Error in api_update_user_avatar: %s", e)
-        return jsonify({'status':'ERROR','message':str(e)}), 500
+
+@app.route('/dataset/<string:nome>', methods=['GET'])
+def api_get_dataset(nome):
+    cnx = None
+    try:
+        cnx = get_db_connection()
+        dataset = get_dataset_by_name(cnx, nome)
+        if not dataset:
+            return jsonify({'status': 'ERROR', 'message': 'Dataset not found'}), 404
+
+        # Map fields from the CRUD layer to the API response.
+        # get_dataset_by_name returns keys like: iddataset, usuario_idusuario, nome, descricao, url, tamanho, dataCadastro,
+        # enviado_por_nome, enviado_por_email
+        resp = {
+            "iddataset": dataset.get("iddataset"),
+            "id": dataset.get("iddataset"),                    # compatibility
+            "usuario_id": dataset.get("usuario_idusuario"),
+            "nome": dataset.get("nome"),
+            "descricao": dataset.get("descricao"),
+            "url": dataset.get("url"),
+            "tamanho": dataset.get("tamanho"),
+            "enviado_por_nome": dataset.get("enviado_por_nome"),
+            "enviado_por_email": dataset.get("enviado_por_email"),
+            "dataCadastro": dataset.get("dataCadastro"),
+            "dataCriacao": dataset.get("dataCadastro"),        # compatibility alias
+        }
+
+        # Ensure date fields (if not already string) are ISO formatted
+        for k in ("dataCadastro", "dataCriacao"):
+            v = resp.get(k)
+            if v is not None and not isinstance(v, str):
+                try:
+                    resp[k] = v.isoformat()
+                except Exception:
+                    # leave as-is if can't isoformat
+                    pass
+
+        return jsonify({'status': 'OK', 'dataset': resp})
+    except Exception as e:
+        app.logger.exception("Error in api_get_dataset: %s", e)
+        return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+    finally:
+        if cnx:
+            try:
+                cnx.close()
+            except Exception:
+                pass
 
 # Função para enviar email com o código
 def send_reset_code_email(to_email, user_name, reset_code):

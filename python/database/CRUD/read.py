@@ -165,4 +165,42 @@ def get_datasets_by_user(cnx, user_id: int):
         return results
     finally:
         cur.close()
-    
+
+def get_dataset_by_name(cnx, dataset_name: str):
+    cur = cnx.cursor()
+    try:
+        cur.execute(
+            """SELECT iddataset, usuario_idusuario, nome, descricao, url, tamanho, dataCadastro, enviado_por_nome, enviado_por_email
+               FROM dataset
+               WHERE nome = %s""",
+            (dataset_name,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        if isinstance(row, dict):
+            return {
+                "iddataset": row.get("iddataset"),
+                "usuario_idusuario": row.get("usuario_idusuario"),
+                "nome": row.get("nome"),
+                "descricao": row.get("descricao"),
+                "url": row.get("url"),
+                "tamanho": row.get("tamanho"),
+                "dataCadastro": row.get("dataCadastro").isoformat() if row.get("dataCadastro") else None,
+                "enviado_por_nome": row.get("enviado_por_nome"),
+                "enviado_por_email": row.get("enviado_por_email")
+            }
+        else:
+            return {
+                "iddataset": row[0],
+                "usuario_idusuario": row[1],
+                "nome": row[2],
+                "descricao": row[3],
+                "url": row[4],
+                "tamanho": row[5],
+                "dataCadastro": row[6].isoformat() if row[6] else None,
+                "enviado_por_nome": row[7],
+                "enviado_por_email": row[8]
+            }
+    finally:
+        cur.close()

@@ -32,6 +32,7 @@ bool api_create_user(const char *nome, const char *email, const char *password, 
 bool api_login(const char *email, const char *password, char **response);
 bool api_get_user_by_id(int user_id, char **response);
 bool api_get_user_datasets(int user_id, char **response);
+bool api_get_dataset_by_name_(const char *filename, char **response);
 
 static char *g_auth_token = NULL;
 
@@ -516,6 +517,12 @@ bool api_get_user_by_id(int user_id, char **response) {
 bool api_get_user_datasets(int user_id, char **response) {
     char endpoint[256];
     snprintf(endpoint, sizeof(endpoint), "/user/%d/datasets", user_id);
+    *response = api_request("GET", endpoint, NULL);
+    return (*response != NULL);
+}
+bool api_get_dataset_by_name_(const char *filename, char **response){
+    char endpoint[512];
+    snprintf(endpoint, sizeof(endpoint), "/dataset/%s", filename);
     *response = api_request("GET", endpoint, NULL);
     return (*response != NULL);
 }
@@ -1243,6 +1250,27 @@ WCHAR* run_api_command(const WCHAR *command) {
                 free(response);
                 free(utf8_command);
                 return wchar_response;
+            }
+        }
+        free(utf8_command);
+        return NULL;
+    }
+
+    if (token && strcmp(token, "GET_DATASET_JSON") == 0) {
+        // pega resto da linha (nome do dataset -- pode conter espaços)
+        token = strtok(NULL, "");
+        if (token) {
+            // trim leading spaces
+            while (*token == ' ') token++;
+            if (*token != '\0') {
+                if (api_get_dataset_by_name_(token, &response)) {
+                    int wchar_size = MultiByteToWideChar(CP_UTF8, 0, response, -1, NULL, 0);
+                    WCHAR *wchar_response = malloc(wchar_size * sizeof(WCHAR));
+                    MultiByteToWideChar(CP_UTF8, 0, response, -1, wchar_response, wchar_size);
+                    free(response);
+                    free(utf8_command);
+                    return wchar_response;
+                }
             }
         }
         free(utf8_command);

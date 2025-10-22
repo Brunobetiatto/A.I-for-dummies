@@ -14,6 +14,7 @@
 #include "interface/environment.h"
 #include "interface/login.h"
 #include "interface/profile_tab.h"
+#include "interface/profile.h"
 
 GtkWidget* create_main_window(UserSession *session) {
     EnvCtx *env = g_new0(EnvCtx, 1);

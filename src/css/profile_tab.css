@@ -1,169 +1,289 @@
-/* profile_tab.css - Windows 95 Style para Aba de Perfil */
+/* ============ Profile Tab — Win95 “card prateado” sem mudar fundo global ============ */
 
-/* Container principal */
-.profile-tab-container {
-    background-color: #c0c0c0;
-    border: 2px solid;
-    border-color: #dfdfdf #808080 #808080 #dfdfdf;
-    padding: 16px;
-    margin: 8px;
+/* raiz da aba (não toca no background da janela) */
+.profile-tab .profile-tab-container {
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
-/* Header da aba */
-.profile-header {
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 14px;
-    font-weight: bold;
-    color: #000080;
-    background: #c0c0c0;
-    padding: 8px 6px;
-    margin-bottom: 12px;
-    border-bottom: 2px solid #808080;
+/* --- CARD central branco com relevo Win95 (como seu #login-panel) --- */
+.profile-tab .profile-card {
+  background: #ffffff;                 /* mantém fundo branco padrão */
+  color: #212529;
+  padding: 16px 18px;
+  margin: 16px auto;
+  max-width: 560px;
+
+  /* “moldura” prateada 3D, igual ao seu card do login */
+  border: 2px solid #fff;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  border-left-color: #ffffff;
+  border-top-color: #ffffff;
+  box-shadow: 1px 1px #000;            /* leve sombra externa */
 }
 
-/* Container do avatar */
-.avatar-container {
-    background: #c0c0c0;
-    border: 2px solid;
-    border-color: #808080 #dfdfdf #dfdfdf #808080;
-    padding: 6px;
-    margin: 8px 0;
+/* avatar bem MAIOR, com borda 95 (CSS ajuda; ver nota no C abaixo) */
+.profile-tab .avatar-image {
+  border: 1px solid #808080;
+  box-shadow: 0 0 0 2px #f0f0f0 inset;
+  min-width: 180px;   /* ajuda layout */
+  min-height: 180px;  /* ajuda layout */
+  -gtk-icon-transform: scale(2.0);  /* funciona para icons do tema */
 }
 
-.avatar-image {
-    border: 1px solid #808080;
+/* pilha dos campos */
+.profile-tab .fields-container { margin-top: 8px; }
+
+/* --- Linha de edição (lápis + entrada) com relevo 95 --- */
+.profile-tab .edit-row {
+  background: #ffffff;
+  padding: 4px 6px;
+
+  /* borda “afundada” */
+  border: 1px solid #d5d5d5;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf, 
+    inset -2px -2px 0 #cfcfcf,  
+    inset 3px 3px 0 #818181,  
+    inset -2px -2px 0 #cfcfcf;
 }
 
-.avatar-container:hover {
-    border-color: #000080;
+/* botão de lápis à esquerda — “flat” para não brigar com seu tema */
+.profile-tab .pencil-btn {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0 6px 0 0;
+  min-width: 24px;
 }
 
-/* Container de informações */
-.info-container {
-    background: #ffffff;
-    border: 2px inset #c0c0c0;
-    padding: 12px;
-    margin: 8px 0;
+/* entradas brancas ocupando a largura, estilo Win95 (igual ao seu entry) */
+.profile-tab .edit-input {
+  background: #ffffff;
+  color: #000;
+  border-radius: 0;
+  border: none;            /* o relevo está no container .edit-row */
+  padding: 8px 12px;
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
+}
+.profile-tab .edit-input::placeholder { color: #6b6b6b; }
+.profile-tab .edit-input:focus {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
 }
 
-/* Labels estáticos */
-.info-label {
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    font-weight: bold;
-    color: #000000;
-    background: #c0c0c0;
-    padding: 4px 6px;
-    margin: 2px 0;
+/* biografia (TextView) com a mesma cara */
+.profile-tab .edit-textview {
+  background: #ffffff;
+  color: #000;
+  border: none;
+  padding: 8px 10px;
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
 }
 
-/* Labels editáveis */
-.editable-label {
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    color: #000000;
-    background: #c0c0c0;
-    border: 1px dotted #808080;
-    padding: 6px 8px;
-    margin: 4px 0;
-    min-height: 18px;
+/* barra de ações/status — centralizar o botão, manter seu estilo 3D */
+.profile-tab .actions-container {
+  background: transparent;
+  border: 0;
+  padding-top: 12px;
+  /* centrar via CSS (além do ajuste em C abaixo para garantir) */
+  text-align: center;
+}
+.profile-tab .save-button {
+  display: inline-block;
+  margin: 0 auto;                 /* centraliza no text-align:center */
+  border-width: 2px;
+  border-style: outset;
+  border-color: buttonface;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  background: silver;
+  color: black;
+  padding: 6px 16px;
+  border-radius: 1px;
+  font-weight: 700;
+}
+.profile-tab .save-button:hover,
+.profile-tab .save-button:focus,
+.profile-tab .save-button:active {
+  border: 2px inset #818181;
+  background: silver;
+  color: #424242;
+  box-shadow: -1px -1px #000;
+}
+.profile-tab .save-button:disabled {
+  cursor: default;
+  background-color: silver;
+  border-style: outset;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  color: grey;
+  text-shadow: 1px 1px #fff;
 }
 
-.editable-label:hover {
-    background: #d4d0c8;
-    border: 1px dotted #000080;
+/* status/info box no estilo 95 */
+.profile-tab .status-message{
+  font-weight: 700;
+  background: #ffffff;
+  border: 1px solid #808080;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #404040;
+  padding: 6px 10px;
+  margin-top: 10px;
+}
+.profile-tab .status-success{ color:#000080; border-color:#000080; }
+.profile-tab .status-error  { color:#800000; border-color:#800000; }
+
+/* Card branco com relevo Win95 */
+.profile-tab .profile-card{
+  background:#fff;
+  color:#212529;
+  padding:16px 18px;
+  margin:16px auto;
+  max-width:560px;
+  border:2px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  border-left-color:#fff;
+  border-top-color:#fff;
+  box-shadow:1px 1px #000;
 }
 
-/* Campos de entrada */
-.editable-entry {
-    background: #ffffff;
-    border: 2px inset #c0c0c0;
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    padding: 4px 6px;
-    margin: 4px 0;
+/* Moldura 3D do avatar (no event box) */
+.profile-tab #avatar-box{
+  background: var(--winface, #C0C0C0);
+  padding:6px;
+  border:2px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  border-left-color:#fff;
+  border-top-color:#fff;
+  box-shadow:1px 1px #000;
+}
+.profile-tab .avatar-image{
+  border:1px solid var(--shadow, #808080);
+  box-shadow:0 0 0 2px #f0f0f0 inset;
+  min-width:256px;
+  min-height:256px;
 }
 
-.editable-textview {
-    background: #ffffff;
-    border: 2px inset #c0c0c0;
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    padding: 6px;
-    margin: 4px 0;
+/* Nome grande abaixo do avatar */
+.profile-tab .profile-display-name{
+  font-family:"MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-weight:700;
+  font-size:32pt;
+  color:#000;
+  margin:6px 0 10px;
+  text-align:center;
 }
 
-/* Email (readonly) */
-.email-display {
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    color: #404040;
-    background: #c0c0c0;
-    border: 1px solid #808080;
-    padding: 6px 8px;
-    margin: 4px 0;
-    font-style: italic;
+/* Linha de edição (afundada) */
+.profile-tab .edit-row{
+  background:#fff;
+  padding:4px 6px;
+  border:1px solid #d5d5d5;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf,
+    inset -2px -2px 0 #cfcfcf,
+    inset 3px 3px 0 #818181,
+    inset -2px -2px 0 #cfcfcf;
 }
 
-/* Botões */
-.save-button {
-    background: #c0c0c0;
-    border: 2px outset #c0c0c0;
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 11px;
-    font-weight: bold;
-    color: #000000;
-    padding: 6px 16px;
-    margin: 8px 4px;
-    min-width: 120px;
+/* Botões de lápis com relevo 3D */
+.profile-tab .pencil-btn{
+  background: var(--winface, silver);
+  color:#000;
+  border:1px solid var(--shadow, #808080);
+  border-radius:0;
+  padding:2px 4px;
+  min-width:26px;
+  box-shadow:
+    inset 1px 1px 0 var(--highlight, #fff),
+    inset -1px -1px 0 var(--darkshadow, #404040);
+}
+.profile-tab .pencil-btn:active{
+  box-shadow:
+    inset 1px 1px 0 var(--darkshadow, #404040),
+    inset -1px -1px 0 var(--highlight, #fff);
 }
 
-.save-button:hover {
-    background: #d4d0c8;
+/* Entradas */
+.profile-tab .edit-input{
+  background:#fff; color:#000; border:none; border-radius:0;
+  padding:8px 12px; font-size:10pt;
+}
+.profile-tab .edit-input:focus{ outline:1px dotted #000; outline-offset:-4px; }
+.profile-tab .edit-textview{ background:#fff; color:#000; border:none; padding:8px 10px; }
+
+/* Barra de ações */
+.profile-tab .save-button{
+  border-width: 2px;
+  border-style: outset;
+  border-color: buttonface;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  background: silver;
+  color: black;
+  padding: 6px 16px;
+  border-radius: 1px;
+  font-weight: 700;
+  display: inline-block;
+  margin: 0 auto;
+}
+.profile-tab .save-button:hover,
+.profile-tab .save-button:focus,
+.profile-tab .save-button:active{
+  border: 2px inset #818181;
+  background: silver;
+  color:#424242;
+  box-shadow: -1px -1px #000;
+}
+.profile-tab .actions-container{
+  background: transparent;
+  border: 0;
+  text-align: center;  
+  padding-top: 12px;
 }
 
-.save-button:active {
-    border: 2px inset #c0c0c0;
-    padding: 7px 15px 5px 17px;
+.profile-tab .field-label{
+  font-weight:700;
+  color:#000;
+  min-width:90px;       
 }
 
-.save-button:disabled {
-    color: #808080;
+/* Moldura 3D do avatar (event box) */
+.profile-tab .avatar-box,
+.profile-tab #avatar-box {
+  background: var(--winface, #C0C0C0);
+  padding: 6px;
+  border: 2px solid #fff;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  border-left-color: #fff;
+  border-top-color: #fff;
+  box-shadow: 1px 1px #000;
+  display: inline-block;
 }
 
-/* Status messages */
-.status-message {
-    font-family: "MS Sans Serif", sans-serif;
-    font-size: 10px;
-    font-weight: bold;
-    padding: 6px 10px;
-    margin: 8px 0;
-    border: 1px solid #808080;
-    background: #c0c0c0;
+.profile-tab .edit-scrolled,
+.profile-tab #edit-scrolled {
+  background:#ffffff;
+  border:1px solid var(--shadow);
+  border-radius:0;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf,
+    inset -2px -2px 0 #cfcfcf,
+    inset 3px 3px 0 #818181,
+    inset -2px -2px 0 #cfcfcf;
 }
 
-.status-success {
-    color: #000080;
-    border-color: #000080;
-}
-
-.status-error {
-    color: #800000;
-    border-color: #800000;
-}
-
-/* Container de ações */
-.actions-container {
-    background: #c0c0c0;
-    border: 2px solid;
-    border-color: #dfdfdf #808080 #808080 #dfdfdf;
-    padding: 10px;
-    margin-top: 12px;
-}
-
-/* Separador */
-.separator {
-    background: #808080;
-    border: 1px solid #808080;
-    margin: 12px 0;
+.profile-tab .profile-display-name{
+  font-weight: 800;
+  font-size: 40px;      
+  color:#000;
+  margin:8px 0 12px;
+  text-align:center;
 }

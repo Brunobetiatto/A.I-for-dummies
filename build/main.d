@@ -677,7 +677,7 @@ build/main.o: src/main.c C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h \
  src/interface/dataset_upload.h src/interface/environment.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gstdio.h \
  C:/msys64/mingw64/include/glib-2.0/glib/gprintf.h src/interface/login.h \
- src/interface/profile_tab.h
+ src/interface/profile_tab.h src/interface/profile.h
 C:/msys64/mingw64/include/gtk-3.0/gtk/gtk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdk.h:
 C:/msys64/mingw64/include/gtk-3.0/gdk/gdkconfig.h:
@@ -1365,3 +1365,4 @@ C:/msys64/mingw64/include/glib-2.0/glib/gstdio.h:
 C:/msys64/mingw64/include/glib-2.0/glib/gprintf.h:
 src/interface/login.h:
 src/interface/profile_tab.h:
+src/interface/profile.h:

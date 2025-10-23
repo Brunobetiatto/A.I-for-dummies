@@ -35,6 +35,13 @@ typedef struct {
 
     EnvCtx *env;
     gboolean is_editing;
+
+    /* edit controls */
+    GtkWidget *entry_email;
+    GtkWidget *btn_edit_name;
+    GtkWidget *btn_edit_email;
+    GtkWidget *btn_edit_bio;
+
 } ProfileTabCtx;
 
 /* Forward declarations */
@@ -46,6 +53,10 @@ static gboolean profile_tab_on_name_focus_out(GtkWidget *entry, GdkEventFocus *e
 static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus *event, gpointer user_data);
 static gboolean profile_tab_on_bio_key_press(GtkWidget *textview, GdkEventKey *event, gpointer user_data);
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data);
+
+static inline void add_cls(GtkWidget *w, const char *c){
+    if (w && c) gtk_style_context_add_class(gtk_widget_get_style_context(w), c);
+}
 
 static void profile_tab_set_status(ProfileTabCtx *ctx, const char *msg, gboolean ok) {
     if (!ctx || !ctx->status_label) return;
@@ -92,7 +103,7 @@ static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpoi
             debug_log("profile_tab: avatar escolhido: %s", path);
             
             GError *err = NULL;
-            GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 96, 96, TRUE, &err);
+            GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 384, 384, TRUE, &err);
             if (pix) {
                 gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
                 g_object_unref(pix);
@@ -190,26 +201,72 @@ static gboolean profile_tab_on_bio_key_press(GtkWidget *textview, GdkEventKey *e
     return FALSE;
 }
 
+/* cria ícone de lápis com fallback */
+static GtkWidget* mk_pencil_image(void){
+    GError *err = NULL; GtkWidget *img = NULL;
+    GdkPixbuf *pix = gdk_pixbuf_new_from_file("./assets/pencil.png", &err);
+    if (pix){
+        GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 16, 16, GDK_INTERP_BILINEAR);
+        img = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
+        if (scaled) g_object_unref(scaled);
+        g_object_unref(pix);
+    } else {
+        if (err) g_error_free(err);
+        img = gtk_image_new_from_icon_name("document-edit-symbolic", GTK_ICON_SIZE_MENU);
+    }
+    return img;
+}
+
+static void toggle_entry(GtkButton *btn, GtkEntry *entry){
+    gboolean ed = gtk_editable_get_editable(GTK_EDITABLE(entry));
+    gtk_editable_set_editable(GTK_EDITABLE(entry), !ed);
+    gtk_widget_set_can_focus(GTK_WIDGET(entry), !ed);
+    if (!ed) gtk_widget_grab_focus(GTK_WIDGET(entry));
+    GtkWidget *child = gtk_bin_get_child(GTK_BIN(btn));
+    gtk_image_set_from_icon_name(GTK_IMAGE(child),
+        !ed ? "document-save-symbolic" : "document-edit-symbolic",
+        GTK_ICON_SIZE_MENU);
+}
+
+static void toggle_textview(GtkButton *btn, GtkTextView *tv){
+    gboolean ed = gtk_text_view_get_editable(tv);
+    gtk_text_view_set_editable(tv, !ed);
+    gtk_text_view_set_cursor_visible(tv, !ed);
+    if (!ed) gtk_widget_grab_focus(GTK_WIDGET(tv));
+    GtkWidget *child = gtk_bin_get_child(GTK_BIN(btn));
+    gtk_image_set_from_icon_name(GTK_IMAGE(child),
+        !ed ? "document-save-symbolic" : "document-edit-symbolic",
+        GTK_ICON_SIZE_MENU);
+}
+
+static void on_edit_name (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_name)); }
+static void on_edit_email(GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_email)); }
+static void on_edit_bio  (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_textview(b, GTK_TEXT_VIEW(c->textview_bio)); }
+
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data) {
     (void)btn;
     ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
     if (!ctx) return;
 
     profile_tab_clear_status(ctx);
-    
-    /* Build JSON payload */
+
     cJSON *j = cJSON_CreateObject();
     cJSON_AddNumberToObject(j, "user_id", ctx->user_id);
-    
-    const char *name_text = gtk_label_get_text(GTK_LABEL(ctx->lbl_name));
-    cJSON_AddStringToObject(j, "nome", name_text ? name_text : "");
 
-    const char *bio_text = gtk_label_get_text(GTK_LABEL(ctx->lbl_bio));
+    const char *name_text  = gtk_entry_get_text(GTK_ENTRY(ctx->entry_name));
+    const char *email_text = gtk_entry_get_text(GTK_ENTRY(ctx->entry_email));
+    cJSON_AddStringToObject(j, "nome",  name_text  ? name_text  : "");
+    cJSON_AddStringToObject(j, "email", email_text ? email_text : "");
+
+    GtkTextIter s,e;
+    gtk_text_buffer_get_start_iter(ctx->bio_buffer, &s);
+    gtk_text_buffer_get_end_iter  (ctx->bio_buffer, &e);
+    char *bio_text = gtk_text_buffer_get_text(ctx->bio_buffer, &s, &e, FALSE);
     cJSON_AddStringToObject(j, "bio", bio_text ? bio_text : "");
+    if (bio_text) g_free(bio_text);
 
-    if (ctx->avatar_tmp_path && *ctx->avatar_tmp_path) {
+    if (ctx->avatar_tmp_path && *ctx->avatar_tmp_path)
         cJSON_AddStringToObject(j, "avatar", ctx->avatar_tmp_path);
-    }
 
     char *payload = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
@@ -328,21 +385,9 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
               nome?nome:"(null)", email?email:"(null)", avatar?avatar:"(null)");
 
     /* Update UI */
-    if (nome) gtk_label_set_text(GTK_LABEL(ctx->lbl_name), nome);
-    else gtk_label_set_text(GTK_LABEL(ctx->lbl_name), "Sem nome");
-    
-    if (email) gtk_label_set_text(GTK_LABEL(ctx->lbl_email), email);
-    else gtk_label_set_text(GTK_LABEL(ctx->lbl_email), "Sem email");
-
-    if (bio && *bio) gtk_label_set_text(GTK_LABEL(ctx->lbl_bio), bio);
-    else gtk_label_set_text(GTK_LABEL(ctx->lbl_bio), "Clique para adicionar uma biografia...");
-
-    /* Ensure editors are hidden */
-    gtk_widget_hide(ctx->entry_name);
-    gtk_widget_show(ctx->lbl_name);
-    gtk_widget_hide(ctx->textview_bio);
-    gtk_widget_show(ctx->lbl_bio);
-    ctx->is_editing = FALSE;
+    gtk_label_set_text(GTK_LABEL(ctx->lbl_name), nome ? nome : "");
+    gtk_entry_set_text(GTK_ENTRY(ctx->entry_email), email ? email : "");
+    gtk_text_buffer_set_text(ctx->bio_buffer, bio ? bio : "", -1);
 
     /* Load avatar */
     if (avatar && *avatar) {
@@ -358,7 +403,7 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                     free(wres);
                     if (path && g_file_test(path, G_FILE_TEST_EXISTS)) {
                         GError *err = NULL;
-                        GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 96, 96, TRUE, &err);
+                        GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 384, 384, TRUE, &err);
                         if (pix) {
                             gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
                             g_object_unref(pix);
@@ -374,7 +419,7 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
         } else {
             if (g_file_test(avatar, G_FILE_TEST_EXISTS)) {
                 GError *err = NULL;
-                GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(avatar, 96, 96, TRUE, &err);
+                GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(avatar, 384, 384, TRUE, &err);
                 if (pix) {
                     gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
                     g_object_unref(pix);
@@ -388,7 +433,7 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                 snprintf(uploads_path, sizeof(uploads_path), "uploads/%s", avatar);
                 if (g_file_test(uploads_path, G_FILE_TEST_EXISTS)) {
                     GError *err = NULL;
-                    GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(uploads_path, 96, 96, TRUE, &err);
+                    GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(uploads_path, 384, 384, TRUE, &err);
                     if (pix) {
                         gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
                         g_object_unref(pix);
@@ -415,122 +460,131 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     /* Main container */
     GtkWidget *main_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_name(main_container, "profile-tab-container");
+    add_cls(main_container, "profile-tab-container");
 
-    /* Header */
-    GtkWidget *header = gtk_label_new("MEU PERFIL");
-    gtk_widget_set_name(header, "profile-header");
-    gtk_box_pack_start(GTK_BOX(main_container), header, FALSE, FALSE, 0);
+    /* === CARD central === */
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    add_cls(card, "profile-card");
+    gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(card, GTK_ALIGN_START);
+    gtk_widget_set_size_request(card, 520, -1);
+    gtk_box_pack_start(GTK_BOX(main_container), card, FALSE, FALSE, 0);
 
-    /* Horizontal container for avatar and info */
-    GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
-    gtk_box_pack_start(GTK_BOX(main_container), hbox, FALSE, FALSE, 0);
-
-    /* Avatar section */
-    GtkWidget *avatar_frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_name(avatar_frame, "avatar-container");
-    
+    /* avatar central clicável */
     ctx->avatar_image = gtk_image_new_from_icon_name("avatar-default", GTK_ICON_SIZE_DIALOG);
-    gtk_widget_set_name(ctx->avatar_image, "avatar-image");
-    
+    gtk_image_set_pixel_size(GTK_IMAGE(ctx->avatar_image), 192);       
+    add_cls(ctx->avatar_image, "avatar-image");
+
     GtkWidget *avatar_event = gtk_event_box_new();
+    add_cls(avatar_event, "avatar-box");                    
     gtk_container_add(GTK_CONTAINER(avatar_event), ctx->avatar_image);
     gtk_widget_set_tooltip_text(avatar_event, "Clique para alterar o avatar");
-    g_signal_connect(avatar_event, "button-press-event", 
-                     G_CALLBACK(profile_tab_on_avatar_clicked), ctx);
-    
-    GtkWidget *avatar_label = gtk_label_new("Avatar");
-    gtk_widget_set_name(avatar_label, "info-label");
-    
-    gtk_box_pack_start(GTK_BOX(avatar_frame), avatar_event, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(avatar_frame), avatar_label, FALSE, FALSE, 0);
-    
-    gtk_box_pack_start(GTK_BOX(hbox), avatar_frame, FALSE, FALSE, 0);
+    g_signal_connect(avatar_event, "button-press-event", G_CALLBACK(profile_tab_on_avatar_clicked), ctx);
+    gtk_widget_set_halign(avatar_event, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(card), avatar_event, FALSE, FALSE, 0);
 
-    /* Info section */
-    GtkWidget *info_frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_name(info_frame, "info-container");
+    /* Nome grande abaixo do avatar */
+    ctx->lbl_name = gtk_label_new("");
+    add_cls(ctx->lbl_name, "profile-display-name");
+    gtk_widget_set_halign(ctx->lbl_name, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(card), ctx->lbl_name, FALSE, FALSE, 0);
 
-    /* Name field */
-    GtkWidget *name_label = gtk_label_new("Nome:");
-    gtk_widget_set_name(name_label, "info-label");
-    gtk_box_pack_start(GTK_BOX(info_frame), name_label, FALSE, FALSE, 0);
 
-    ctx->lbl_name = gtk_label_new("Carregando...");
-    gtk_widget_set_name(ctx->lbl_name, "editable-label");
-    gtk_label_set_line_wrap(GTK_LABEL(ctx->lbl_name), TRUE);
-    gtk_label_set_max_width_chars(GTK_LABEL(ctx->lbl_name), 30);
-    
-    GtkWidget *name_event = gtk_event_box_new();
-    gtk_container_add(GTK_CONTAINER(name_event), ctx->lbl_name);
-    gtk_widget_set_tooltip_text(name_event, "Clique para editar");
-    g_signal_connect(name_event, "button-press-event", 
-                     G_CALLBACK(profile_tab_on_name_label_clicked), ctx);
-    gtk_box_pack_start(GTK_BOX(info_frame), name_event, FALSE, FALSE, 0);
+    /* campos empilhados */
+    GtkWidget *fields = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    add_cls(fields, "fields-container");
+    gtk_box_pack_start(GTK_BOX(card), fields, FALSE, FALSE, 0);
 
+    /* Nome */
+    GtkWidget *row_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    add_cls(row_name, "row");
+
+    GtkWidget *lbl_nome = gtk_label_new(NULL);
+    gtk_label_set_use_markup(GTK_LABEL(lbl_nome), TRUE);
+    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Nome:</b>");
+    add_cls(lbl_nome, "field-label");
+    gtk_label_set_xalign(GTK_LABEL(lbl_nome), 0.0);
+    gtk_widget_set_size_request(lbl_nome, 90, -1);
+
+    GtkWidget *name_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    add_cls(name_box, "edit-row");
     ctx->entry_name = gtk_entry_new();
-    gtk_widget_set_name(ctx->entry_name, "editable-entry");
-    g_signal_connect(ctx->entry_name, "focus-out-event",
-                     G_CALLBACK(profile_tab_on_name_focus_out), ctx);
-    gtk_widget_hide(ctx->entry_name);
-    gtk_box_pack_start(GTK_BOX(info_frame), ctx->entry_name, FALSE, FALSE, 0);
+    add_cls(ctx->entry_name, "edit-input");
+    gtk_editable_set_editable(GTK_EDITABLE(ctx->entry_name), TRUE);
+    gtk_box_pack_start(GTK_BOX(name_box), ctx->entry_name, TRUE, TRUE, 0);
 
-    /* Email field */
-    GtkWidget *email_label = gtk_label_new("Email:");
-    gtk_widget_set_name(email_label, "info-label");
-    gtk_box_pack_start(GTK_BOX(info_frame), email_label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_name), lbl_nome,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_name), name_box,  TRUE,  TRUE,  0);
+    gtk_box_pack_start(GTK_BOX(fields),   row_name,  FALSE, FALSE, 0);
 
-    ctx->lbl_email = gtk_label_new("carregando@exemplo.com");
-    gtk_widget_set_name(ctx->lbl_email, "email-display");
-    gtk_box_pack_start(GTK_BOX(info_frame), ctx->lbl_email, FALSE, FALSE, 0);
+    /* Email */
+    GtkWidget *row_email = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
-    /* Bio field */
-    GtkWidget *bio_label = gtk_label_new("Biografia:");
-    gtk_widget_set_name(bio_label, "info-label");
-    gtk_box_pack_start(GTK_BOX(info_frame), bio_label, FALSE, FALSE, 0);
+    GtkWidget *lbl_email = gtk_label_new(NULL);
+    gtk_label_set_use_markup(GTK_LABEL(lbl_email), TRUE);
+    gtk_label_set_markup(GTK_LABEL(lbl_email), "<b>Email:</b>");
+    add_cls(lbl_email, "field-label");
+    gtk_label_set_xalign(GTK_LABEL(lbl_email), 0.0);
+    gtk_widget_set_size_request(lbl_email, 90, -1);
 
-    ctx->lbl_bio = gtk_label_new("Carregando...");
-    gtk_widget_set_name(ctx->lbl_bio, "editable-label");
-    gtk_label_set_line_wrap(GTK_LABEL(ctx->lbl_bio), TRUE);
-    gtk_label_set_max_width_chars(GTK_LABEL(ctx->lbl_bio), 40);
-    
-    GtkWidget *bio_event = gtk_event_box_new();
-    gtk_container_add(GTK_CONTAINER(bio_event), ctx->lbl_bio);
-    gtk_widget_set_tooltip_text(bio_event, "Clique para editar (Ctrl+Enter para salvar)");
-    g_signal_connect(bio_event, "button-press-event", 
-                     G_CALLBACK(profile_tab_on_bio_label_clicked), ctx);
-    gtk_box_pack_start(GTK_BOX(info_frame), bio_event, FALSE, FALSE, 0);
+    GtkWidget *email_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    add_cls(email_box, "edit-row");
+    ctx->entry_email = gtk_entry_new();
+    add_cls(ctx->entry_email, "edit-input");
+    gtk_editable_set_editable(GTK_EDITABLE(ctx->entry_email), TRUE);
+    gtk_box_pack_start(GTK_BOX(email_box), ctx->entry_email, TRUE, TRUE, 0);
 
+    gtk_box_pack_start(GTK_BOX(row_email), lbl_email, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_email), email_box, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(fields),    row_email, FALSE, FALSE, 0);
+
+    /* Biografia (TextView dentro de Scrolled) */
+    GtkWidget *row_bio = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+
+    GtkWidget *lbl_bio = gtk_label_new(NULL);
+    gtk_label_set_use_markup(GTK_LABEL(lbl_bio), TRUE);
+    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biografia:</b>");
+    add_cls(lbl_bio, "field-label");
+    gtk_label_set_xalign(GTK_LABEL(lbl_bio), 0.0);
+    gtk_widget_set_size_request(lbl_bio, 90, -1);
+
+    GtkWidget *bio_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    add_cls(bio_box, "edit-row");
     ctx->textview_bio = gtk_text_view_new();
-    gtk_widget_set_name(ctx->textview_bio, "editable-textview");
+    add_cls(ctx->textview_bio, "edit-textview");
     gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(ctx->textview_bio), GTK_WRAP_WORD_CHAR);
-    gtk_widget_set_size_request(ctx->textview_bio, 300, 80);
-    
     ctx->bio_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(ctx->textview_bio));
-    g_signal_connect(ctx->textview_bio, "focus-out-event",
-                     G_CALLBACK(profile_tab_on_bio_focus_out), ctx);
-    g_signal_connect(ctx->textview_bio, "key-press-event",
-                     G_CALLBACK(profile_tab_on_bio_key_press), ctx);
-    gtk_widget_hide(ctx->textview_bio);
-    gtk_box_pack_start(GTK_BOX(info_frame), ctx->textview_bio, FALSE, FALSE, 0);
+    GtkWidget *bio_scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(bio_scrolled), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(bio_scrolled, -1, 120);
+    gtk_container_add(GTK_CONTAINER(bio_scrolled), ctx->textview_bio);
 
-    gtk_box_pack_start(GTK_BOX(hbox), info_frame, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(bio_box), bio_scrolled, TRUE, TRUE, 0);
+
+    gtk_box_pack_start(GTK_BOX(row_bio), lbl_bio,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_bio), bio_box,  TRUE,  TRUE,  0);
+    gtk_box_pack_start(GTK_BOX(fields),  row_bio,  FALSE, FALSE, 0);    
 
     /* Actions section */
     GtkWidget *actions_frame = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_name(actions_frame, "actions-container");
+    add_cls(actions_frame, "actions-container");
 
     ctx->btn_save = gtk_button_new_with_label("Salvar Alterações");
-    gtk_widget_set_name(ctx->btn_save, "save-button");
-    g_signal_connect(ctx->btn_save, "clicked", 
-                     G_CALLBACK(profile_tab_on_save_clicked), ctx);
+    add_cls(ctx->btn_save, "save-button");
     gtk_box_pack_start(GTK_BOX(actions_frame), ctx->btn_save, FALSE, FALSE, 0);
+    gtk_box_set_center_widget(GTK_BOX(actions_frame), ctx->btn_save);
+    g_signal_connect(ctx->btn_save, "clicked", G_CALLBACK(profile_tab_on_save_clicked), ctx);
 
     ctx->status_label = gtk_label_new("");
-    gtk_widget_set_name(ctx->status_label, "status-message");
-    gtk_box_pack_start(GTK_BOX(actions_frame), ctx->status_label, TRUE, TRUE, 0);
+    add_cls(ctx->status_label, "status-message");
+    gtk_box_pack_end(GTK_BOX(actions_frame), ctx->status_label, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(main_container), actions_frame, FALSE, FALSE, 0);
+    /* colocar a barra de ações dentro do card */
+    gtk_box_pack_start(GTK_BOX(card), actions_frame, FALSE, FALSE, 0);
+    gtk_widget_set_hexpand(actions_frame, TRUE);
+    gtk_widget_set_hexpand(ctx->btn_save, TRUE);
+    gtk_widget_set_halign(ctx->btn_save, GTK_ALIGN_CENTER);
+
 
     /* Wrap with CSS */
     GtkWidget *wrapped = wrap_CSS(PROFILE_CSS, "profile-tab-container", main_container, "profile-tab");

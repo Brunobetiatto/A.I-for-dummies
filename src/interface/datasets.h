@@ -1212,7 +1212,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
         GdkPixbuf *pix = gdk_pixbuf_new_from_file("./assets/clear.png", &err);
         GtkWidget *img = NULL;
         if (pix) {
-            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 28, 28, GDK_INTERP_BILINEAR);
+            GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 22, 22, GDK_INTERP_BILINEAR);
             img = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
             if (scaled) g_object_unref(scaled);
             g_object_unref(pix);

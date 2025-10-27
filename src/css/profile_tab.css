@@ -370,3 +370,7 @@
 .profile-tab scrolledwindow > viewport > textview {
   background: transparent;
 }
+
+.welcome-banner {
+  color: black;
+}

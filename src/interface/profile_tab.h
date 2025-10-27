@@ -46,6 +46,9 @@ typedef struct {
     GtkWidget *btn_edit_email;
     GtkWidget *btn_edit_bio;
 
+    /* banner de boas-vindas */
+    GtkWidget *welcome_label;
+
 } ProfileTabCtx;
 
 /* Forward declarations */
@@ -470,6 +473,15 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
     gtk_entry_set_text(GTK_ENTRY(ctx->entry_name), nome ? nome : ""); 
     gtk_entry_set_text(GTK_ENTRY(ctx->entry_email), email ? email : "");
     gtk_text_buffer_set_text(ctx->bio_buffer, bio ? bio : "", -1);
+    
+    /* Atualiza o banner de boas-vindas com o nome do usuário */
+    if (ctx->welcome_label) {
+        char *markup = g_markup_printf_escaped(
+            "<span weight='bold' size='xx-large'>Bem-vindo ao seu Perfil %s!</span>",
+            nome ? nome : "");
+        gtk_label_set_markup(GTK_LABEL(ctx->welcome_label), markup);
+        g_free(markup);
+    }
 
     /* Load avatar */
     if (avatar && *avatar) {
@@ -569,7 +581,23 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_widget_set_hexpand(main_container, TRUE);
     gtk_widget_set_vexpand(main_container, TRUE);
 
-    /* === CARD central === */
+    /* banner "Bem-vindo" no topo */
+    ctx->welcome_label = gtk_label_new(NULL);
+    gtk_label_set_use_markup(GTK_LABEL(ctx->welcome_label), TRUE);
+    gtk_label_set_markup(GTK_LABEL(ctx->welcome_label),
+        "<span weight='bold' size='xx-large'>Bem-vindo ao seu perfil</span>");
+    add_cls(ctx->welcome_label, "welcome-banner");
+
+    gtk_label_set_xalign(GTK_LABEL(ctx->welcome_label), 0.5);
+    gtk_widget_set_halign(ctx->welcome_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(ctx->welcome_label, TRUE);
+    gtk_widget_set_margin_top   (ctx->welcome_label, 8);
+    gtk_widget_set_margin_bottom(ctx->welcome_label, 6);
+
+    GtkWidget *banner_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_set_center_widget(GTK_BOX(banner_row), ctx->welcome_label);
+    gtk_box_pack_start(GTK_BOX(main_container), banner_row, FALSE, FALSE, 0);
+
     GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     add_cls(card, "profile-card");
     gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
@@ -609,7 +637,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_box_pack_start(GTK_BOX(card), fields, FALSE, FALSE, 0);
 
     /* Nome */
-    GtkWidget *row_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4); /* era 8 -> menos espaço */
+    GtkWidget *row_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4); 
     add_cls(row_name, "row");
 
     /* esquerda: ícone + "Nome:" */

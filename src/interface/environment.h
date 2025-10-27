@@ -7,10 +7,10 @@
 #ifdef G_OS_WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <io.h>      /* _open_osfhandle */
-#include <fcntl.h>   /* _O_RDONLY, _O_BINARY */
+#include <io.h>   
+#include <fcntl.h>  
 #include <errno.h>
-#include <process.h> /* _spawnv, _P_NOWAIT */
+#include <process.h> 
 #endif
 
 #ifndef ENV_H

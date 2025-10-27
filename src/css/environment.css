@@ -514,3 +514,44 @@ headerbar#w95-titlebar button.envbar-btn image {
 #env-left-panel notebook.w95-notebook > header > tabs > tab:checked {
   box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--highlight);
 }
+
+#split-scale trough{
+  min-height:2px;
+  background:#000;
+  border-bottom:1px solid grey;
+  border-right:1px solid grey;
+  box-shadow:
+    1px 0 0 #fff, 1px 1px 0 #fff, 0 1px 0 #fff,
+    -1px 0 0 #a9a9a9, -1px -1px 0 #a9a9a9, 0 -1px 0 #a9a9a9,
+    -1px 1px 0 #fff, 1px -1px 0 #a9a9a9;
+}
+
+/* SLIDER (thumb) */
+#split-scale slider{
+  min-width:11px; min-height:21px; margin:-10px 0;
+  border:0; background:transparent; box-shadow:none;
+  background-image: url("assets/slider.png");
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:11px 21px;
+}
+#split-scale:focus slider{ outline:1px dotted #000; outline-offset:-3px; }
+#split-scale highlight, #split-scale progress{ background:none; }
+
+/* CHECKBOX */
+#env-window checkbutton check{
+  min-width:13px; min-height:13px; border:0; border-radius:0; background:#fff;
+}
+#env-window checkbutton:active check{ background:silver; }
+
+#env-window checkbutton:checked check{
+  -gtk-icon-source: url("assets/check.png");
+  -gtk-icon-transform: scale(0.65);
+  background:#fff;
+}
+
+#env-window checkbutton:disabled:checked check{
+  -gtk-icon-source: url("assets/check.png");
+  -gtk-icon-transform: scale(0.65);
+  opacity:.45;
+}

@@ -1,4 +1,3 @@
-# database/CRUD/create.py
 import os
 import base64
 import hashlib
@@ -26,8 +25,11 @@ def create_user(cnx: mysql.connector.MySQLConnection, nome: str, email: str, pas
     cur = cnx.cursor()
     try:
         cur.execute(
-            "INSERT INTO usuario (nome, email, senha, salt) VALUES (%s, %s, %s, %s)",
-            (nome, email, hash_b64, salt_b64)
+            """
+            INSERT INTO usuario (nome, email, senha, salt, dataCadastro, role)
+            VALUES (%s, %s, %s, %s, NOW(), %s)
+            """,
+            (nome, email, hash_b64, salt_b64, 'user')
         )
         cnx.commit()
         uid = cur.lastrowid
@@ -60,7 +62,6 @@ def create_dataset(cnx, user_id: int,
         try:
             cnx.commit()
         except Exception:
-            # Alguns connectors podem estar em autocommit; ignore erro de commit se já commitado.
             pass
 
         dataset_id = cur.lastrowid

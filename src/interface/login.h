@@ -61,6 +61,10 @@ typedef struct {
 
 } LoginCtx;
 
+typedef struct { 
+    char *mem; size_t size;
+} MemBuf;
+
 GtkWidget* create_login_window(const LoginHandlers *handlers);
 void on_login_button_clicked(GtkButton *btn, gpointer user_data);
 void on_register_button_clicked(GtkButton *button, LoginCtx *ctx);
@@ -69,6 +73,18 @@ void on_recovery_request(GtkButton *btn, LoginCtx *ctx);
 void on_recovery_verify(GtkButton *btn, LoginCtx *ctx);
 
 static void stop_recovery_timer(LoginCtx *ctx);
+
+static size_t write_cb(void *contents, size_t sz, size_t nmemb, void *userp) {
+    size_t realsize = sz * nmemb;
+    MemBuf *m = (MemBuf*)userp;
+    char *p = realloc(m->mem, m->size + realsize + 1);
+    if(!p) return 0;
+    m->mem = p;
+    memcpy(m->mem + m->size, contents, realsize);
+    m->size += realsize;
+    m->mem[m->size] = '\0';
+    return realsize;
+}
 
 // Função para destruir a janela de login
 static void on_login_window_destroy(GtkWidget *widget, gpointer user_data) {
@@ -312,37 +328,83 @@ void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
     const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->reg_email_entry));
     const char *password = gtk_entry_get_text(GTK_ENTRY(ctx->reg_pass_entry));
 
-    if(strlen(nome)==0 || strlen(email)==0 || strlen(password)==0) {
+    if (!*nome || !*email || !*password) {
         gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Preencha todos os campos!");
         return;
     }
 
     CURL *curl = curl_easy_init();
-    if(curl) {
-        CURLcode res;
-        char data[512];
-        snprintf(data, sizeof(data),
-                 "{\"nome\":\"%s\",\"email\":\"%s\",\"password\":\"%s\"}",
-                 nome, email, password);
-
-        curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/user");
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
-        struct curl_slist *headers = NULL;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        res = curl_easy_perform(curl);
-        if(res != CURLE_OK) {
-            gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Erro ao criar usuário!");
-        } else {
-            gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Usuário criado com sucesso!");
-            gtk_entry_set_text(GTK_ENTRY(ctx->reg_nome_entry), "");
-            gtk_entry_set_text(GTK_ENTRY(ctx->reg_email_entry), "");
-            gtk_entry_set_text(GTK_ENTRY(ctx->reg_pass_entry), "");
-        }
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+    if (!curl) {
+        gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Erro interno (curl).");
+        return;
     }
+
+    char data[512];
+    snprintf(data, sizeof(data),
+             "{\"nome\":\"%s\",\"email\":\"%s\",\"password\":\"%s\"}",
+             nome, email, password);
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Accept: application/json");
+
+    MemBuf buf = {0};
+
+    curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/user");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&buf);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Erro de rede ao criar usuário.");
+    } else {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (http_code == 201 || http_code == 200) {
+            // tentar ler JSON {"status":"OK", ...}
+            cJSON *root = cJSON_Parse(buf.mem ? buf.mem : "");
+            const char *status = NULL;
+            if (root) {
+                cJSON *st = cJSON_GetObjectItemCaseSensitive(root, "status");
+                if (cJSON_IsString(st)) status = st->valuestring;
+            }
+            if (status && strcmp(status, "OK") == 0) {
+                gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), "Usuário criado com sucesso!");
+                gtk_entry_set_text(GTK_ENTRY(ctx->reg_nome_entry), "");
+                gtk_entry_set_text(GTK_ENTRY(ctx->reg_email_entry), "");
+                gtk_entry_set_text(GTK_ENTRY(ctx->reg_pass_entry), "");
+            } else {
+                // tentar mensagem
+                const char *msg = NULL;
+                if (root) {
+                    cJSON *m = cJSON_GetObjectItemCaseSensitive(root, "message");
+                    if (cJSON_IsString(m)) msg = m->valuestring;
+                }
+                gtk_label_set_text(GTK_LABEL(ctx->reg_status_label),
+                    msg ? msg : "Falha ao criar usuário (resposta inválida).");
+            }
+            if (root) cJSON_Delete(root);
+        } else {
+            // Mostra mensagem do servidor quando possível
+            cJSON *root = cJSON_Parse(buf.mem ? buf.mem : "");
+            const char *msg = NULL;
+            if (root) {
+                cJSON *m = cJSON_GetObjectItemCaseSensitive(root, "message");
+                if (cJSON_IsString(m)) msg = m->valuestring;
+            }
+            char tmp[256];
+            snprintf(tmp, sizeof(tmp), "Erro (%ld): %s", http_code, msg ? msg : "não especificado");
+            gtk_label_set_text(GTK_LABEL(ctx->reg_status_label), tmp);
+            if (root) cJSON_Delete(root);
+        }
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    free(buf.mem);
 }
 
 // Função "Esqueci minha senha"

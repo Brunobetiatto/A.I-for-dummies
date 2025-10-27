@@ -6,6 +6,7 @@
 #include <glib.h>
 #include <wchar.h>
 #include <windows.h>
+#include <math.h>
 
 #include "../backend/communicator.h"
 #include "context.h"
@@ -13,6 +14,7 @@
 
 #ifndef PROFILE_TAB_H
 #define PROFILE_TAB_H
+#define AVATAR_SIZE 192
 
 typedef struct {
     GtkWidget *container;
@@ -21,6 +23,8 @@ typedef struct {
     /* avatar */
     GtkWidget *avatar_image;
     char *avatar_tmp_path;
+    GtkWidget *avatar_box;
+    guint status_timeout_id;
 
     /* name/bio */
     GtkWidget *lbl_name;
@@ -45,6 +49,7 @@ typedef struct {
 } ProfileTabCtx;
 
 /* Forward declarations */
+static void set_default_avatar(ProfileTabCtx *ctx);
 static void profile_tab_load_user(ProfileTabCtx *ctx);
 static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data);
 static void profile_tab_on_name_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data);
@@ -58,27 +63,102 @@ static inline void add_cls(GtkWidget *w, const char *c){
     if (w && c) gtk_style_context_add_class(gtk_widget_get_style_context(w), c);
 }
 
-static void profile_tab_set_status(ProfileTabCtx *ctx, const char *msg, gboolean ok) {
-    if (!ctx || !ctx->status_label) return;
-    
-    gtk_label_set_text(GTK_LABEL(ctx->status_label), msg ? msg : "");
-    
-    GtkStyleContext *st = gtk_widget_get_style_context(ctx->status_label);
-    if (ok) {
-        gtk_style_context_add_class(st, "status-success");
-        gtk_style_context_remove_class(st, "status-error");
-    } else {
-        gtk_style_context_add_class(st, "status-error");
-        gtk_style_context_remove_class(st, "status-success");
+/* escala para cobrir AVATAR_SIZE x AVATAR_SIZE e recorta centro */
+static GdkPixbuf* pixbuf_cover_square(GdkPixbuf *src, int target){
+    if (!src) return NULL;
+    int sw = gdk_pixbuf_get_width(src);
+    int sh = gdk_pixbuf_get_height(src);
+    if (sw <= 0 || sh <= 0) return NULL;
+
+    /* “cover”: escolhe o MAIOR fator de escala p/ cobrir todo o alvo */
+    double scale = fmax((double)target / (double)sw, (double)target / (double)sh);
+    int nw = (int)ceil(sw * scale);
+    int nh = (int)ceil(sh * scale);
+
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(src, nw, nh, GDK_INTERP_BILINEAR);
+    if (!scaled) return NULL;
+
+    /* recorta quadrado central target x target */
+    int x = (nw - target) / 2;
+    int y = (nh - target) / 2;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+
+    GdkPixbuf *out = gdk_pixbuf_new(gdk_pixbuf_get_colorspace(scaled),
+                                    gdk_pixbuf_get_has_alpha(scaled),
+                                    gdk_pixbuf_get_bits_per_sample(scaled),
+                                    target, target);
+    if (out){
+        gdk_pixbuf_copy_area(scaled, x, y, target, target, out, 0, 0);
     }
+    g_object_unref(scaled);
+    return out;
 }
 
-static void profile_tab_clear_status(ProfileTabCtx *ctx) {
-    if (!ctx) return;
-    gtk_label_set_text(GTK_LABEL(ctx->status_label), "");
+/* carrega do arquivo e já retorna “cover 192x192” */
+static GdkPixbuf* load_cover_from_file(const char *path, int target, GError **err){
+    if (!path) return NULL;
+    GError *lerr = NULL;
+    GdkPixbuf *src = gdk_pixbuf_new_from_file(path, &lerr);
+    if (!src){
+        if (err) *err = lerr; else if (lerr) g_error_free(lerr);
+        return NULL;
+    }
+    GdkPixbuf *out = pixbuf_cover_square(src, target);
+    g_object_unref(src);
+    return out;
+}
+
+static void profile_tab_clear_status(ProfileTabCtx *ctx);
+
+static gboolean hide_status_cb(gpointer data){
+    ProfileTabCtx *ctx = (ProfileTabCtx*)data;
+    ctx->status_timeout_id = 0;
+    profile_tab_clear_status(ctx);
+    return G_SOURCE_REMOVE;
+}
+
+static void profile_tab_set_status(ProfileTabCtx *ctx, const char *msg, gboolean ok){
+    if (!ctx || !ctx->status_label) return;
+
+    /* cancela timeout anterior, se houver */
+    if (ctx->status_timeout_id){
+        g_source_remove(ctx->status_timeout_id);
+        ctx->status_timeout_id = 0;
+    }
+
+
+    if (!msg || !*msg){
+        gtk_widget_hide(ctx->status_label);
+        return;
+    }
+
+    gtk_label_set_text(GTK_LABEL(ctx->status_label), msg);
+    gtk_widget_show(ctx->status_label);
+
     GtkStyleContext *st = gtk_widget_get_style_context(ctx->status_label);
-    gtk_style_context_remove_class(st, "status-success");
-    gtk_style_context_remove_class(st, "status-error");
+    if (ok){ gtk_style_context_add_class(st, "status-success");
+             gtk_style_context_remove_class(st, "status-error"); }
+    else   { gtk_style_context_add_class(st, "status-error");
+             gtk_style_context_remove_class(st, "status-success"); }
+
+    ctx->status_timeout_id = g_timeout_add_seconds(5, hide_status_cb, ctx);
+}
+
+static void profile_tab_clear_status(ProfileTabCtx *ctx){
+    if (!ctx || !ctx->status_label) return;
+    if (ctx->status_timeout_id){
+        g_source_remove(ctx->status_timeout_id);
+        ctx->status_timeout_id = 0;
+    }
+    gtk_label_set_text(GTK_LABEL(ctx->status_label), "");
+    gtk_widget_hide(ctx->status_label);
+}
+
+static void fit_avatar_box(ProfileTabCtx *ctx, GdkPixbuf *pix){
+    (void)pix;
+    if (!ctx || !ctx->avatar_box) return;
+    gtk_widget_set_size_request(ctx->avatar_box, AVATAR_SIZE, AVATAR_SIZE);
 }
 
 static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data) {
@@ -103,9 +183,10 @@ static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpoi
             debug_log("profile_tab: avatar escolhido: %s", path);
             
             GError *err = NULL;
-            GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 384, 384, TRUE, &err);
+            GdkPixbuf *pix = load_cover_from_file(path, AVATAR_SIZE, &err);
             if (pix) {
                 gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
+                fit_avatar_box(ctx, pix);
                 g_object_unref(pix);
                 
                 if (ctx->avatar_tmp_path) g_free(ctx->avatar_tmp_path);
@@ -201,10 +282,10 @@ static gboolean profile_tab_on_bio_key_press(GtkWidget *textview, GdkEventKey *e
     return FALSE;
 }
 
-/* cria ícone de lápis com fallback */
-static GtkWidget* mk_pencil_image(void){
-    GError *err = NULL; GtkWidget *img = NULL;
-    GdkPixbuf *pix = gdk_pixbuf_new_from_file("./assets/pencil.png", &err);
+static GtkWidget* mk_icon_16(const char *path, const char *fallback_icon){
+    GError *err = NULL;
+    GdkPixbuf *pix = gdk_pixbuf_new_from_file(path, &err);
+    GtkWidget *img = NULL;
     if (pix){
         GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pix, 16, 16, GDK_INTERP_BILINEAR);
         img = gtk_image_new_from_pixbuf(scaled ? scaled : pix);
@@ -212,7 +293,7 @@ static GtkWidget* mk_pencil_image(void){
         g_object_unref(pix);
     } else {
         if (err) g_error_free(err);
-        img = gtk_image_new_from_icon_name("document-edit-symbolic", GTK_ICON_SIZE_MENU);
+        img = gtk_image_new_from_icon_name(fallback_icon, GTK_ICON_SIZE_MENU);
     }
     return img;
 }
@@ -386,6 +467,7 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
 
     /* Update UI */
     gtk_label_set_text(GTK_LABEL(ctx->lbl_name), nome ? nome : "");
+    gtk_entry_set_text(GTK_ENTRY(ctx->entry_name), nome ? nome : ""); 
     gtk_entry_set_text(GTK_ENTRY(ctx->entry_email), email ? email : "");
     gtk_text_buffer_set_text(ctx->bio_buffer, bio ? bio : "", -1);
 
@@ -403,14 +485,15 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                     free(wres);
                     if (path && g_file_test(path, G_FILE_TEST_EXISTS)) {
                         GError *err = NULL;
-                        GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(path, 384, 384, TRUE, &err);
+                        GdkPixbuf *pix = load_cover_from_file(path, AVATAR_SIZE, &err);
                         if (pix) {
                             gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
+                            fit_avatar_box(ctx, pix);
                             g_object_unref(pix);
                         } else {
-                            debug_log("profile_tab_load_user: falha ao carregar pixbuf para %s -> %s", 
-                                     path, err?err->message:NULL);
+                            debug_log("profile_tab: falha ao carregar avatar: %s", err ? err->message : "(unknown)");
                             if (err) g_error_free(err);
+                            profile_tab_set_status(ctx, "Erro ao carregar imagem selecionada", FALSE);
                         }
                         g_free(path);
                     }
@@ -419,9 +502,10 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
         } else {
             if (g_file_test(avatar, G_FILE_TEST_EXISTS)) {
                 GError *err = NULL;
-                GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(avatar, 384, 384, TRUE, &err);
+                GdkPixbuf *pix = load_cover_from_file(avatar, AVATAR_SIZE, &err);
                 if (pix) {
                     gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
+                    fit_avatar_box(ctx, pix);
                     g_object_unref(pix);
                 } else {
                     debug_log("profile_tab_load_user: falha ao carregar pixbuf para %s -> %s", 
@@ -433,14 +517,15 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                 snprintf(uploads_path, sizeof(uploads_path), "uploads/%s", avatar);
                 if (g_file_test(uploads_path, G_FILE_TEST_EXISTS)) {
                     GError *err = NULL;
-                    GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(uploads_path, 384, 384, TRUE, &err);
+                    GdkPixbuf *pix = load_cover_from_file(uploads_path, AVATAR_SIZE, &err);
                     if (pix) {
                         gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
+                        fit_avatar_box(ctx, pix);
                         g_object_unref(pix);
+                        if (!gtk_image_get_pixbuf(GTK_IMAGE(ctx->avatar_image)))
+                            set_default_avatar(ctx);
                     } else {
-                        debug_log("profile_tab_load_user: falha ao carregar pixbuf para %s -> %s", 
-                                 uploads_path, err?err->message:NULL);
-                        if (err) g_error_free(err);
+                        set_default_avatar(ctx);
                     }
                 }
             }
@@ -448,6 +533,26 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
     }
 
     cJSON_Delete(root);
+}
+
+/* tenta carregar ./assets/default_avatar.png (ou default_avatar.png) e aplicar */
+static void set_default_avatar(ProfileTabCtx *ctx){
+    if (!ctx || !ctx->avatar_image) return;
+    const char *cands[] = {"./assets/default_avatar.png","./assets/default_avatar.png"};
+    for (int i=0;i<2;i++){
+        GError *err=NULL;
+        GdkPixbuf *pix = load_cover_from_file(cands[i], AVATAR_SIZE, &err);
+        if (pix){
+            gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
+            fit_avatar_box(ctx, pix);
+            g_object_unref(pix);
+            return;
+        }
+        if (err) g_error_free(err);
+    }
+    gtk_image_set_from_icon_name(GTK_IMAGE(ctx->avatar_image), "avatar-default", GTK_ICON_SIZE_DIALOG);
+    gtk_image_set_pixel_size(GTK_IMAGE(ctx->avatar_image), AVATAR_SIZE);
+    fit_avatar_box(ctx, NULL);
 }
 
 static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
@@ -461,22 +566,30 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     /* Main container */
     GtkWidget *main_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     add_cls(main_container, "profile-tab-container");
+    gtk_widget_set_hexpand(main_container, TRUE);
+    gtk_widget_set_vexpand(main_container, TRUE);
 
     /* === CARD central === */
     GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     add_cls(card, "profile-card");
     gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(card, GTK_ALIGN_START);
+    gtk_widget_set_valign(card, GTK_ALIGN_CENTER);  
+    gtk_widget_set_vexpand(card, TRUE);
     gtk_widget_set_size_request(card, 520, -1);
-    gtk_box_pack_start(GTK_BOX(main_container), card, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(main_container), card, TRUE, TRUE, 0);
 
     /* avatar central clicável */
-    ctx->avatar_image = gtk_image_new_from_icon_name("avatar-default", GTK_ICON_SIZE_DIALOG);
-    gtk_image_set_pixel_size(GTK_IMAGE(ctx->avatar_image), 192);       
+    ctx->avatar_image = gtk_image_new();
     add_cls(ctx->avatar_image, "avatar-image");
+    set_default_avatar(ctx);
 
     GtkWidget *avatar_event = gtk_event_box_new();
-    add_cls(avatar_event, "avatar-box");                    
+    add_cls(avatar_event, "avatar-box");       
+    ctx->avatar_box = avatar_event;
+    gtk_widget_set_halign(avatar_event, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(avatar_event, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(avatar_event, FALSE);
+    gtk_widget_set_vexpand(avatar_event, FALSE);          
     gtk_container_add(GTK_CONTAINER(avatar_event), ctx->avatar_image);
     gtk_widget_set_tooltip_text(avatar_event, "Clique para alterar o avatar");
     g_signal_connect(avatar_event, "button-press-event", G_CALLBACK(profile_tab_on_avatar_clicked), ctx);
@@ -496,16 +609,24 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_box_pack_start(GTK_BOX(card), fields, FALSE, FALSE, 0);
 
     /* Nome */
-    GtkWidget *row_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *row_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4); /* era 8 -> menos espaço */
     add_cls(row_name, "row");
+
+    /* esquerda: ícone + "Nome:" */
+    GtkWidget *left_name = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    add_cls(left_name, "field-left");
+    GtkWidget *ic_user = mk_icon_16("./assets/user.png", "user-identity-symbolic");
 
     GtkWidget *lbl_nome = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_nome), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Nome:</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Nome</b>");
     add_cls(lbl_nome, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_nome), 0.0);
-    gtk_widget_set_size_request(lbl_nome, 90, -1);
 
+    gtk_box_pack_start(GTK_BOX(left_name), ic_user, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_name), lbl_nome, FALSE, FALSE, 0);
+
+    /* direita: campo */
     GtkWidget *name_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     add_cls(name_box, "edit-row");
     ctx->entry_name = gtk_entry_new();
@@ -513,19 +634,26 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_editable_set_editable(GTK_EDITABLE(ctx->entry_name), TRUE);
     gtk_box_pack_start(GTK_BOX(name_box), ctx->entry_name, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(row_name), lbl_nome,  FALSE, FALSE, 0);
+    /* empacotar */
+    gtk_box_pack_start(GTK_BOX(row_name), left_name, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(row_name), name_box,  TRUE,  TRUE,  0);
     gtk_box_pack_start(GTK_BOX(fields),   row_name,  FALSE, FALSE, 0);
 
     /* Email */
-    GtkWidget *row_email = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *row_email = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+
+    GtkWidget *left_email = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    add_cls(left_email, "field-left");
+    GtkWidget *ic_email = mk_icon_16("./assets/email.png", "mail-send-symbolic");
 
     GtkWidget *lbl_email = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_email), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_email), "<b>Email:</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_email), "<b>Email</b>");
     add_cls(lbl_email, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_email), 0.0);
-    gtk_widget_set_size_request(lbl_email, 90, -1);
+
+    gtk_box_pack_start(GTK_BOX(left_email), ic_email, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_email), lbl_email, FALSE, FALSE, 0);
 
     GtkWidget *email_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     add_cls(email_box, "edit-row");
@@ -534,36 +662,47 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_editable_set_editable(GTK_EDITABLE(ctx->entry_email), TRUE);
     gtk_box_pack_start(GTK_BOX(email_box), ctx->entry_email, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(row_email), lbl_email, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row_email), email_box, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(fields),    row_email, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_email), left_email, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_email), email_box,   TRUE,  TRUE,  0);
+    gtk_box_pack_start(GTK_BOX(fields),    row_email,   FALSE, FALSE, 0);
 
-    /* Biografia (TextView dentro de Scrolled) */
-    GtkWidget *row_bio = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    /* Biografia */
+    GtkWidget *row_bio = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+
+    GtkWidget *left_bio = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    add_cls(left_bio, "field-left");
+    GtkWidget *ic_bio = mk_icon_16("./assets/cadastro.png", "text-x-generic-symbolic");
 
     GtkWidget *lbl_bio = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_bio), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biografia:</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biografia</b>");
     add_cls(lbl_bio, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_bio), 0.0);
-    gtk_widget_set_size_request(lbl_bio, 90, -1);
+
+    gtk_box_pack_start(GTK_BOX(left_bio), ic_bio, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_bio), lbl_bio, FALSE, FALSE, 0);
 
     GtkWidget *bio_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     add_cls(bio_box, "edit-row");
+
     ctx->textview_bio = gtk_text_view_new();
     add_cls(ctx->textview_bio, "edit-textview");
     gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(ctx->textview_bio), GTK_WRAP_WORD_CHAR);
     ctx->bio_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(ctx->textview_bio));
+
     GtkWidget *bio_scrolled = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(bio_scrolled), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    add_cls(bio_scrolled, "edit-scrolled");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(bio_scrolled),
+                                GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(bio_scrolled, -1, 120);
     gtk_container_add(GTK_CONTAINER(bio_scrolled), ctx->textview_bio);
 
     gtk_box_pack_start(GTK_BOX(bio_box), bio_scrolled, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(row_bio), lbl_bio,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row_bio), left_bio, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(row_bio), bio_box,  TRUE,  TRUE,  0);
-    gtk_box_pack_start(GTK_BOX(fields),  row_bio,  FALSE, FALSE, 0);    
+    gtk_box_pack_start(GTK_BOX(fields),  row_bio,  FALSE, FALSE, 0);
+
 
     /* Actions section */
     GtkWidget *actions_frame = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -577,7 +716,9 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     ctx->status_label = gtk_label_new("");
     add_cls(ctx->status_label, "status-message");
-    gtk_box_pack_end(GTK_BOX(actions_frame), ctx->status_label, TRUE, TRUE, 0);
+    gtk_widget_set_no_show_all(ctx->status_label, TRUE);
+    gtk_widget_hide(ctx->status_label);
+    gtk_box_pack_end(GTK_BOX(actions_frame), ctx->status_label, FALSE, FALSE, 0);
 
     /* colocar a barra de ações dentro do card */
     gtk_box_pack_start(GTK_BOX(card), actions_frame, FALSE, FALSE, 0);
@@ -588,6 +729,14 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     /* Wrap with CSS */
     GtkWidget *wrapped = wrap_CSS(PROFILE_CSS, "profile-tab-container", main_container, "profile-tab");
+    add_cls(wrapped, "profile-tab");
+    {
+    GtkCssProvider *userprov = gtk_css_provider_new();
+    gtk_css_provider_load_from_path(userprov, "profile_tab.css", NULL);
+    gtk_style_context_add_provider(gtk_widget_get_style_context(wrapped),
+        GTK_STYLE_PROVIDER(userprov), GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(userprov);
+    }
 
     /* --- Tab "Perfil" com ícone + texto --- */
     GtkWidget *tab_box  = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);

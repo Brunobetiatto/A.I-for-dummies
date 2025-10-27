@@ -42,7 +42,7 @@ window, dialog, .background{
   border: 30px solid var(--shadow);
   border-radius: 0;
   padding: 12px 14px;
-  /* Borda 3D levantada */
+  /* Borda 3D */
   box-shadow:
     inset 1px 1px 0 var(--highlight),
     inset -1px -1px 0 var(--darkshadow),

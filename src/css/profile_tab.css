@@ -7,82 +7,33 @@
   padding: 0;
 }
 
-/* --- CARD central branco com relevo Win95 (como seu #login-panel) --- */
-.profile-tab .profile-card {
-  background: #ffffff;                 /* mantém fundo branco padrão */
-  color: #212529;
-  padding: 16px 18px;
-  margin: 16px auto;
-  max-width: 560px;
-
-  /* “moldura” prateada 3D, igual ao seu card do login */
-  border: 2px solid #fff;
-  border-right-color: #424242;
-  border-bottom-color: #424242;
-  border-left-color: #ffffff;
-  border-top-color: #ffffff;
-  box-shadow: 1px 1px #000;            /* leve sombra externa */
-}
-
-/* avatar bem MAIOR, com borda 95 (CSS ajuda; ver nota no C abaixo) */
+/* avatar */
 .profile-tab .avatar-image {
   border: 1px solid #808080;
   box-shadow: 0 0 0 2px #f0f0f0 inset;
-  min-width: 180px;   /* ajuda layout */
-  min-height: 180px;  /* ajuda layout */
-  -gtk-icon-transform: scale(2.0);  /* funciona para icons do tema */
+  min-width: 180px; 
+  min-height: 180px;  
 }
 
 /* pilha dos campos */
 .profile-tab .fields-container { margin-top: 8px; }
 
-/* --- Linha de edição (lápis + entrada) com relevo 95 --- */
-.profile-tab .edit-row {
-  background: #ffffff;
-  padding: 4px 6px;
-
-  /* borda “afundada” */
-  border: 1px solid #d5d5d5;
-  box-shadow:
-    inset 3px 3px 0 #cfcfcf, 
-    inset -2px -2px 0 #cfcfcf,  
-    inset 3px 3px 0 #818181,  
-    inset -2px -2px 0 #cfcfcf;
-}
-
-/* botão de lápis à esquerda — “flat” para não brigar com seu tema */
-.profile-tab .pencil-btn {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding: 0 6px 0 0;
-  min-width: 24px;
-}
-
-/* entradas brancas ocupando a largura, estilo Win95 (igual ao seu entry) */
+/* entradas brancas ocupando a largura, estilo Win95 */
 .profile-tab .edit-input {
-  background: #ffffff;
+  background: #C0C0C0;
   color: #000;
   border-radius: 0;
-  border: none;            /* o relevo está no container .edit-row */
-  padding: 8px 12px;
+  border: none;
   font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
   font-size: 10pt;
-}
-.profile-tab .edit-input::placeholder { color: #6b6b6b; }
-.profile-tab .edit-input:focus {
-  outline: 1px dotted #000;
-  outline-offset: -4px;
 }
 
 /* biografia (TextView) com a mesma cara */
 .profile-tab .edit-textview {
-  background: #ffffff;
+  background: #C0C0C0;
   color: #000;
   border: none;
-  padding: 8px 10px;
-  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
-  font-size: 10pt;
+
 }
 
 /* barra de ações/status — centralizar o botão, manter seu estilo 3D */
@@ -90,7 +41,6 @@
   background: transparent;
   border: 0;
   padding-top: 12px;
-  /* centrar via CSS (além do ajuste em C abaixo para garantir) */
   text-align: center;
 }
 .profile-tab .save-button {
@@ -139,10 +89,10 @@
 
 /* Card branco com relevo Win95 */
 .profile-tab .profile-card{
-  background:#fff;
+  background:#e0deda;
   color:#212529;
   padding:16px 18px;
-  margin:16px auto;
+  margin-top: 40px;
   max-width:560px;
   border:2px solid #fff;
   border-right-color:#424242;
@@ -154,7 +104,7 @@
 
 /* Moldura 3D do avatar (no event box) */
 .profile-tab #avatar-box{
-  background: var(--winface, #C0C0C0);
+  background: var(--winface, #e0deda);
   padding:6px;
   border:2px solid #fff;
   border-right-color:#424242;
@@ -162,12 +112,6 @@
   border-left-color:#fff;
   border-top-color:#fff;
   box-shadow:1px 1px #000;
-}
-.profile-tab .avatar-image{
-  border:1px solid var(--shadow, #808080);
-  box-shadow:0 0 0 2px #f0f0f0 inset;
-  min-width:256px;
-  min-height:256px;
 }
 
 /* Nome grande abaixo do avatar */
@@ -182,14 +126,10 @@
 
 /* Linha de edição (afundada) */
 .profile-tab .edit-row{
-  background:#fff;
-  padding:4px 6px;
-  border:1px solid #d5d5d5;
-  box-shadow:
-    inset 3px 3px 0 #cfcfcf,
-    inset -2px -2px 0 #cfcfcf,
-    inset 3px 3px 0 #818181,
-    inset -2px -2px 0 #cfcfcf;
+  background: transparent;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 /* Botões de lápis com relevo 3D */
@@ -198,7 +138,6 @@
   color:#000;
   border:1px solid var(--shadow, #808080);
   border-radius:0;
-  padding:2px 4px;
   min-width:26px;
   box-shadow:
     inset 1px 1px 0 var(--highlight, #fff),
@@ -212,11 +151,10 @@
 
 /* Entradas */
 .profile-tab .edit-input{
-  background:#fff; color:#000; border:none; border-radius:0;
-  padding:8px 12px; font-size:10pt;
+  background:#fff; color:#000; border:none; border-radius:0; font-size:10pt;
 }
 .profile-tab .edit-input:focus{ outline:1px dotted #000; outline-offset:-4px; }
-.profile-tab .edit-textview{ background:#fff; color:#000; border:none; padding:8px 10px; }
+.profile-tab .edit-textview{ background:#fff; color:#000; border:none; }
 
 /* Barra de ações */
 .profile-tab .save-button{
@@ -257,20 +195,17 @@
 /* Moldura 3D do avatar (event box) */
 .profile-tab .avatar-box,
 .profile-tab #avatar-box {
-  background: var(--winface, #C0C0C0);
-  padding: 6px;
-  border: 2px solid #fff;
-  border-right-color: #424242;
-  border-bottom-color: #424242;
-  border-left-color: #fff;
-  border-top-color: #fff;
-  box-shadow: 1px 1px #000;
+  padding: 6px;             
+  border: 4px solid #fff;    
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  box-shadow: 10px 10px #000; 
   display: inline-block;
 }
 
 .profile-tab .edit-scrolled,
 .profile-tab #edit-scrolled {
-  background:#ffffff;
+  background:#C0C0C0;
   border:1px solid var(--shadow);
   border-radius:0;
   box-shadow:
@@ -282,8 +217,156 @@
 
 .profile-tab .profile-display-name{
   font-weight: 800;
-  font-size: 40px;      
+  font-size: 32px;      
   color:#000;
   margin:8px 0 12px;
   text-align:center;
+}
+
+.entry, .entry:focus,
+.entry:active,
+.entry:disabled {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background-image: none;
+  outline: none;
+}
+
+/* === Entradas: remover underline/bordas/sombras do tema (todos os estados) === */
+.profile-tab entry,
+.profile-tab entry:focus,
+.profile-tab entry:active,
+.profile-tab entry:disabled,
+.profile-tab entry:backdrop {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background-image: none;
+  outline: none;
+  background: transparent; 
+}
+
+/* === TextView/ScrolledWindow === */
+.profile-tab textview,
+.profile-tab scrolledwindow,
+.profile-tab scrolledwindow > viewport,
+.profile-tab scrolledwindow > viewport > textview {
+  border: 0;
+  box-shadow: none;
+  background-image: none;
+  outline: none;
+  background: transparent;
+}
+
+/* === Relevo Win95 só no container que envolve os campos === */
+.profile-tab .edit-row{
+  background:#fff;
+  border:1px solid #d5d5d5;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf,
+    inset -2px -2px 0 #cfcfcf,
+    inset 3px 3px 0 #818181,
+    inset -2px -2px 0 #cfcfcf;
+}
+
+/* Inputs “limpos” dentro do berço */
+.profile-tab .edit-input,
+.profile-tab .edit-textview {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+}
+
+.profile-tab .edit-scrolled {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* === Entradas: remover underline/bordas/sombras do tema (todos os estados) === */
+.profile-tab entry,
+.profile-tab entry:focus,
+.profile-tab entry:active,
+.profile-tab entry:disabled,
+.profile-tab entry:backdrop {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background-image: none;
+  outline: none;
+  background: transparent; /* container (.edit-row) é quem dá o fundo/relevo */
+}
+
+/* === TextView/ScrolledWindow: idem === */
+.profile-tab textview,
+.profile-tab scrolledwindow,
+.profile-tab scrolledwindow > viewport,
+.profile-tab scrolledwindow > viewport > textview {
+  border: 0;
+  box-shadow: none;
+  background-image: none;
+  outline: none;
+  background: transparent;
+}
+
+/* === Relevo Win95 só no container que envolve os campos === */
+.profile-tab .edit-row{
+  background:#fff;
+  border:1px solid #d5d5d5;
+  box-shadow:
+    inset 3px 3px 0 #cfcfcf,
+    inset -2px -2px 0 #cfcfcf,
+    inset 3px 3px 0 #818181,
+    inset -2px -2px 0 #cfcfcf;
+  padding: 4px 6px;
+}
+
+/* Inputs “limpos” dentro do berço */
+.profile-tab .edit-input,
+.profile-tab .edit-textview {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 4px 6px;
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
+}
+
+/* Moldura colada na imagem */
+.profile-tab .avatar-box{
+  padding:0 !important; 
+  background:#e0deda;
+  border:4px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  box-shadow:2px 2px #000;
+  display:inline-block;
+}
+
+/* Aro interno da imagem*/
+.profile-tab .avatar-image{
+  border:4px solid #fff;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+  box-shadow:2px 2px #000;     /* antes 1px */
+  box-shadow: 0 0 0 3px #f0f0f0 inset; /* antes 2px */
+  min-width: 192px;
+  min-height: 192px;
+}
+
+/* === Fundo teal da página da aba "Perfil" === */
+.profile-tab{
+  background:#008080;
+}
+
+.profile-tab .profile-tab-container,
+.profile-tab box,
+.profile-tab grid,
+.profile-tab frame,
+.profile-tab scrolledwindow,
+.profile-tab scrolledwindow > viewport,
+.profile-tab scrolledwindow > viewport > textview {
+  background: transparent;
 }

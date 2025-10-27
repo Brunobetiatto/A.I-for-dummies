@@ -283,6 +283,28 @@ def reset_password():
         print("Error in reset_password:", str(e))
         return jsonify({'status': 'ERROR', 'message': 'Erro interno do servidor'}), 500
 
+@app.route('/user', methods=['POST'])
+def create_user_route():
+    data = request.get_json(silent=True) or {}
+    nome = data.get('nome')
+    email = data.get('email')
+    password = data.get('password')
+
+    if not nome or not email or not password:
+        return jsonify({'status': 'ERROR', 'message': 'nome, email e password são obrigatórios'}), 400
+
+    conn = get_db_connection()
+    try:
+        user = create_user(conn, nome, email, password)  # faz o hash+salt e insere
+        # se sua tabela não tiver default para dataCadastro/role, ajuste create_user (abaixo)
+        return jsonify({'status': 'OK', 'user': user}), 201
+    except pymysql.err.IntegrityError:
+        return jsonify({'status': 'ERROR', 'message': 'Email já cadastrado'}), 409
+    except Exception as e:
+        app.logger.exception("Erro ao criar usuário")
+        return jsonify({'status': 'ERROR', 'message': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/user/<int:user_id>', methods=['GET'])
 def api_get_user(user_id):
@@ -513,16 +535,16 @@ def avatar_file(filename):
         app.logger.exception("Error serving avatar: %s", e)
         return jsonify({'status':'ERROR','message':'Avatar not found'}), 404
 
-# rota para atualizar nome/bio/avatar (multipart/form-data)
+# rota para atualizar nome/email/bio/avatar (multipart/form-data)
 @app.route('/user/<int:user_id>/avatar', methods=['POST'])
 def api_update_user_avatar(user_id):
     try:
         # Pode receber multipart/form-data com: avatar (file), nome, bio
         nome = request.form.get('nome')
         bio = request.form.get('bio')
+        email = request.form.get('email')
 
         avatar_file = request.files.get('avatar')
-
         avatar_url = None
 
         cnx = get_db_connection()
@@ -550,15 +572,19 @@ def api_update_user_avatar(user_id):
             updates = {}
             if nome is not None:
                 updates['nome'] = nome
+            if email is not None:
+                updates['email'] = email
             if bio is not None:
                 updates['bio'] = bio
             if avatar_url is not None:
                 updates['avatar_url'] = avatar_url
-
             if updates:
-                # update_user_info imported from database.CRUD.update
-                update_user_info(cnx, user_id, updates)
-
+                try:
+                    update_user_info(cnx, user_id, updates)
+                except pymysql.err.IntegrityError:
+                    # e.g. UNIQUE(email) violado
+                    return jsonify({'status':'ERROR','message':'Email já cadastrado'}), 409
+                
             # return updated user sanitized
             user_updated = get_user_by_id(cnx, user_id)
             if not user_updated:
@@ -573,11 +599,18 @@ def api_update_user_avatar(user_id):
                 "avatar_url": user_updated.get("avatar_url"),
                 "role": user_updated.get("role") if user_updated.get("role") else "user"
             }
-            return jsonify({'status':'OK','user':resp})
+            return jsonify({'status':'OK','user':{
+            "id": user["idusuario"],
+            "nome": user.get("nome"),
+            "email": user.get("email"),
+            "bio": user.get("bio"),
+            "avatar_url": user.get("avatar_url"),
+        }})
         finally:
             cnx.close()
     except Exception as e:
         app.logger.exception("Error in api_update_user_avatar: %s", e)
+        
 
 @app.route('/dataset/<string:nome>', methods=['GET'])
 def api_get_dataset(nome):

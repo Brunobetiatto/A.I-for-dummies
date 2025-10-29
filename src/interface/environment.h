@@ -111,6 +111,46 @@ static gchar *find_python(void) {
     return NULL;
 }
 
+/* Guarda/obtém o pixbuf-fonte no próprio GtkImage (sem mexer em EnvCtx) */
+static void set_plot_src(GtkImage *img, GdkPixbuf *pb) {
+    if (!img) return;
+    g_object_set_data_full(G_OBJECT(img), "aifd-plot-src",
+                           pb ? g_object_ref(pb) : NULL,
+                           (GDestroyNotify)g_object_unref);
+}
+static GdkPixbuf* get_plot_src(GtkImage *img) {
+    return img ? (GdkPixbuf*)g_object_get_data(G_OBJECT(img), "aifd-plot-src") : NULL;
+}
+
+/* Reescala o pixbuf-fonte para caber no allocation atual do GtkImage */
+static void update_plot_scaled(EnvCtx *ctx) {
+    if (!ctx || !ctx->plot_img) return;
+    GdkPixbuf *src = get_plot_src(ctx->plot_img);
+    if (!src) return;
+
+    GtkAllocation alloc;
+    gtk_widget_get_allocation(GTK_WIDGET(ctx->plot_img), &alloc);
+
+    /* fallback: tenta pai caso ainda não haja alocação válida */
+    if (alloc.width <= 1 || alloc.height <= 1) {
+        GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(ctx->plot_img));
+        if (parent) gtk_widget_get_allocation(parent, &alloc);
+    }
+
+    int tw = MAX(32, alloc.width  - 6);
+    int th = MAX(32, alloc.height - 6);
+
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(src, tw, th, GDK_INTERP_NEAREST);
+    gtk_image_set_from_pixbuf(ctx->plot_img, scaled);
+    g_object_unref(scaled);
+}
+
+/* Reescala instantaneamente sempre que o widget mudar de tamanho */
+static void on_plot_size_allocate(GtkWidget *w, GtkAllocation *alloc, gpointer user_data) {
+    (void)w; (void)alloc;
+    update_plot_scaled((EnvCtx*)user_data);
+}
+
 /* Find the newest PNG whose name starts with prefix inside dir. Caller g_free()s the result. */
 static gchar* find_latest_frame(const gchar *dir, const gchar *prefix) {
     if (!dir || !prefix) return NULL;
@@ -268,7 +308,7 @@ static gboolean poll_fit_image_cb(gpointer user_data) {
         if (err) g_error_free(err);
         return TRUE; /* sem imagem ainda; tenta de novo no próximo tick */
     }
-
+    set_plot_src(ctx->plot_img, pix);
     /* tamanho disponível no widget da aba Plot */
     GtkAllocation alloc;
     gtk_widget_get_allocation(GTK_WIDGET(ctx->plot_img), &alloc);
@@ -850,9 +890,7 @@ static void on_start_clicked(GtkButton *btn, gpointer user_data) {
     /* Unpause (remove flag if present) */
     g_unlink(ctx->pause_flag_path);
 
-    /* Speed up the single-file watcher */
-    if (ctx->plot_timer_id) { g_source_remove(ctx->plot_timer_id); ctx->plot_timer_id = 0; }
-    ctx->plot_timer_id = g_timeout_add(90, poll_fit_image_cb, ctx); /* was 120ms */
+    ctx->plot_timer_id = g_timeout_add(120, poll_fit_image_cb, ctx);
 
     /* Clear progress + status */
     if (ctx->progress) gtk_progress_bar_set_fraction(ctx->progress, 0.0);
@@ -1433,7 +1471,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Wrap left in metal panel + pack */
     char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
     GtkWidget *left_panel  = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", left_col,  "env-left-panel");
-    gtk_paned_pack1(GTK_PANED(paned), left_panel, FALSE, FALSE);
+    gtk_paned_pack1(GTK_PANED(paned), left_panel, FALSE, TRUE);
 
     /* =============== RIGHT: notebook =============== */
     GtkWidget *right_nb = gtk_notebook_new();
@@ -1455,6 +1493,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_widget_set_vexpand(GTK_WIDGET(ctx->plot_img), TRUE);
     gtk_widget_set_halign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
     gtk_widget_set_valign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
+    gtk_widget_set_size_request(GTK_WIDGET(ctx->plot_img), 1, 1);
+    g_signal_connect(ctx->plot_img, "size-allocate",
+                 G_CALLBACK(on_plot_size_allocate), ctx);
     GtkWidget *plot_inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_box_pack_start(GTK_BOX(plot_inner), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
     /* aplica o painel afundado Win95 */
@@ -1471,7 +1512,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     /* Wrap right too (consistent depth) */
     GtkWidget *right_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", right_nb, "env-right-panel");
-    gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, FALSE);
+    gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, TRUE);
 
     /* free CSS buffer returned by parse_CSS_file (wrap_CSS already applied it) */
     if (ENVIRONMENT_CSS) {

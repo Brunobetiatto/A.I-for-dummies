@@ -625,23 +625,19 @@ def save_plot_classification(X, y_idx_or_multi, model, epoch, epochs, out_path,
     tmp = out_path + ".tmp.png"
     plt.tight_layout(rect=[0,0,1,0.95])
     plt.savefig(tmp, dpi=110, bbox_inches="tight")
-    try:
-        import os
-        if os.path.exists(out_path):
-            os.remove(out_path)
-        os.replace(tmp, out_path)
-    except Exception:
-        pass
+    _safe_replace(tmp, out_path)
 
 # --- Win95-ish plotting (kept) ------------------------------
 def _retro95_bevel(fig):
-    x0, x1, y0, y1 = 0.01, 0.99, 0.01, 0.99
+    # padding da moldura (em coordenadas da figura 0..1)
+    pad = 0.001  # use 0.0 se quiser exatamente na borda
+    x0, x1, y0, y1 = 0.0001, 0.9999, 0.001, 0.9999
     fig.lines.extend([
-        plt.Line2D([x0,x1],[y1,y1], transform=fig.transFigure, lw=2, color="#404040"),
-        plt.Line2D([x0,x1],[y0,y0], transform=fig.transFigure, lw=2, color="#FFFFFF"),
-        plt.Line2D([x0,x0],[y0,y1], transform=fig.transFigure, lw=2, color="#FFFFFF"),
-        plt.Line2D([x1,x1],[y0,y1], transform=fig.transFigure, lw=2, color="#404040"),
-    ])
+        plt.Line2D([x0,x1],[y1,y1], transform=fig.transFigure, lw=2, color="#404040", clip_on=False),
+        plt.Line2D([x0,x1],[y0,y0], transform=fig.transFigure, lw=2, color="#404040", clip_on=False),
+        plt.Line2D([x0,x0],[y0,y1], transform=fig.transFigure, lw=1.4, color="#404040", clip_on=False),
+        plt.Line2D([x1,x1],[y0,y1], transform=fig.transFigure, lw=2, color="#404040", clip_on=False),
+     ])
 
 def _retro95_axes(ax, xlim=None, ylim=None, hide_spines=True):
     fig = ax.figure
@@ -651,7 +647,7 @@ def _retro95_axes(ax, xlim=None, ylim=None, hide_spines=True):
         for sp in ax.spines.values():
             sp.set_visible(False)
     ax.grid(True, color="#AFAFAF", linewidth=0.9)
-    ax.tick_params(colors="#000000", labelsize=9)
+    ax.tick_params(colors="#000000", labelsize=8, pad= -1)
     if xlim: ax.set_xlim(*xlim)
     if ylim: ax.set_ylim(*ylim)
     _retro95_bevel(fig)
@@ -679,7 +675,7 @@ def _win95_axes(ax):
         plt.Line2D([x0,x0],[y0,y1], transform=fig.transFigure, lw=2, color="#FFFFFF"),
         plt.Line2D([x1,x1],[y0,y1], transform=fig.transFigure, lw=2, color="#404040"),
     ])
-    ax.grid(True, color="#AFAFAF", alpha=0.6, linewidth=0.8)
+    ax.grid(True, color="#FFFFFF", alpha=0.6, linewidth=0.8)
     ax.tick_params(colors="#000000")
     ax.set_xlim(0, 100)
     ax.set_ylim(0, 100)
@@ -698,13 +694,13 @@ def save_plot_win95_timeseries(values_0_1, epoch, epochs, out_path, metric_label
     ax.plot(xx, yy, drawstyle="steps-post",
             color="#006B6B", linewidth=1.4, antialiased=False)
 
-    ax.set_title(f"Fitting — epoch {epoch}/{epochs}  |  {metric_label}", fontsize=12)
+    ax.set_title(f"Fitting — Epoch {epoch}/{epochs}  |  {metric_label}", fontsize=12)
     plt.tight_layout(pad=0.6)
 
     tmp = out_path + ".tmp.png"
     plt.savefig(tmp, dpi=110, bbox_inches="tight")
     plt.close(fig)
-    os.replace(tmp, out_path)
+    _safe_replace(tmp, out_path)
 
 def _retro95_datafit(ax, X, y_info, model, is_clf, feat_names, classes=None, proj="pca2"):
     _retro95_axes(ax)
@@ -870,7 +866,7 @@ def save_plot_combo_retro95(values_0_1, epoch, epochs, X, y_plot_info,
     tmp = out_path + ".tmp.png"
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(tmp, dpi=100, facecolor=fig.get_facecolor(),
-                edgecolor=fig.get_facecolor(), bbox_inches=None, pad_inches=0)
+                edgecolor="none", bbox_inches=None, pad_inches=0)
     plt.close(fig)
 
     _safe_replace(tmp, out_path)

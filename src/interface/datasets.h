@@ -651,6 +651,8 @@ static void on_back_to_list_clicked(GtkButton *btn, gpointer user_data) {
     if (GTK_IS_STACK(stack)) gtk_stack_set_visible_child_name(stack, "list");
 }
 
+static gchar* make_download_link_markup(const char *url);
+
 /* Click on a card: fill details from its metadata and switch to details page */
 static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
     if (!widget || !user_data) return FALSE;
@@ -724,9 +726,9 @@ static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer u
 
     /* Link label: make clickable markup if present, otherwise dash */
     if (v_link && *v_link) {
-        gchar *mk = g_markup_printf_escaped("<a href=\"%s\">%s</a>", v_link, v_link);
-        gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
-        g_free(mk);
+    gchar *mk = make_download_link_markup(v_link);
+    gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
+    g_free(mk);
     } else {
         gtk_label_set_text(dui->lbl_link, "—");
     }
@@ -848,9 +850,9 @@ static void fill_details_from_meta(DatasetsUI *dui, GHashTable *meta, const char
         (size_pp && *size_pp) ? size_pp : ((v_size && *v_size) ? v_size : "—"));
 
     if (v_link && *v_link) {
-        gchar *mk = g_markup_printf_escaped("<a href=\"%s\">%s</a>", v_link, v_link);
-        gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
-        g_free(mk);
+    gchar *mk = make_download_link_markup(v_link);
+    gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
+    g_free(mk);
     } else {
         gtk_label_set_text(dui->lbl_link, "—");
     }
@@ -1401,6 +1403,11 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_box_pack_start(GTK_BOX(hdr), title, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(details), hdr, FALSE, FALSE, 0);
 
+    /* card envolvendo infos + botões*/
+    GtkWidget *card_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    GtkWidget *card = wrap_CSS(DATASETS_CSS, "ds-details-card", card_box, "ds_details_card");
+    gtk_box_pack_start(GTK_BOX(details), card, FALSE, FALSE, 0);
+
     /* Info grid */
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
@@ -1408,91 +1415,110 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
 
     GtkWidget *l_user = gtk_label_new("User/Owner:");
     GtkWidget *l_size = gtk_label_new("Size:");
-    GtkWidget *l_rows = gtk_label_new("Rows:");
-    GtkWidget *l_link = gtk_label_new("Link:");
+    GtkWidget *l_link = gtk_label_new("Download Link:");
     GtkWidget *l_desc = gtk_label_new("Description:");
 
     GtkWidget *lbl_user_inner = gtk_label_new("—");
     GtkWidget *v_user_event = gtk_event_box_new();
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(v_user_event), FALSE);
     gtk_container_add(GTK_CONTAINER(v_user_event), lbl_user_inner);
+    gtk_widget_set_tooltip_text(v_user_event, "Abrir perfil do usuário");
+    {
+        /* cauda “(abrir perfil)” para indicar que é clicável */
+        GtkWidget *user_row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        GtkWidget *user_hint = gtk_label_new("(abrir perfil)");
+        gtk_widget_set_name(user_hint, "user-link-hint");
+        gtk_box_pack_start(GTK_BOX(user_row_box), v_user_event, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(user_row_box), user_hint, FALSE, FALSE, 0);
 
-    GtkWidget *v_size = gtk_label_new("—");
-    GtkWidget *v_rows = gtk_label_new("—");
-    GtkWidget *v_link = gtk_label_new(NULL);
-    gtk_label_set_use_markup(GTK_LABEL(v_link), TRUE);
-    gtk_label_set_selectable(GTK_LABEL(v_link), TRUE);
-    GtkWidget *v_desc = gtk_label_new("—");
-    gtk_label_set_line_wrap(GTK_LABEL(v_desc), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(v_desc), 0.0);
+        /* linha User/Owner */
+            int r = 0;
+            gtk_grid_attach(GTK_GRID(grid), l_user, 0, r, 1, 1);
+            gtk_grid_attach(GTK_GRID(grid), user_row_box, 1, r++, 1, 1);
 
-    int r = 0;
-    gtk_grid_attach(GTK_GRID(grid), l_user, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_user_event, 1, r++, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), l_size, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_size, 1, r++, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), l_rows, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_rows, 1, r++, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), l_link, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_link, 1, r++, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), l_desc, 0, r, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), v_desc, 1, r++, 1, 1);
+            /* Size */
+            GtkWidget *v_size = gtk_label_new("—");
+            gtk_grid_attach(GTK_GRID(grid), l_size, 0, r, 1, 1);
+            gtk_grid_attach(GTK_GRID(grid), v_size, 1, r++, 1, 1);
 
-    gtk_box_pack_start(GTK_BOX(details), grid, FALSE, FALSE, 0);
+            /* (Rows) — NÃO anexamos à grid para sumir da UI */
+            GtkWidget *v_rows = gtk_label_new("—"); /* mantemos o widget para não quebrar código antigo */
 
-    /* (Optional) Import button area */
-    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *btn_import = gtk_button_new_with_label("Import to Environment");
-    gtk_box_pack_end(GTK_BOX(actions), btn_import, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(details), actions, FALSE, FALSE, 0);
+            /* Download Link */
+            GtkWidget *v_link = gtk_label_new(NULL);
+            gtk_label_set_use_markup(GTK_LABEL(v_link), TRUE);
+            gtk_label_set_selectable(GTK_LABEL(v_link), TRUE);
+            gtk_widget_set_name(v_link, "download-link");
+            gtk_grid_attach(GTK_GRID(grid), l_link, 0, r, 1, 1);
+            gtk_grid_attach(GTK_GRID(grid), v_link, 1, r++, 1, 1);
 
-    gtk_stack_add_titled(GTK_STACK(stack), details, "details", "Details");
+            /* Description */
+            GtkWidget *v_desc = gtk_label_new("—");
+            gtk_label_set_line_wrap(GTK_LABEL(v_desc), TRUE);
+            gtk_label_set_xalign(GTK_LABEL(v_desc), 0.0);
+            gtk_grid_attach(GTK_GRID(grid), l_desc, 0, r, 1, 1);
+            gtk_grid_attach(GTK_GRID(grid), v_desc, 1, r++, 1, 1);
 
-    /* Wrap and mount */
-    gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", top, "env_top"), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", stack, "env_scroll"), TRUE, TRUE, 0);
 
-    GtkWidget *lbl = gtk_label_new("Datasets");
-    gtk_notebook_append_page(nb, outer, lbl);
+            gtk_box_pack_start(GTK_BOX(card_box), grid, FALSE, FALSE, 0);
 
-    /* Build TabCtx */
-    TabCtx *ctx = g_new0(TabCtx, 1);
-    ctx->entry = GTK_ENTRY(entry);
+            /* Botões (dentro do card) */
+            GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+            GtkWidget *btn_import = gtk_button_new_with_label("Import to Environment");
+            gtk_box_pack_end(GTK_BOX(actions), btn_import, FALSE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(card_box), actions, FALSE, FALSE, 0);
+
+            gtk_stack_add_titled(GTK_STACK(stack), details, "details", "Details");
+
+            /* Wrap and mount */
+            gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", top, "env_top"), FALSE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", stack, "env_scroll"), TRUE, TRUE, 0);
+
+            GtkWidget *lbl = gtk_label_new("Datasets");
+            gtk_notebook_append_page(nb, outer, lbl);
+
+            /* Build TabCtx */
+            TabCtx *ctx = g_new0(TabCtx, 1);
+            ctx->entry = GTK_ENTRY(entry);
     
-    /* (We keep a TreeView pointer in TabCtx in case you reuse it later; not needed for details) */
-    ctx->view  = GTK_TREE_VIEW(gtk_tree_view_new());
-    ctx->store = NULL;
+            /* (We keep a TreeView pointer in TabCtx in case you reuse it later; not needed for details) */
+            ctx->view  = GTK_TREE_VIEW(gtk_tree_view_new());
+            ctx->store = NULL;
 
-    /* Bundle UI pointers & stash them on the entry (easy to grab on refresh) */
-    dui->user_event = v_user_event;
-    dui->stack = GTK_STACK(stack);
-    dui->title_label = title;
-    dui->lbl_user = GTK_LABEL(lbl_user_inner);
-    dui->lbl_size = GTK_LABEL(v_size);
-    dui->lbl_rows = GTK_LABEL(v_rows);
-    dui->lbl_link = GTK_LABEL(v_link);
-    dui->lbl_desc = GTK_LABEL(v_desc);
+            /* Bundle UI pointers & stash them on the entry (easy to grab on refresh) */
+            DatasetsUI *dui_local = dui;
+            dui_local->user_event = v_user_event;
+            dui_local->stack = GTK_STACK(stack);
+            dui_local->title_label = title;
+            dui_local->lbl_user = GTK_LABEL(lbl_user_inner);
+            dui_local->lbl_size = GTK_LABEL(v_size);
+            dui_local->lbl_rows = GTK_LABEL(v_rows); 
+            dui_local->lbl_link = GTK_LABEL(v_link);
+            dui_local->lbl_desc = GTK_LABEL(v_desc);
 
-    g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, g_free);
+            g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, g_free);
+            
+            /* estilos “link”/“mãozinha” no nome do usuário */
+            gtk_style_context_add_class(gtk_widget_get_style_context(v_user_event), "eventbox-clickable");
+            gtk_style_context_add_class(gtk_widget_get_style_context(lbl_user_inner), "link");
 
-    /* Signals */
-    /* conectar o botão import para usar o dui (detalhes atuais) */
-    g_signal_connect(btn_import, "clicked", G_CALLBACK(on_import_to_environment), dui);
+            /* Signals */
+            /* conectar o botão import para usar o dui (detalhes atuais) */
+            g_signal_connect(btn_import, "clicked", G_CALLBACK(on_import_to_environment), dui_local);
+            g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
+            g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
+            g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui_local->stack);
 
-
-    g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
-    g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
-    g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui->stack);
-
-    /* aplica “mãozinha” em todos os botões/eventboxes da aba de datasets */
-    hand_cursor_forall(outer, NULL);
+            /* aplica “mãozinha” em todos os botões/eventboxes da aba de datasets */
+            hand_cursor_forall(outer, NULL);
     
-    gtk_widget_show_all(outer);
+            gtk_widget_show_all(outer);
 
-    /* First fill */
-    refresh_datasets_cb(NULL, ctx);
+            /* First fill */
+            refresh_datasets_cb(NULL, ctx);
 
-    return ctx;
+            return ctx;
+    }
 }
 
 
@@ -1655,6 +1681,18 @@ static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCa
         return;
     }
     g_task_return_pointer(task, pv, (GDestroyNotify)csv_preview_free);
+}
+
+/* === Helper específicos da tela de detalhes === */
+/* Monta o markup do link de download (azul sublinhado, mostrando só o basename). */
+static gchar* make_download_link_markup(const char *url) {
+    if (!url || !*url) return g_strdup("—");
+    const char *disp = strrchr(url, '/');
+    disp = disp ? disp + 1 : url;
+    return g_markup_printf_escaped(
+        "<a href=\"%s\"><span foreground=\"#0645ad\" underline=\"single\">%s</span></a>",
+        url, disp
+    );
 }
 
 /* --- SEARCH / FILTER helpers --- */

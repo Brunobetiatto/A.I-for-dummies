@@ -20,7 +20,7 @@
 
 #include <gtk/gtk.h>
 
-/* helper local: alterna maximizar/restaurar (sem outras deps) */
+/* helper local: alterna maximizar/restaurar */
 static void titlebar_on_max_clicked(GtkButton *btn, gpointer win_) {
     (void)btn;
     GtkWindow *win = GTK_WINDOW(win_);

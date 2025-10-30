@@ -1181,31 +1181,6 @@ static void on_import_to_environment(GtkButton *btn, gpointer user_data) {
     free(resp);
 }
 
-/* libera DatasetsUI e recursos associados */
-static void free_datasets_ui(gpointer data) {
-    DatasetsUI *dui = (DatasetsUI*) data;
-    if (!dui) return;
-    debug_log("free_datasets_ui(): freeing DatasetsUI %p", dui);
-    /* se guardou um store, unref ele */
-    if (dui->list.store) {
-        g_object_unref(dui->list.store);
-        dui->list.store = NULL;
-    }
-    /* não free pointers que não são alocados aqui (ex: widgets) */
-    g_free(dui);
-}
-
-/* utilitário seguro para reparent (caso precise reaproveitar widgets) */
-static void safe_remove_from_parent(GtkWidget *child) {
-    if (!child) return;
-    GtkWidget *p = gtk_widget_get_parent(child);
-    if (p && GTK_IS_CONTAINER(p)) {
-        debug_log("safe_remove_from_parent(): removing child %p from parent %p", child, p);
-        gtk_container_remove(GTK_CONTAINER(p), child);
-    }
-}
-
-
 /* Forward declarations de callbacks usados antes da definição */
 static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data);
 
@@ -1219,9 +1194,9 @@ static void on_clear_clicked(GtkButton *btn, gpointer user_data);
 static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     const char *DATASETS_CSS = parse_CSS_file("datasets.css");
 
-    /* Outer container (nova instância sempre) */
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
+
     gtk_widget_set_name(outer, "datasets-window");
 
     /* Top bar: search + upload + refresh */
@@ -1233,10 +1208,11 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Search datasets…");
     gtk_box_pack_start(GTK_BOX(entry_box), entry, TRUE, TRUE, 0);
 
-    /* Clear button */
+    /* Botão “clear”*/
     GtkWidget *clear_btn = gtk_button_new();
-    gtk_button_set_relief(GTK_BUTTON(clear_btn), GTK_RELIEF_NONE);
+    gtk_button_set_relief(GTK_BUTTON(clear_btn), GTK_RELIEF_NONE);  /* estilo “flat” */
     gtk_widget_set_tooltip_text(clear_btn, "Limpar busca");
+
     gtk_widget_set_name(clear_btn, "entry-clear");
 
     {
@@ -1249,6 +1225,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             if (scaled) g_object_unref(scaled);
             g_object_unref(pix);
         } else {
+            /* fallback do tema */
             img = gtk_image_new_from_icon_name("edit-clear-symbolic", GTK_ICON_SIZE_BUTTON);
             if (err) g_error_free(err);
         }
@@ -1258,12 +1235,16 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
         gtk_button_set_image(GTK_BUTTON(clear_btn), img);
     }
 
+    /* coloca o botão à direita do entry */
     gtk_box_pack_start(GTK_BOX(entry_box), clear_btn, FALSE, FALSE, 0);
+
+    /* agora empacote o entry_box no top */
     gtk_box_pack_start(GTK_BOX(top), entry_box, TRUE, TRUE, 0);
 
+    /* limpar ao clicar */
     g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_clicked), entry);
 
-    /* Upload button */
+    /* --- Upload button --- */
     GtkWidget *btn_upload_ui = gtk_button_new();
     {
         GError *err = NULL;
@@ -1278,6 +1259,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             if (scaled) g_object_unref(scaled);
             g_object_unref(pixbuf);
         } else {
+            /* fallback: texto se a imagem não existir */
             gtk_button_set_label(GTK_BUTTON(btn_upload_ui), "Upload");
             if (err) g_error_free(err);
         }
@@ -1285,8 +1267,9 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_box_pack_start(GTK_BOX(top), btn_upload_ui, FALSE, FALSE, 0);
     g_signal_connect(btn_upload_ui, "clicked", G_CALLBACK(on_open_upload_dialog), env);
 
-    /* Refresh button */
+    /* existing refresh button */
     GtkWidget *btn_refresh = gtk_button_new();
+    /* id para pegar o estilo #ds-refresh no CSS */
     gtk_widget_set_name(btn_refresh, "ds-refresh");
     gtk_box_pack_start(GTK_BOX(top), btn_refresh, FALSE, FALSE, 0);
     {
@@ -1303,58 +1286,74 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
         if (err) g_error_free(err);
     }
 
-    /* Stack (list / details) */
+    /* Stack: list(cards) | details */
     GtkWidget *stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
 
-    /* LIST page */
+    /* LIST page — Win95 list (TreeView com cabeçalho) */
     GtkWidget *list_sc = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(list_sc),
-                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+                                GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 
     GtkWidget *tv = gtk_tree_view_new();
+    /* habilita highlight da linha sob o mouse */
     gtk_tree_view_set_hover_selection(GTK_TREE_VIEW(tv), TRUE);
     gtk_widget_set_name(tv, "ds-tv");
     GtkStyleContext *tvsc = gtk_widget_get_style_context(tv);
-    gtk_style_context_add_class(tvsc, "win95-list");
+    gtk_style_context_add_class(tvsc, "win95-list");     /* CSS */
 
-    /* store */
     GtkListStore *store = gtk_list_store_new(DS_N_COLS,
-        GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_POINTER);
-
-    /* carregar ícone padrão (se existir) e armazenar no store object data */
+        GDK_TYPE_PIXBUF,  /* icon  */
+        G_TYPE_STRING,   /* name  */
+        G_TYPE_STRING,   /* desc  */
+        G_TYPE_STRING,   /* size  */
+        G_TYPE_POINTER); /* meta* */
+    
+    /* Ícone padrão das linhas (16x16) */
     {
         GError *err = NULL;
         GdkPixbuf *row_icon = gdk_pixbuf_new_from_file("./assets/dataset.png", &err);
         if (row_icon) {
             GdkPixbuf *scaled = gdk_pixbuf_scale_simple(row_icon, 16, 16, GDK_INTERP_BILINEAR);
             if (scaled) { g_object_unref(row_icon); row_icon = scaled; }
+            /* guarda no store para recuperar no refresh */
             g_object_set_data_full(G_OBJECT(store), "row-icon",
-                                   g_object_ref(row_icon), g_object_unref);
+                                g_object_ref(row_icon), g_object_unref);
             g_object_unref(row_icon);
         } else if (err) {
             g_error_free(err);
         }
     }
-
-    /* filter + sort */
+    /* === NOVO: filter (para busca) + sort (para manter ordenação nas colunas) === */
     GtkTreeModel *filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(store), NULL);
     gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(filter),
-                                           search_visible_func, entry, NULL);
+                                        search_visible_func, entry, NULL);
     GtkTreeModel *sort = gtk_tree_model_sort_new_with_model(filter);
+
+    /* o TreeView passa a enxergar sort->filter->store */
     gtk_tree_view_set_model(GTK_TREE_VIEW(tv), sort);
 
-    /* guardamos um ref do store EM DUAS SITUAÇÕES:
-       1) store foi criado pela função -> precisamos de uma ref para manter enquanto a aba existir
-       2) o TreeView tem um modelo sort/filter apontando para o store, então um ref adicional não é necessário
-       Portanto faremos um único g_object_ref(store) para o nosso DatasetsUI e liberaremos na free_datasets_ui(). */
-    g_object_ref(store); /* our ownership */
-    /* NOTA: não chame g_object_ref(store) novamente mais abaixo (evita double-ref). */
+    /* guarde refs e ponteiros pra reuso */
+    g_object_ref(store);
+    g_object_set_data(G_OBJECT(entry), "ds-filter", filter);   /* pra refilter no "changed" */
 
-    /* montar colunas */
+    /* atualiza dinamicamente enquanto digita */
+    g_signal_connect(entry, "changed",   G_CALLBACK(on_search_changed), NULL);
+    /* Enter: se só sobrar 1 linha, abre detalhes */
+    g_signal_connect(entry, "activate", G_CALLBACK(on_search_activate), NULL);
+    /* clique no X limpa e refiltra */
+    g_signal_connect(entry, "icon-press", G_CALLBACK(on_search_icon_press), NULL);
+
+    /* guardamos um ref próprio para usar no refresh */
+    g_object_ref(store);
+
+    gtk_container_add(GTK_CONTAINER(list_sc), tv);
+    gtk_stack_add_titled(GTK_STACK(stack), list_sc, "list", "List");
+
     GtkCellRenderer *ri = gtk_cell_renderer_pixbuf_new();
     g_object_set(ri, "xpad", 4, NULL);
 
+    /* colunas */
     GtkCellRenderer *r1 = gtk_cell_renderer_text_new();
     GtkTreeViewColumn *c_name = gtk_tree_view_column_new();
     gtk_tree_view_column_set_title(c_name, "Name");
@@ -1362,6 +1361,7 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_tree_view_column_add_attribute(c_name, ri, "pixbuf", DS_COL_ICON);
     gtk_tree_view_column_pack_start(c_name, r1, TRUE);
     gtk_tree_view_column_add_attribute(c_name, r1, "text", DS_COL_NAME);
+
     gtk_tree_view_column_set_resizable(c_name, TRUE);
     gtk_tree_view_column_set_sort_column_id(c_name, DS_COL_NAME);
     gtk_tree_view_column_set_sort_indicator(c_name, TRUE);
@@ -1375,28 +1375,25 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_desc);
 
     GtkCellRenderer *r3 = gtk_cell_renderer_text_new();
-    g_object_set(r3, "xalign", 1.0, NULL);
+    g_object_set(r3, "xalign", 1.0, NULL); /* alinhar Size à direita */
     GtkTreeViewColumn *c_size = gtk_tree_view_column_new_with_attributes("Size", r3, "text", DS_COL_SIZE, NULL);
     gtk_tree_view_column_set_resizable(c_size, TRUE);
     gtk_tree_view_column_set_sort_column_id(c_size, DS_COL_SIZE);
     gtk_tree_view_column_set_sort_indicator(c_size, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_size);
 
-    /* bind treeview into scrolled window and stack */
-    gtk_container_add(GTK_CONTAINER(list_sc), tv);
-    gtk_stack_add_titled(GTK_STACK(stack), list_sc, "list", "List");
-
-    /* DatasetsUI struct (control ownership of store here) */
     DatasetsUI *dui = g_new0(DatasetsUI, 1);
     dui->stack = GTK_STACK(stack);
     dui->list.tv = GTK_TREE_VIEW(tv);
-    dui->list.store = store; /* we own one ref */
+    dui->list.store = store;
 
-    /* connect row activation */
+    /* ativação = abrir detalhes */
     g_signal_connect(tv, "row-activated", G_CALLBACK(on_ds_row_activated), dui);
 
     /* DETAILS page */
     GtkWidget *details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+
+    /* Header: Back + Title */
     GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *btn_back = gtk_button_new_with_label("◀ Back");
     GtkWidget *title = gtk_label_new(NULL);
@@ -1470,15 +1467,10 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             GtkWidget *btn_import = gtk_button_new_with_label("Import to Environment");
             gtk_box_pack_end(GTK_BOX(actions), btn_import, FALSE, FALSE, 0);
             gtk_box_pack_start(GTK_BOX(card_box), actions, FALSE, FALSE, 0);
-    /* Actions: Import button - connect later to use dui */
-    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *btn_import = gtk_button_new_with_label("Import to Environment");
-    gtk_box_pack_end(GTK_BOX(actions), btn_import, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(details), actions, FALSE, FALSE, 0);
 
             gtk_stack_add_titled(GTK_STACK(stack), details, "details", "Details");
 
-            /* Wrap and mount (CSS wrapper assumed safe) */
+            /* Wrap and mount */
             gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", top, "env_top"), FALSE, FALSE, 0);
             gtk_box_pack_start(GTK_BOX(outer), wrap_CSS(DATASETS_CSS, "metal-panel", stack, "env_scroll"), TRUE, TRUE, 0);
 
@@ -1492,11 +1484,6 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             /* (We keep a TreeView pointer in TabCtx in case you reuse it later; not needed for details) */
             ctx->view  = GTK_TREE_VIEW(gtk_tree_view_new());
             ctx->store = NULL;
-    /* Build TabCtx and fill pointers */
-    TabCtx *ctx = g_new0(TabCtx, 1);
-    ctx->entry = GTK_ENTRY(entry);
-    ctx->view  = GTK_TREE_VIEW(tv); /* reuse tv pointer, don't create a new one */
-    ctx->store = store;
 
             /* Bundle UI pointers & stash them on the entry (easy to grab on refresh) */
             DatasetsUI *dui_local = dui;
@@ -1508,22 +1495,12 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             dui_local->lbl_rows = GTK_LABEL(v_rows); 
             dui_local->lbl_link = GTK_LABEL(v_link);
             dui_local->lbl_desc = GTK_LABEL(v_desc);
-    /* Bundle UI pointers & stash them on the entry for lifecycle management */
-    dui->user_event = v_user_event;
-    dui->title_label = title;
-    dui->lbl_user = GTK_LABEL(lbl_user_inner);
-    dui->lbl_size = GTK_LABEL(v_size);
-    dui->lbl_rows = GTK_LABEL(v_rows);
-    dui->lbl_link = GTK_LABEL(v_link);
-    dui->lbl_desc = GTK_LABEL(v_desc);
 
             g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, g_free);
             
             /* estilos “link”/“mãozinha” no nome do usuário */
             gtk_style_context_add_class(gtk_widget_get_style_context(v_user_event), "eventbox-clickable");
             gtk_style_context_add_class(gtk_widget_get_style_context(lbl_user_inner), "link");
-    /* store DUI on entry and make sure it will be freed with our destructor */
-    g_object_set_data_full(G_OBJECT(entry), "datasets-ui", dui, free_datasets_ui);
 
             /* Signals */
             /* conectar o botão import para usar o dui (detalhes atuais) */
@@ -1531,24 +1508,14 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
             g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
             g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui_local->stack);
-    /* Signals */
-    g_signal_connect(btn_import, "clicked", G_CALLBACK(on_import_to_environment), dui);
-    g_signal_connect(v_user_event, "button-press-event", G_CALLBACK(on_user_clicked), NULL);
-    g_signal_connect(btn_refresh, "clicked", G_CALLBACK(refresh_datasets_cb), ctx);
-    g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_list_clicked), dui->stack);
 
             /* aplica “mãozinha” em todos os botões/eventboxes da aba de datasets */
             hand_cursor_forall(outer, NULL);
     
             gtk_widget_show_all(outer);
-    hand_cursor_forall(outer, NULL);
-
-    gtk_widget_show_all(outer);
 
             /* First fill */
             refresh_datasets_cb(NULL, ctx);
-    /* First fill: call refresh using ctx (ctx->store is store) */
-    refresh_datasets_cb(NULL, ctx);
 
             return ctx;
     }

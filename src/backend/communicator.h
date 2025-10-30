@@ -317,6 +317,7 @@ bool api_get_user_avatar_to_temp(int user_id, char **out_path) {
 bool api_update_user_with_avatar(int user_id,
                                  const char *nome,
                                  const char *bio,
+                                 const char *email,
                                  const char *avatar_path,
                                  char **response) {
     CURL *curl = NULL;
@@ -376,6 +377,13 @@ bool api_update_user_with_avatar(int user_id,
         curl_mimepart *bp = curl_mime_addpart(form);
         curl_mime_name(bp, "bio");
         curl_mime_data(bp, bio, CURL_ZERO_TERMINATED);
+    }
+
+    /* email */
+    if (email && email[0] != '\0') {
+        curl_mimepart *ep = curl_mime_addpart(form);
+        curl_mime_name(ep, "email");
+        curl_mime_data(ep, email, CURL_ZERO_TERMINATED);
     }
 
     /* user_id (forte redundância, já está no path, mas enviar como campo também não faz mal) */
@@ -1182,20 +1190,23 @@ WCHAR* run_api_command(const WCHAR *command) {
             if (j) {
                 cJSON *ju = cJSON_GetObjectItemCaseSensitive(j, "user_id");
                 cJSON *jn = cJSON_GetObjectItemCaseSensitive(j, "nome");
+                cJSON *jm = cJSON_GetObjectItemCaseSensitive(j, "email");
                 cJSON *jb = cJSON_GetObjectItemCaseSensitive(j, "bio");
                 cJSON *ja = cJSON_GetObjectItemCaseSensitive(j, "avatar");
                 int uid = 0;
                 const char *nome = NULL;
+                const char *email = NULL;
                 const char *bio = NULL;
                 const char *avatar = NULL;
                 if (cJSON_IsNumber(ju)) uid = ju->valueint;
                 else if (cJSON_IsString(ju)) uid = atoi(ju->valuestring);
                 if (cJSON_IsString(jn)) nome = jn->valuestring;
                 if (cJSON_IsString(jb)) bio = jb->valuestring;
+                if (cJSON_IsString(jm)) email = jm->valuestring;
                 if (cJSON_IsString(ja)) avatar = ja->valuestring;
 
                 if (uid > 0) {
-                    api_update_user_with_avatar(uid, nome, bio, avatar, &response);
+                    api_update_user_with_avatar(uid, nome, bio, email, avatar, &response);
                 } else {
                     debug_log("UPDATE_USER_AVATAR: missing/invalid user_id");
                 }

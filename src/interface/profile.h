@@ -716,6 +716,9 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     pui->avatar_image = GTK_IMAGE(gtk_image_new());
     gtk_box_pack_start(GTK_BOX(avatar_box), GTK_WIDGET(pui->avatar_image), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(h_top), avatar_box, FALSE, FALSE, 0);
+    debug_log("Avatar widget created");
+    debug_log(avatar ? "Avatar URL provided" : "No avatar URL provided");
+    debug_log("url: %s", avatar ? avatar : "(null)");
     /* ----------------------------------------------------------------------- */
 
     GtkWidget *v_top = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -918,9 +921,193 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                             debug_log("Datasets array found, iterating...");
                             cJSON *ds;
                             cJSON_ArrayForEach(ds, datasets) {
-                                /* ... (mantive o resto do seu código de datasets inalterado) ... */
-                                /* seu código de criação de páginas de detalhe, itens da lista, etc */
-                                /* ... */
+                                cJSON *idd = cJSON_GetObjectItemCaseSensitive(ds, "iddataset");
+                                cJSON *nome_ds = cJSON_GetObjectItemCaseSensitive(ds, "nome");
+                                cJSON *desc_ds = cJSON_GetObjectItemCaseSensitive(ds, "descricao");
+                                cJSON *url_ds = cJSON_GetObjectItemCaseSensitive(ds, "url");
+                                cJSON *tamanho = cJSON_GetObjectItemCaseSensitive(ds, "tamanho");
+                                cJSON *dt_ds = cJSON_GetObjectItemCaseSensitive(ds, "dataCadastro");
+
+                                const char *ds_name = (nome_ds && cJSON_IsString(nome_ds)) ? nome_ds->valuestring : "unnamed";
+                                const char *ds_desc = (desc_ds && cJSON_IsString(desc_ds)) ? desc_ds->valuestring : "";
+                                const char *ds_url  = (url_ds && cJSON_IsString(url_ds)) ? url_ds->valuestring : NULL;
+                                const char *ds_size = (tamanho && cJSON_IsString(tamanho)) ? tamanho->valuestring : NULL;
+                                const char *ds_dt   = (dt_ds && cJSON_IsString(dt_ds)) ? dt_ds->valuestring : NULL;
+
+                                /* build unique stack name */
+                                char stack_child_name[128];
+                                if (idd && cJSON_IsNumber(idd)) {
+                                    snprintf(stack_child_name, sizeof(stack_child_name), "dataset:%d", idd->valueint);
+                                } else {
+                                    char tmpname[96];
+                                    snprintf(tmpname, sizeof(tmpname), "%s", ds_name);
+                                    for (char *p = tmpname; *p; ++p) if (*p == ' ') *p = '_';
+                                    snprintf(stack_child_name, sizeof(stack_child_name), "dataset:%s", tmpname);
+                                }
+
+                                debug_log("Preparing dataset child '%s' (name=%s)", stack_child_name, ds_name);
+
+                                /* --- create dataset detail page (preloaded) --- */
+                                GtkWidget *detail_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+                                gtk_container_set_border_width(GTK_CONTAINER(detail_page), 12);
+
+                                /* header */
+                                GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+                                GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
+                                GtkWidget *title_lbl = gtk_label_new(NULL);
+                                char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", ds_name);
+                                gtk_label_set_markup(GTK_LABEL(title_lbl), title_markup);
+                                g_free(title_markup);
+                                gtk_label_set_xalign(GTK_LABEL(title_lbl), 0.0);
+                                gtk_box_pack_start(GTK_BOX(hdr), btn_back, FALSE, FALSE, 0);
+                                gtk_box_pack_start(GTK_BOX(hdr), title_lbl, TRUE, TRUE, 0);
+                                gtk_box_pack_start(GTK_BOX(detail_page), hdr, FALSE, FALSE, 0);
+
+                                /* info grid */
+                                GtkWidget *grid = gtk_grid_new();
+                                gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+                                gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+                                gtk_box_pack_start(GTK_BOX(detail_page), grid, FALSE, FALSE, 10);
+
+                                int info_row = 0;
+                                GtkWidget *lbl_user = gtk_label_new("Uploaded by:");
+                                gtk_label_set_xalign(GTK_LABEL(lbl_user), 0.0);
+                                GtkWidget *val_user = gtk_label_new("—"); /* not provided here */
+                                gtk_label_set_xalign(GTK_LABEL(val_user), 0.0);
+                                gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, info_row, 1, 1);
+                                gtk_grid_attach(GTK_GRID(grid), val_user, 1, info_row, 1, 1);
+                                info_row++;
+
+                                /* size */
+                                GtkWidget *lbl_size = gtk_label_new("Size:");
+                                gtk_label_set_xalign(GTK_LABEL(lbl_size), 0.0);
+                                char *size_display = NULL;
+                                if (ds_size && strcmp(ds_size, "") != 0) size_display = size_to_mb_string_(ds_size);
+                                else size_display = g_strdup("—");
+                                GtkWidget *val_size = gtk_label_new(size_display);
+                                gtk_label_set_xalign(GTK_LABEL(val_size), 0.0);
+                                gtk_grid_attach(GTK_GRID(grid), lbl_size, 0, info_row, 1, 1);
+                                gtk_grid_attach(GTK_GRID(grid), val_size, 1, info_row, 1, 1);
+                                info_row++;
+                                g_free(size_display);
+
+                                /* date */
+                                GtkWidget *lbl_date = gtk_label_new("Created:");
+                                gtk_label_set_xalign(GTK_LABEL(lbl_date), 0.0);
+                                GtkWidget *val_date = gtk_label_new(ds_dt ? ds_dt : "—");
+                                gtk_label_set_xalign(GTK_LABEL(val_date), 0.0);
+                                gtk_grid_attach(GTK_GRID(grid), lbl_date, 0, info_row, 1, 1);
+                                gtk_grid_attach(GTK_GRID(grid), val_date, 1, info_row, 1, 1);
+                                info_row++;
+
+                                /* url */
+                                if (ds_url && *ds_url) {
+                                    GtkWidget *lbl_url = gtk_label_new("URL:");
+                                    gtk_label_set_xalign(GTK_LABEL(lbl_url), 0.0);
+                                    GtkWidget *val_url = gtk_label_new(NULL);
+                                    char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", ds_url, ds_url);
+                                    gtk_label_set_markup(GTK_LABEL(val_url), url_markup);
+                                    gtk_label_set_xalign(GTK_LABEL(val_url), 0.0);
+                                    gtk_label_set_selectable(GTK_LABEL(val_url), TRUE);
+                                    g_free(url_markup);
+                                    gtk_grid_attach(GTK_GRID(grid), lbl_url, 0, info_row, 1, 1);
+                                    gtk_grid_attach(GTK_GRID(grid), val_url, 1, info_row, 1, 1);
+                                    info_row++;
+                                }
+
+                                /* description */
+                                if (ds_desc && ds_desc[0]) {
+                                    GtkWidget *desc_frame = gtk_frame_new("Description");
+                                    GtkWidget *desc_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+                                    gtk_container_set_border_width(GTK_CONTAINER(desc_box), 6);
+                                    GtkWidget *lbl_desc = gtk_label_new(ds_desc);
+                                    gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
+                                    gtk_label_set_line_wrap(GTK_LABEL(lbl_desc), TRUE);
+                                    gtk_label_set_selectable(GTK_LABEL(lbl_desc), TRUE);
+                                    gtk_box_pack_start(GTK_BOX(desc_box), lbl_desc, FALSE, FALSE, 0);
+                                    gtk_container_add(GTK_CONTAINER(desc_frame), desc_box);
+                                    gtk_box_pack_start(GTK_BOX(detail_page), desc_frame, FALSE, FALSE, 10);
+                                }
+
+                                /* actions */
+                                GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+                                gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
+                                GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
+                                if (ds_url && *ds_url) {
+                                    g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(ds_url), g_free);
+                                    g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
+                                } else {
+                                    gtk_widget_set_sensitive(btn_open_url, FALSE);
+                                }
+                                gtk_box_pack_start(GTK_BOX(btn_box), btn_open_url, TRUE, TRUE, 0);
+                                gtk_box_pack_start(GTK_BOX(detail_page), btn_box, FALSE, FALSE, 0);
+
+                                /* add the detail page to the stack under a unique name (preloaded) */
+                                gtk_stack_add_named(GTK_STACK(pui->stack), detail_page, stack_child_name);
+                                gtk_widget_show_all(detail_page);
+                                g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_profile_clicked), pui);
+                                debug_log("Preloaded detail page for '%s' (child=%s)", ds_name, stack_child_name);
+
+                                /* --- create the list card (item_box) and attach click handlers so the whole card is clickable --- */
+                                GtkWidget *item_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+                                gtk_widget_set_margin_start(item_box, 6);
+                                gtk_widget_set_margin_end(item_box, 6);
+                                gtk_widget_set_margin_top(item_box, 4);
+                                gtk_widget_set_margin_bottom(item_box, 4);
+
+                                /* horizontal row with name button + meta */
+                                GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+                                GtkWidget *btn_name = gtk_button_new_with_label(ds_name);
+
+                                /* save stack child name on button and connect (keep name click behavior) */
+                                g_object_set_data_full(G_OBJECT(btn_name), "dataset_stack_name", g_strdup(stack_child_name), g_free);
+                                g_signal_connect(btn_name, "clicked", G_CALLBACK(on_dataset_info_clicked), pui);
+                                gtk_box_pack_start(GTK_BOX(hrow), btn_name, FALSE, FALSE, 0);
+
+                                /* meta label */
+                                char meta[256] = "";
+                                if (ds_size) snprintf(meta + strlen(meta), sizeof(meta) - strlen(meta), "%s", ds_size);
+                                if (ds_dt) {
+                                    if (strlen(meta) > 0) strncat(meta, " • ", sizeof(meta) - strlen(meta) - 1);
+                                    strncat(meta, ds_dt, sizeof(meta) - strlen(meta) - 1);
+                                }
+                                GtkWidget *lbl_meta = gtk_label_new(meta);
+                                gtk_label_set_xalign(GTK_LABEL(lbl_meta), 0.0);
+                                gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
+
+                                gtk_box_pack_start(GTK_BOX(item_box), hrow, FALSE, FALSE, 0);
+
+                                if (ds_desc && strlen(ds_desc) > 0) {
+                                    GtkWidget *lbl_desc = gtk_label_new(ds_desc);
+                                    gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
+                                    gtk_label_set_line_wrap(GTK_LABEL(lbl_desc), TRUE);
+                                    gtk_box_pack_start(GTK_BOX(item_box), lbl_desc, FALSE, FALSE, 0);
+                                }
+
+                                GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+                                gtk_box_pack_start(GTK_BOX(item_box), sep, FALSE, FALSE, 6);
+
+                                /* create listrow (declared once) */
+                                GtkWidget *listrow = gtk_list_box_row_new();
+
+                                /* Make the entire card clickable and store stack_child_name on the clickable widget */
+                                #if GTK_CHECK_VERSION(4,0,0)
+                                    g_object_set_data_full(G_OBJECT(item_box), "dataset_stack_name", g_strdup(stack_child_name), g_free);
+                                    GtkGesture *gest = gtk_gesture_click_new();
+                                    gtk_widget_add_controller(item_box, GTK_EVENT_CONTROLLER(gest));
+                                    g_signal_connect(gest, "pressed", G_CALLBACK(on_item_box_gesture_pressed), pui);
+                                    gtk_container_add(GTK_CONTAINER(listrow), item_box);
+                                #else
+                                    GtkWidget *eb = gtk_event_box_new();
+                                    gtk_container_add(GTK_CONTAINER(eb), item_box);
+                                    g_object_set_data_full(G_OBJECT(eb), "dataset_stack_name", g_strdup(stack_child_name), g_free);
+                                    g_signal_connect(eb, "button-press-event", G_CALLBACK(on_item_box_button_press), pui);
+                                    gtk_container_add(GTK_CONTAINER(listrow), eb);
+                                #endif
+
+                                gtk_list_box_insert(GTK_LIST_BOX(list), listrow, -1);
+                                gtk_widget_show_all(listrow);
+                                debug_log("Inserted dataset '%s' into list box (child=%s, listrow=%p)", ds_name, stack_child_name, listrow);
                             }
                         } else {
                             debug_log("datasets response not OK or not an array");

@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 
+
 #ifndef CSS_H
 #define CSS_H
 
@@ -55,16 +56,37 @@ static void apply_CSS(const char *CSS) {
     g_object_unref(prov);
 }
 
+/* utilitário seguro: remove child do parent atual (se existir) */
+static void safe_reparent_remove(GtkWidget *child) {
+    if (!child) return;
+    GtkWidget *parent = gtk_widget_get_parent(child);
+    if (!parent) return;
+    if (GTK_IS_CONTAINER(parent)) {
+      
+        gtk_container_remove(GTK_CONTAINER(parent), child);
+    }
+}
+
+/* wrap_CSS seguro: garante que 'child' não tenha parent antes de empacotar */
 static GtkWidget* wrap_CSS(const char *CSS, const char *class_name,
                            GtkWidget *child, const char *name_opt) {
-    if (CSS && *CSS) apply_CSS(CSS);   // garante provider carregado
+    if (CSS && *CSS) apply_CSS(CSS);   /* garante provider carregado */
+
+    /* Se o child já estiver em outro parent, removemos primeiro.
+       Isso evita o assert '_gtk_widget_get_parent(child) == NULL'. */
+    if (child) safe_reparent_remove(child);
+
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     if (name_opt && *name_opt) gtk_widget_set_name(box, name_opt);
     GtkStyleContext *sc = gtk_widget_get_style_context(box);
     gtk_style_context_add_class(sc, class_name);
     gtk_container_set_border_width(GTK_CONTAINER(box), 6);
-    gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0);
+
+    /* agora é seguro empacotar child */
+    if (child) gtk_box_pack_start(GTK_BOX(box), child, TRUE, TRUE, 0);
+
     return box;
 }
+
 
 #endif

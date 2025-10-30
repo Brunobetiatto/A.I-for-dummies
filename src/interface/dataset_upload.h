@@ -1,6 +1,3 @@
-#ifndef DATASETS_UPLOAD_H
-#define DATASETS_UPLOAD_H
-
 #include <gtk/gtk.h>
 #include <glib.h>
 #include <stdbool.h>
@@ -19,6 +16,10 @@
    Ajuste o include se necessário.
 */
 #include "context.h"
+
+
+#ifndef DATASETS_UPLOAD_H
+#define DATASETS_UPLOAD_H
 
 
 /* helper */

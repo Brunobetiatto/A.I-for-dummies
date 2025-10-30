@@ -535,3 +535,34 @@ headerbar#w95-titlebar button.envbar-btn:backdrop image {
 }
 
 #datasets-window #entry-clear { margin-left: 6px; }
+
+/* ===== Detalhes do Dataset (somente nesta janela) ===== */
+#datasets-window .ds-details-card {
+  background: #e0deda;                 /* cor pedida */
+  border: 2px solid #fff;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  box-shadow: 1px 1px #000;            /* leve sombra Win95 */
+  padding: 12px 14px;
+  border-radius: 1px;
+  margin: 6px 0;
+}
+
+/* Link de download (o label tem name="download-link")  */
+#datasets-window #download-link {
+  color: #0645ad;                      /* azul link clássico */
+}
+
+/* Dica ao lado do usuário */
+#datasets-window #user-link-hint {
+  color: #555;
+  font-style: italic;
+}
+
+/* Já existiam, mas usamos aqui: deixam o nome do usuário com cara de link e mãozinha */
+.eventbox-clickable { cursor: pointer; }
+.link { color: #0066cc; cursor: pointer; }
+.eventbox-clickable:hover .link {
+  color: #ff5500;
+  text-decoration: underline;
+}

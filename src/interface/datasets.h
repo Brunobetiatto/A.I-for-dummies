@@ -10,6 +10,12 @@
 #include <math.h>
 #include <ctype.h>
 
+/* Portable fallback: some platforms/compilers don't expose M_PI by default.
+    Provide a local definition when it's missing to avoid "M_PI undeclared" errors. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #ifndef DATASETS_H
 #define DATASETS_H
 

@@ -103,6 +103,7 @@ typedef struct {
     char *current_user_email;
 
     char *token;
+    char *avatar_image;
 
 
 } EnvCtx;

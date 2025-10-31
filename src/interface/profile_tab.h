@@ -49,11 +49,16 @@ typedef struct {
     /* banner de boas-vindas */
     GtkWidget *welcome_label;
 
+    /* datasets list */
+    GtkWidget *datasets_section;
+    GtkWidget *datasets_list;
+
 } ProfileTabCtx;
 
 /* Forward declarations */
 static void set_default_avatar(ProfileTabCtx *ctx);
 static void profile_tab_load_user(ProfileTabCtx *ctx);
+static void profile_tab_load_datasets(ProfileTabCtx *ctx);
 static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data);
 static void profile_tab_on_name_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data);
 static void profile_tab_on_bio_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data);
@@ -73,7 +78,7 @@ static GdkPixbuf* pixbuf_cover_square(GdkPixbuf *src, int target){
     int sh = gdk_pixbuf_get_height(src);
     if (sw <= 0 || sh <= 0) return NULL;
 
-    /* “cover”: escolhe o MAIOR fator de escala p/ cobrir todo o alvo */
+    /* "cover": escolhe o MAIOR fator de escala p/ cobrir todo o alvo */
     double scale = fmax((double)target / (double)sw, (double)target / (double)sh);
     int nw = (int)ceil(sw * scale);
     int nh = (int)ceil(sh * scale);
@@ -98,7 +103,7 @@ static GdkPixbuf* pixbuf_cover_square(GdkPixbuf *src, int target){
     return out;
 }
 
-/* carrega do arquivo e já retorna “cover 192x192” */
+/* carrega do arquivo e já retorna "cover 192x192" */
 static GdkPixbuf* load_cover_from_file(const char *path, int target, GError **err){
     if (!path) return NULL;
     GError *lerr = NULL;
@@ -129,7 +134,6 @@ static void profile_tab_set_status(ProfileTabCtx *ctx, const char *msg, gboolean
         g_source_remove(ctx->status_timeout_id);
         ctx->status_timeout_id = 0;
     }
-
 
     if (!msg || !*msg){
         gtk_widget_hide(ctx->status_label);
@@ -341,9 +345,6 @@ static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data) {
     const char *email_text = gtk_entry_get_text(GTK_ENTRY(ctx->entry_email));
     cJSON_AddStringToObject(j, "nome",  name_text  ? name_text  : "");
     cJSON_AddStringToObject(j, "email", email_text ? email_text : "");
-    debug_log("profile_tab: preparando update com nome='%s' email='%s'", 
-              name_text ? name_text : "(null)", 
-              email_text ? email_text : "(null)");
 
     GtkTextIter s,e;
     gtk_text_buffer_get_start_iter(ctx->bio_buffer, &s);
@@ -551,6 +552,158 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
     }
 
     cJSON_Delete(root);
+    
+    /* Carrega os datasets do usuário */
+    profile_tab_load_datasets(ctx);
+}
+
+/* Função para carregar a listagem de datasets */
+static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
+    if (!ctx || !ctx->datasets_list || ctx->user_id <= 0) {
+        debug_log("profile_tab_load_datasets: contexto inválido ou user_id <= 0");
+        return;
+    }
+
+    /* Limpa a lista atual */
+    GList *children = gtk_container_get_children(GTK_CONTAINER(ctx->datasets_list));
+    for (GList *iter = children; iter != NULL; iter = iter->next) {
+        gtk_widget_destroy(GTK_WIDGET(iter->data));
+    }
+    g_list_free(children);
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "GET_USER_DATASETS_JSON %d", ctx->user_id);
+    debug_log("profile_tab: buscando datasets com comando: %s", cmd);
+
+    WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
+    if (!wcmd) {
+        debug_log("profile_tab: utf8_to_wchar_alloc() falhou para comando: %s", cmd);
+        return;
+    }
+
+    WCHAR *wres = run_api_command(wcmd);
+    free(wcmd);
+    
+    if (!wres) {
+        debug_log("profile_tab: run_api_command() retornou NULL para cmd: %s", cmd);
+        return;
+    }
+
+    char *json_resp = wchar_to_utf8_alloc(wres);
+    free(wres);
+    
+    if (!json_resp) {
+        debug_log("profile_tab: wchar_to_utf8_alloc() falhou ou retornou NULL");
+        return;
+    }
+
+    debug_log("profile_tab: resposta JSON dos datasets recebida, tamanho: %zu", strlen(json_resp));
+    
+    cJSON *r2 = cJSON_Parse(json_resp);
+    if (!r2) {
+        debug_log("profile_tab: falha ao parsear JSON de resposta dos datasets");
+        g_free(json_resp);
+        return;
+    }
+
+    cJSON *st = cJSON_GetObjectItemCaseSensitive(r2, "status");
+    cJSON *datasets = cJSON_GetObjectItemCaseSensitive(r2, "datasets");
+    
+    if (st && cJSON_IsString(st)) {
+        debug_log("profile_tab: status dos datasets: %s", st->valuestring);
+    } else {
+        debug_log("profile_tab: nenhum 'status' na resposta dos datasets");
+    }
+
+    if (st && cJSON_IsString(st) && strcmp(st->valuestring, "OK") == 0 && cJSON_IsArray(datasets)) {
+        debug_log("profile_tab: array de datasets encontrado, iterando...");
+        
+        cJSON *ds;
+        int dataset_count = 0;
+        
+        cJSON_ArrayForEach(ds, datasets) {
+            cJSON *nome_ds = cJSON_GetObjectItemCaseSensitive(ds, "nome");
+            cJSON *desc_ds = cJSON_GetObjectItemCaseSensitive(ds, "descricao");
+            cJSON *tamanho = cJSON_GetObjectItemCaseSensitive(ds, "tamanho");
+            cJSON *dt_ds = cJSON_GetObjectItemCaseSensitive(ds, "dataCadastro");
+
+            const char *ds_name = (nome_ds && cJSON_IsString(nome_ds)) ? nome_ds->valuestring : "unnamed";
+            const char *ds_desc = (desc_ds && cJSON_IsString(desc_ds)) ? desc_ds->valuestring : "";
+            const char *ds_size = (tamanho && cJSON_IsString(tamanho)) ? tamanho->valuestring : NULL;
+            const char *ds_dt   = (dt_ds && cJSON_IsString(dt_ds)) ? dt_ds->valuestring : NULL;
+
+            debug_log("profile_tab: processando dataset: %s", ds_name);
+
+            /* Cria o container do item */
+            GtkWidget *item_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+            add_cls(item_box, "dataset-row");
+            gtk_widget_set_margin_start(item_box, 6);
+            gtk_widget_set_margin_end(item_box, 6);
+            gtk_widget_set_margin_top(item_box, 4);
+            gtk_widget_set_margin_bottom(item_box, 4);
+
+            /* Linha horizontal com nome e metadados */
+            GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+            
+            /* Nome do dataset como label (não clicável) */
+            GtkWidget *name_lbl = gtk_label_new(ds_name);
+            add_cls(name_lbl, "dataset-name");
+            gtk_label_set_xalign(GTK_LABEL(name_lbl), 0.0);
+            gtk_box_pack_start(GTK_BOX(hrow), name_lbl, FALSE, FALSE, 0);
+
+            /* Metadados (tamanho e data) */
+            char meta[256] = "";
+            if (ds_size) snprintf(meta + strlen(meta), sizeof(meta) - strlen(meta), "%s", ds_size);
+            if (ds_dt) {
+                if (strlen(meta) > 0) strncat(meta, " • ", sizeof(meta) - strlen(meta) - 1);
+                strncat(meta, ds_dt, sizeof(meta) - strlen(meta) - 1);
+            }
+            
+            GtkWidget *lbl_meta = gtk_label_new(meta);
+            add_cls(lbl_meta, "dataset-meta");
+            gtk_label_set_xalign(GTK_LABEL(lbl_meta), 0.0);
+            gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
+
+            gtk_box_pack_start(GTK_BOX(item_box), hrow, FALSE, FALSE, 0);
+
+            /* Descrição */
+            if (ds_desc && strlen(ds_desc) > 0) {
+                GtkWidget *lbl_desc = gtk_label_new(ds_desc);
+                gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
+                gtk_label_set_line_wrap(GTK_LABEL(lbl_desc), TRUE);
+                gtk_box_pack_start(GTK_BOX(item_box), lbl_desc, FALSE, FALSE, 0);
+            }
+
+            /* Separador */
+            GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+            gtk_box_pack_start(GTK_BOX(item_box), sep, FALSE, FALSE, 6);
+            add_cls(sep, "row-sep");
+
+            /* Criar e adicionar à lista */
+            GtkWidget *listrow = gtk_list_box_row_new();
+            gtk_container_add(GTK_CONTAINER(listrow), item_box);
+            gtk_list_box_insert(GTK_LIST_BOX(ctx->datasets_list), listrow, -1);
+            gtk_widget_show_all(listrow);
+            
+            dataset_count++;
+            debug_log("profile_tab: inserido dataset '%s' na list box", ds_name);
+        }
+        
+        debug_log("profile_tab: total de %d datasets carregados", dataset_count);
+        
+        /* Mostra ou esconde a seção baseado na quantidade de datasets */
+        if (dataset_count > 0) {
+            gtk_widget_show(ctx->datasets_section);
+        } else {
+            gtk_widget_hide(ctx->datasets_section);
+        }
+    } else {
+        debug_log("profile_tab: resposta dos datasets não OK ou não é um array");
+        gtk_widget_hide(ctx->datasets_section);
+    }
+    
+    cJSON_Delete(r2);
+    g_free(json_resp);
 }
 
 /* tenta carregar ./assets/default_avatar.png (ou default_avatar.png) e aplicar */
@@ -591,7 +744,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     ctx->welcome_label = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(ctx->welcome_label), TRUE);
     gtk_label_set_markup(GTK_LABEL(ctx->welcome_label),
-        "<span weight='bold' size='xx-large'>Welcome to Your Profile</span>");
+        "<span weight='bold' size='xx-large'>Bem-vindo ao seu perfil</span>");
     add_cls(ctx->welcome_label, "welcome-banner");
 
     gtk_label_set_xalign(GTK_LABEL(ctx->welcome_label), 0.5);
@@ -636,7 +789,6 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_widget_set_halign(ctx->lbl_name, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(card), ctx->lbl_name, FALSE, FALSE, 0);
 
-
     /* campos empilhados */
     GtkWidget *fields = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     add_cls(fields, "fields-container");
@@ -653,7 +805,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     GtkWidget *lbl_nome = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_nome), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Name</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Nome</b>");
     add_cls(lbl_nome, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_nome), 0.0);
 
@@ -709,7 +861,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     GtkWidget *lbl_bio = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_bio), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biography</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biografia</b>");
     add_cls(lbl_bio, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_bio), 0.0);
 
@@ -737,6 +889,33 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_box_pack_start(GTK_BOX(row_bio), bio_box,  TRUE,  TRUE,  0);
     gtk_box_pack_start(GTK_BOX(fields),  row_bio,  FALSE, FALSE, 0);
 
+    /* Seção de Datasets */
+    ctx->datasets_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    add_cls(ctx->datasets_section, "datasets-section");
+    gtk_box_pack_start(GTK_BOX(card), ctx->datasets_section, FALSE, FALSE, 0);
+
+    /* Título da seção de datasets */
+    GtkWidget *datasets_label = gtk_label_new(NULL);
+    gtk_label_set_use_markup(GTK_LABEL(datasets_label), TRUE);
+    gtk_label_set_markup(GTK_LABEL(datasets_label), "<b>Meus Datasets</b>");
+    add_cls(datasets_label, "section-title");
+    gtk_label_set_xalign(GTK_LABEL(datasets_label), 0.0);
+    gtk_box_pack_start(GTK_BOX(ctx->datasets_section), datasets_label, FALSE, FALSE, 0);
+
+    /* Lista de datasets */
+    GtkWidget *scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+    add_cls(scrolled_window, "datasets-scrolled");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(scrolled_window, -1, 200);
+    gtk_box_pack_start(GTK_BOX(ctx->datasets_section), scrolled_window, TRUE, TRUE, 0);
+
+    ctx->datasets_list = gtk_list_box_new();
+    add_cls(ctx->datasets_list, "datasets-list");
+    gtk_container_add(GTK_CONTAINER(scrolled_window), ctx->datasets_list);
+
+    /* Inicialmente esconde a seção até que os datasets sejam carregados */
+    gtk_widget_hide(ctx->datasets_section);
 
     /* Actions section */
     GtkWidget *actions_frame = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -760,7 +939,6 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_widget_set_hexpand(ctx->btn_save, TRUE);
     gtk_widget_set_halign(ctx->btn_save, GTK_ALIGN_CENTER);
 
-
     /* Wrap with CSS */
     GtkWidget *wrapped = wrap_CSS(PROFILE_CSS, "profile-tab-container", main_container, "profile-tab");
     add_cls(wrapped, "profile-tab");
@@ -774,7 +952,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     /* --- Tab "Perfil" com ícone + texto --- */
     GtkWidget *tab_box  = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    GtkWidget *tab_text = gtk_label_new("Profile");
+    GtkWidget *tab_text = gtk_label_new("Perfil");
     GtkWidget *tab_img  = NULL;
 
     /* carrega ./assets/user.png (escala para ~16px) com fallback */

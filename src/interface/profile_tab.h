@@ -591,7 +591,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     ctx->welcome_label = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(ctx->welcome_label), TRUE);
     gtk_label_set_markup(GTK_LABEL(ctx->welcome_label),
-        "<span weight='bold' size='xx-large'>Bem-vindo ao seu perfil</span>");
+        "<span weight='bold' size='xx-large'>Welcome to Your Profile</span>");
     add_cls(ctx->welcome_label, "welcome-banner");
 
     gtk_label_set_xalign(GTK_LABEL(ctx->welcome_label), 0.5);
@@ -653,7 +653,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     GtkWidget *lbl_nome = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_nome), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Nome</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_nome), "<b>Name</b>");
     add_cls(lbl_nome, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_nome), 0.0);
 
@@ -709,7 +709,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     GtkWidget *lbl_bio = gtk_label_new(NULL);
     gtk_label_set_use_markup(GTK_LABEL(lbl_bio), TRUE);
-    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biografia</b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_bio), "<b>Biography</b>");
     add_cls(lbl_bio, "field-label");
     gtk_label_set_xalign(GTK_LABEL(lbl_bio), 0.0);
 
@@ -774,7 +774,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
 
     /* --- Tab "Perfil" com ícone + texto --- */
     GtkWidget *tab_box  = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    GtkWidget *tab_text = gtk_label_new("Perfil");
+    GtkWidget *tab_text = gtk_label_new("Profile");
     GtkWidget *tab_img  = NULL;
 
     /* carrega ./assets/user.png (escala para ~16px) com fallback */

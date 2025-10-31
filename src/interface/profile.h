@@ -20,7 +20,7 @@
   #include <wchar.h>
 #endif
 
-/* Estrutura para gerenciar a stack na janela de perfil */
+/* Estrutura para gerenciar a stack na janela de perfi */
 typedef struct {
     GtkStack *stack;
     GtkWidget *profile_page;
@@ -45,7 +45,9 @@ typedef struct {
 static void fill_dataset_details_in_stack(ProfileWindowUI *pui, const char *dataset_name);
 static void on_back_to_profile_clicked(GtkButton *btn, gpointer user_data);
 static void on_dataset_info_clicked(GtkButton *btn, gpointer user_data);
+static void install_env_w95_titlebar(GtkWindow *win, const char *title_text);
 static GdkPixbuf* pixbuf_cover_square_(GdkPixbuf *src, int target);
+
 
 /* Funções auxiliares para conversão de caracteres */
 static WCHAR* utf8_to_wchar_alloc(const char *utf8) {
@@ -73,6 +75,168 @@ static void fit_avatar_box_(ProfileWindowUI *ctx, GdkPixbuf *pix){
     gtk_widget_set_size_request(ctx->avatar_box, AVATAR_SIZE, AVATAR_SIZE);
 }
 
+/* === Cursor “mãozinha” cross-GTK === */
+#if GTK_CHECK_VERSION(4,0,0)
+static void pf_set_hand_cursor(GtkWidget *w, gboolean on) {
+    if (!w) return;
+    GdkDisplay *dpy = gdk_display_get_default();
+    GdkCursor  *cur = on ? gdk_cursor_new_from_name(dpy, "pointer") : NULL;
+    gtk_widget_set_cursor(w, cur);
+    if (cur) g_object_unref(cur);
+}
+
+static void pf_on_motion_enter(GtkEventControllerMotion *c, double x, double y, gpointer user_data) {
+    GtkWidget *w = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(c));
+    pf_set_hand_cursor(w, TRUE);
+}
+static void pf_on_motion_leave(GtkEventControllerMotion *c, gpointer user_data) {
+    GtkWidget *w = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(c));
+    pf_set_hand_cursor(w, FALSE);
+}
+
+static void pf_apply_hand_cursor_to(GtkWidget *w) {
+    if (!w) return;
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "enter", G_CALLBACK(pf_on_motion_enter), NULL);
+    g_signal_connect(motion, "leave", G_CALLBACK(pf_on_motion_leave), NULL);
+    gtk_widget_add_controller(w, motion);
+}
+#else
+/* GTK3 */
+static gboolean pf_on_enter(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    (void)e; (void)u;
+    if (!gtk_widget_get_window(w)) return FALSE;
+    GdkDisplay *dpy = gdk_display_get_default();
+    GdkCursor  *cur = gdk_cursor_new_from_name(dpy, "pointer");
+    if (!cur) cur = gdk_cursor_new_for_display(dpy, GDK_HAND2);
+    gdk_window_set_cursor(gtk_widget_get_window(w), cur);
+    if (cur) g_object_unref(cur);
+    return FALSE;
+}
+static gboolean pf_on_leave(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    (void)e; (void)u;
+    if (gtk_widget_get_window(w)) gdk_window_set_cursor(gtk_widget_get_window(w), NULL);
+    return FALSE;
+}
+static void pf_apply_hand_cursor_to(GtkWidget *w) {
+    if (!w) return;
+    gtk_widget_add_events(w, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+    g_signal_connect(w, "enter-notify-event", G_CALLBACK(pf_on_enter), NULL);
+    g_signal_connect(w, "leave-notify-event", G_CALLBACK(pf_on_leave), NULL);
+}
+#endif
+
+#if GTK_CHECK_VERSION(4,0,0)
+static void on_item_box_gesture_pressed(GtkGestureClick *g,
+                                        int n_press, double x, double y,
+                                        gpointer user_data)
+{
+    (void)n_press; (void)x; (void)y;
+    ProfileWindowUI *pui = (ProfileWindowUI*)user_data;
+    GtkWidget *w = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(g));
+    const char *child = (const char*) g_object_get_data(G_OBJECT(w), "dataset_stack_name");
+    if (pui && child && *child) {
+        gtk_stack_set_visible_child_name(pui->stack, child);
+    }
+}
+#endif
+
+
+/* GTK3: aplica 'row-hover' no GtkListBoxRow e também no item_box (.dataset-row) interno */
+static gboolean on_row_enter(GtkWidget *row, GdkEventCrossing *e, gpointer unused) {
+    (void)e; (void)unused;
+    if (!row) return FALSE;
+
+    /* Classe no próprio row (para regras que estilizam o row) */
+    gtk_style_context_add_class(gtk_widget_get_style_context(row), "row-hover");
+
+    /* E TAMBÉM no conteúdo interno que tem .dataset-row (para pintar o fundo) */
+    GtkWidget *child1 = NULL, *child2 = NULL;
+    if (GTK_IS_BIN(row)) child1 = gtk_bin_get_child(GTK_BIN(row));           /* EventBox */
+    if (child1 && GTK_IS_BIN(child1)) child2 = gtk_bin_get_child(GTK_BIN(child1)); /* item_box */
+
+    if (child2) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(child2), "row-hover");
+    } else if (child1) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(child1), "row-hover");
+    }
+
+    gtk_widget_queue_draw(row);
+    debug_log("on_row_enter(): row=%p hover ON", row);
+    return FALSE;
+}
+
+/* GTK3: sai do hover */
+static gboolean on_row_leave(GtkWidget *row, GdkEventCrossing *e, gpointer unused) {
+    (void)e; (void)unused;
+    if (!row) return FALSE;
+
+    gtk_style_context_remove_class(gtk_widget_get_style_context(row), "row-hover");
+
+    GtkWidget *child1 = NULL, *child2 = NULL;
+    if (GTK_IS_BIN(row)) child1 = gtk_bin_get_child(GTK_BIN(row));
+    if (child1 && GTK_IS_BIN(child1)) child2 = gtk_bin_get_child(GTK_BIN(child1));
+
+    if (child2) gtk_style_context_remove_class(gtk_widget_get_style_context(child2), "row-hover");
+    else if (child1) gtk_style_context_remove_class(gtk_widget_get_style_context(child1), "row-hover");
+
+    gtk_widget_queue_draw(row);
+    return FALSE;
+}
+
+/* === Helpers para carregar e aplicar profile.css === */
+static char* load_profile_css_() {
+    const char *cands[] = {
+        "css/profile.css",
+        "./css/profile.css",
+        "../css/profile.css",
+        "profile.css"
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(cands); ++i) {
+        char *buf = parse_CSS_file(cands[i]);
+        if (buf) {
+            debug_log("[profile.css] carregado de: %s", cands[i]);
+            return buf;
+        }
+    }
+    debug_log("[profile.css] NÃO encontrado em caminhos padrão");
+    return NULL;
+}
+
+/* Envolve um child e também registra o provider em PRIORITY_USER para vencer o tema global */
+static GtkWidget* wrap_with_profile_css_(GtkWidget *child) {
+    char *css = load_profile_css_();
+    GtkWidget *wrapped = child;
+
+    if (css) {
+        /* Mantém seu wrapper (classe e name previsíveis) */
+        wrapped = wrap_CSS(css, "profile-root", child, "profile-root");
+
+        /* EXTRA: registra o MESMO CSS com prioridade USER p/ garantir override do tema */
+    #if GTK_CHECK_VERSION(4,0,0)
+        GtkCssProvider *prov = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(prov, css, -1, NULL);
+        GdkDisplay *disp = gdk_display_get_default();
+        gtk_style_context_add_provider_for_display(disp,
+            GTK_STYLE_PROVIDER(prov),
+            GTK_STYLE_PROVIDER_PRIORITY_USER);
+        g_object_unref(prov);
+    #else
+        GtkCssProvider *prov = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(prov, css, -1, NULL);
+        GdkScreen *screen = gdk_screen_get_default();
+        gtk_style_context_add_provider_for_screen(screen,
+            GTK_STYLE_PROVIDER(prov),
+            GTK_STYLE_PROVIDER_PRIORITY_USER);
+        g_object_unref(prov);
+    #endif
+
+        free(css); /* wrap_CSS já aplicou; e acima carregamos denovo no provider USER */
+    } else {
+        debug_log("Seguindo sem CSS de perfil (provider não aplicado).");
+    }
+    return wrapped;
+}
 
 static GdkPixbuf* load_cover_from_file_(const char *path, int target, GError **err){
     if (!path) return NULL;
@@ -389,30 +553,21 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     DatasetUIData *d = (DatasetUIData*)user_data;
     ProfileWindowUI *pui = d->pui;
 
-    debug_log("fill_dataset_details_in_stack_ui(): building UI for dataset '%s' (pui=%p, stack=%p)", 
-              d->nome ? d->nome : "(null)", pui, pui ? pui->stack : NULL);
-    if (!pui || !GTK_IS_STACK(pui->stack)) {
-        debug_log("fill_dataset_details_in_stack_ui(): invalid pui or stack");
-        goto out_free;
-    }
+    if (!pui || !GTK_IS_STACK(pui->stack)) goto out_free;
 
-    /* remover child anterior, se houver */
     GtkWidget *existing = gtk_stack_get_child_by_name(pui->stack, "dataset");
-    if (existing) {
-        debug_log("fill_dataset_details_in_stack_ui(): destroying existing 'dataset' child (ptr=%p)", existing);
-        gtk_widget_destroy(existing);
-    }
+    if (existing) gtk_widget_destroy(existing);
 
-    /* montar a nova página (mesmo markup de antes) */
     GtkWidget *dataset_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_container_set_border_width(GTK_CONTAINER(dataset_page), 12);
+    gtk_style_context_add_class(gtk_widget_get_style_context(dataset_page), "profile-panel");
 
     GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_back), "pf-btn");
     GtkWidget *title = gtk_label_new(NULL);
     char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", d->nome ? d->nome : "—");
-    gtk_label_set_markup(GTK_LABEL(title), title_markup);
-    g_free(title_markup);
+    gtk_label_set_markup(GTK_LABEL(title), title_markup); g_free(title_markup);
     gtk_label_set_xalign(GTK_LABEL(title), 0.0);
     gtk_box_pack_start(GTK_BOX(hdr), btn_back, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(hdr), title, TRUE, TRUE, 0);
@@ -424,32 +579,10 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     gtk_box_pack_start(GTK_BOX(dataset_page), grid, FALSE, FALSE, 10);
 
     int row = 0;
-    GtkWidget *lbl_user = gtk_label_new("Uploaded by:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_user), 0.0);
-    GtkWidget *val_user = gtk_label_new(d->usuario_nome ? d->usuario_nome : "—");
-    gtk_label_set_xalign(GTK_LABEL(val_user), 0.0);
-    gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), val_user, 1, row, 1, 1);
-    row++;
-
-    if (d->usuario_email && strcmp(d->usuario_email, "—") != 0) {
-        GtkWidget *lbl_email = gtk_label_new("Email:");
-        gtk_label_set_xalign(GTK_LABEL(lbl_email), 0.0);
-        GtkWidget *val_email = gtk_label_new(d->usuario_email);
-        gtk_label_set_xalign(GTK_LABEL(val_email), 0.0);
-        gtk_grid_attach(GTK_GRID(grid), lbl_email, 0, row, 1, 1);
-        gtk_grid_attach(GTK_GRID(grid), val_email, 1, row, 1, 1);
-        row++;
-    }
 
     GtkWidget *lbl_size = gtk_label_new("Size:");
     gtk_label_set_xalign(GTK_LABEL(lbl_size), 0.0);
-    char *size_display = NULL;
-    if (d->tamanho && strcmp(d->tamanho, "—") != 0) {
-        size_display = size_to_mb_string_(d->tamanho);
-    } else {
-        size_display = g_strdup("—");
-    }
+    char *size_display = (d->tamanho && strcmp(d->tamanho, "—") != 0) ? size_to_mb_string_(d->tamanho) : g_strdup("—");
     GtkWidget *val_size = gtk_label_new(size_display);
     gtk_label_set_xalign(GTK_LABEL(val_size), 0.0);
     gtk_grid_attach(GTK_GRID(grid), lbl_size, 0, row, 1, 1);
@@ -466,14 +599,20 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     row++;
 
     if (d->url && *d->url) {
-        GtkWidget *lbl_url = gtk_label_new("URL:");
+        GtkWidget *lbl_url = gtk_label_new("Download Link:");
         gtk_label_set_xalign(GTK_LABEL(lbl_url), 0.0);
         GtkWidget *val_url = gtk_label_new(NULL);
-        char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", d->url, d->url);
+
+        /* texto do link = apenas o basename do arquivo */
+        const char *base = strrchr(d->url, '/');
+        const char *fname = (base && *(base+1)) ? base+1 : d->url;
+
+        char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", d->url, fname);
         gtk_label_set_markup(GTK_LABEL(val_url), url_markup);
         gtk_label_set_xalign(GTK_LABEL(val_url), 0.0);
         gtk_label_set_selectable(GTK_LABEL(val_url), TRUE);
         g_free(url_markup);
+
         gtk_grid_attach(GTK_GRID(grid), lbl_url, 0, row, 1, 1);
         gtk_grid_attach(GTK_GRID(grid), val_url, 1, row, 1, 1);
         row++;
@@ -495,35 +634,25 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
     GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_open_url), "pf-btn");
     if (d->url && *d->url) {
         g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(d->url), g_free);
         g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
     } else {
         gtk_widget_set_sensitive(btn_open_url, FALSE);
     }
+
+    pf_apply_hand_cursor_to(btn_back);
+    pf_apply_hand_cursor_to(btn_open_url);
+
     gtk_box_pack_start(GTK_BOX(btn_box), btn_open_url, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(dataset_page), btn_box, FALSE, FALSE, 0);
 
-    /* adicionar ao stack e forçar mostrar */
     gtk_stack_add_named(pui->stack, dataset_page, "dataset");
     pui->dataset_page = dataset_page;
 
-    /* importante: mostrar o widget que acabamos de adicionar */
     gtk_widget_show_all(dataset_page);
-
-    /* usar o widget pointer diretamente para tornar visível */
     gtk_stack_set_visible_child(GTK_STACK(pui->stack), dataset_page);
-
-    /* logs de verificação */
-    const char *visible_name = gtk_stack_get_visible_child_name(GTK_STACK(pui->stack));
-    debug_log("fill_dataset_details_in_stack_ui(): dataset page added and shown (dataset_page=%p)", dataset_page);
-    debug_log("fill_dataset_details_in_stack_ui(): gtk_stack_get_visible_child_name() -> %s", visible_name ? visible_name : "(null)");
-    debug_log("fill_dataset_details_in_stack_ui(): dataset_page visible? %d, profile_page visible? %d, stack visible? %d",
-              gtk_widget_get_visible(dataset_page),
-              pui->profile_page ? gtk_widget_get_visible(pui->profile_page) : 0,
-              gtk_widget_get_visible(GTK_WIDGET(pui->stack)));
-
-    /* conectar 'back' (btn_back) */
     g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_profile_clicked), pui);
 
 out_free:
@@ -537,7 +666,6 @@ out_free:
     g_free(d);
     return G_SOURCE_REMOVE;
 }
-
 
 static void fill_dataset_details_in_stack(ProfileWindowUI *pui, const char *dataset_name) {
     if (!pui || !dataset_name) {
@@ -647,7 +775,6 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     }
     debug_log("JSON parsed successfully");
 
-    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
     cJSON *user = cJSON_GetObjectItemCaseSensitive(root, "user");
     if (!user || !cJSON_IsObject(user)) {
         debug_log("no 'user' object found in JSON or it's not an object");
@@ -682,14 +809,18 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     /* Build window */
     debug_log("Creating profile window widgets");
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_widget_set_name(win, "profile-window");
     char title[256];
-    snprintf(title, sizeof(title), "%s", nome);
-    gtk_window_set_title(GTK_WINDOW(win), title);
-    gtk_window_set_default_size(GTK_WINDOW(win), 520, 360);
-    if (parent) {
-        gtk_window_set_transient_for(GTK_WINDOW(win), parent);
-        debug_log("Set transient parent for window");
-    }
+    snprintf(title, sizeof(title), "Perfil de %s", nome ? nome : "—");
+    install_env_w95_titlebar(GTK_WINDOW(win), title);
+
+    /* Tamanho maior + centralização */
+    gtk_window_set_default_size(GTK_WINDOW(win), 1000, 700);
+    #if GTK_CHECK_VERSION(4,0,0)
+        if (parent) gtk_window_set_transient_for(GTK_WINDOW(win), parent);
+    #else
+        gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
+    #endif
 
     /* Stack */
     GtkWidget *stack = gtk_stack_new();
@@ -707,19 +838,18 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     /* Top: avatar + name/email */
     GtkWidget *h_top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
-    /* --- AVATAR WIDGET (criado localmente para suportar load remoto/local) --- */
+    /* --- AVATAR WIDGET --- */
     GtkWidget *avatar_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    pui->avatar_box = avatar_box;
     gtk_widget_set_hexpand(avatar_box, FALSE);
     gtk_widget_set_vexpand(avatar_box, FALSE);
 
-    /* Cria a imagem (placeholder) e guarda no pui para uso posterior */
     pui->avatar_image = GTK_IMAGE(gtk_image_new());
     gtk_box_pack_start(GTK_BOX(avatar_box), GTK_WIDGET(pui->avatar_image), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(h_top), avatar_box, FALSE, FALSE, 0);
     debug_log("Avatar widget created");
     debug_log(avatar ? "Avatar URL provided" : "No avatar URL provided");
     debug_log("url: %s", avatar ? avatar : "(null)");
-    /* ----------------------------------------------------------------------- */
 
     GtkWidget *v_top = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     GtkWidget *lbl_nome = gtk_label_new(NULL);
@@ -741,9 +871,12 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
     gtk_box_pack_start(GTK_BOX(h_top), v_top, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(profile_page), h_top, FALSE, FALSE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(profile_page), "profile-panel");
+    gtk_style_context_add_class(gtk_widget_get_style_context(h_top), "profile-header");
+    gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(pui->avatar_image)), "avatar");
 
     /* Bio */
-    GtkWidget *frame = gtk_frame_new("Bio");
+    GtkWidget *frame = gtk_frame_new("Biography");
     GtkWidget *frame_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_container_add(GTK_CONTAINER(frame), frame_box);
     GtkWidget *lbl_bio = gtk_label_new(bio ? bio : "—");
@@ -751,6 +884,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     gtk_label_set_line_wrap(GTK_LABEL(lbl_bio), TRUE);
     gtk_box_pack_start(GTK_BOX(frame_box), lbl_bio, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile_page), frame, FALSE, FALSE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(frame_box), "bio");
 
     /* Datasets area (scrolled list) */
     GtkWidget *ds_frame = gtk_frame_new("Datasets");
@@ -760,41 +894,42 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
     gtk_widget_set_vexpand(sc, TRUE);
     GtkWidget *list = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);
     gtk_container_add(GTK_CONTAINER(sc), list);
     gtk_box_pack_start(GTK_BOX(ds_box_outer), sc, TRUE, TRUE, 0);
 
     gtk_box_pack_start(GTK_BOX(profile_page), ds_frame, TRUE, TRUE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(ds_frame), "datasets-frame");
 
     /* Close button */
     GtkWidget *btn_close = gtk_button_new_with_label("Close");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "pf-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "close-tab");
     g_signal_connect(btn_close, "clicked", G_CALLBACK(profile_close_cb), win);
     gtk_box_pack_start(GTK_BOX(profile_page), btn_close, FALSE, FALSE, 0);
+    pf_apply_hand_cursor_to(btn_close);
 
     /* Add pages to stack */
     gtk_stack_add_named(GTK_STACK(stack), profile_page, "profile");
     pui->profile_page = profile_page;
 
-    /* Keep a placeholder dataset_page (optional) */
+    /* Placeholder dataset_page */
     GtkWidget *dataset_placeholder = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_container_set_border_width(GTK_CONTAINER(dataset_placeholder), 10);
     gtk_stack_add_named(GTK_STACK(stack), dataset_placeholder, "dataset");
     pui->dataset_page = dataset_placeholder;
 
-    /* style */
-    GtkStyleContext *ctx = gtk_widget_get_style_context(stack);
-    gtk_style_context_add_class(ctx, "metal-panel");
+    gtk_style_context_add_class(gtk_widget_get_style_context(profile_page), "profile-panel");
+
+    GtkWidget *root_widget = wrap_with_profile_css_(stack);
 
     #if GTK_CHECK_VERSION(4,0,0)
-        gtk_window_set_child(GTK_WINDOW(win), stack);
+        gtk_window_set_child(GTK_WINDOW(win), root_widget);
     #else
-        gtk_container_add(GTK_CONTAINER(win), stack);
+        gtk_container_add(GTK_CONTAINER(win), root_widget);
     #endif
 
-    debug_log("UI skeleton built — ready to fetch datasets if user_id > 0");
-
-    
-
-    /* ----------------------- CARREGAR AVATAR (mesma lógica do exemplo) ----------------------- */
+    /* Avatar load */
     if (avatar && *avatar) {
         debug_log("Avatar string present: %s", avatar);
         if (g_str_has_prefix(avatar, "http://") || g_str_has_prefix(avatar, "https://")) {
@@ -814,45 +949,41 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                         GdkPixbuf *pix = load_cover_from_file_(path, AVATAR_SIZE, &err);
                         if (pix) {
                             gtk_image_set_from_pixbuf(GTK_IMAGE(pui->avatar_image), pix);
-                            /* Ajuste de caixa/escala se existir helper */
-                            if (fit_avatar_box_) fit_avatar_box_(pui, pix);
+                            fit_avatar_box_(pui, pix);
                             g_object_unref(pix);
                         } else {
                             debug_log("profile_tab: falha ao carregar avatar: %s", err ? err->message : "(unknown)");
                             if (err) g_error_free(err);
-                            /* fallback visual */
-                            if (set_default_avatar_) set_default_avatar_(pui);
+                            set_default_avatar_(pui);
                         }
                         g_free(path);
                     } else {
                         debug_log("path retornado pelo servidor inexistente: %s", path ? path : "(null)");
                         if (path) g_free(path);
-                        if (set_default_avatar_) set_default_avatar_(pui);
+                        set_default_avatar_(pui);
                     }
                 } else {
                     debug_log("run_api_command retornou NULL ao buscar avatar remoto");
-                    if (set_default_avatar_) set_default_avatar_(pui);
+                    set_default_avatar_(pui);
                 }
             } else {
                 debug_log("utf8_to_wchar_alloc falhou para comando GET_USER_AVATAR");
-                if (set_default_avatar_) set_default_avatar_(pui);
+                set_default_avatar_(pui);
             }
         } else {
-            /* Primeiro tenta caminho absoluto/local direto */
             if (g_file_test(avatar, G_FILE_TEST_EXISTS)) {
                 GError *err = NULL;
                 GdkPixbuf *pix = load_cover_from_file_(avatar, AVATAR_SIZE, &err);
                 if (pix) {
                     gtk_image_set_from_pixbuf(GTK_IMAGE(pui->avatar_image), pix);
-                    if (fit_avatar_box_) fit_avatar_box_(pui, pix);
+                    fit_avatar_box_(pui, pix);
                     g_object_unref(pix);
                 } else {
                     debug_log("profile_create_and_show_from_json: falha ao carregar pixbuf para %s -> %s", avatar, err?err->message:NULL);
                     if (err) g_error_free(err);
-                    if (set_default_avatar_) set_default_avatar_(pui);
+                    set_default_avatar_(pui);
                 }
             } else {
-                /* tenta dentro de uploads/ */
                 char uploads_path[1024];
                 snprintf(uploads_path, sizeof(uploads_path), "uploads/%s", avatar);
                 if (g_file_test(uploads_path, G_FILE_TEST_EXISTS)) {
@@ -860,27 +991,26 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                     GdkPixbuf *pix = load_cover_from_file_(uploads_path, AVATAR_SIZE, &err);
                     if (pix) {
                         gtk_image_set_from_pixbuf(GTK_IMAGE(pui->avatar_image), pix);
-                        if (fit_avatar_box_) fit_avatar_box_(pui, pix);
+                        fit_avatar_box_(pui, pix);
                         g_object_unref(pix);
                         if (!gtk_image_get_pixbuf(GTK_IMAGE(pui->avatar_image))) {
-                            if (set_default_avatar_) set_default_avatar_(pui);
+                            set_default_avatar_(pui);
                         }
                     } else {
                         debug_log("profile_create_and_show_from_json: falha ao carregar avatar de uploads/ — usando default");
-                        if (set_default_avatar_) set_default_avatar_(pui);
+                        set_default_avatar_(pui);
                         if (err) g_error_free(err);
                     }
                 } else {
                     debug_log("avatar local não encontrado (nem caminho direto nem uploads/). Usando avatar padrão.");
-                    if (set_default_avatar_) set_default_avatar_(pui);
+                    set_default_avatar_(pui);
                 }
             }
         }
     } else {
         debug_log("nenhum avatar informado — usando avatar padrão");
-        if (set_default_avatar_) set_default_avatar_(pui);
+        set_default_avatar_(pui);
     }
-    /* -------------------------------------------------------------------------------------- */
 
     /* Fetch user's datasets and PRELOAD details pages */
     if (user_id > 0) {
@@ -934,7 +1064,6 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 const char *ds_size = (tamanho && cJSON_IsString(tamanho)) ? tamanho->valuestring : NULL;
                                 const char *ds_dt   = (dt_ds && cJSON_IsString(dt_ds)) ? dt_ds->valuestring : NULL;
 
-                                /* build unique stack name */
                                 char stack_child_name[128];
                                 if (idd && cJSON_IsNumber(idd)) {
                                     snprintf(stack_child_name, sizeof(stack_child_name), "dataset:%d", idd->valueint);
@@ -947,13 +1076,13 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
                                 debug_log("Preparing dataset child '%s' (name=%s)", stack_child_name, ds_name);
 
-                                /* --- create dataset detail page (preloaded) --- */
                                 GtkWidget *detail_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
                                 gtk_container_set_border_width(GTK_CONTAINER(detail_page), 12);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(detail_page), "profile-panel");
 
-                                /* header */
                                 GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_back), "pf-btn");
                                 GtkWidget *title_lbl = gtk_label_new(NULL);
                                 char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", ds_name);
                                 gtk_label_set_markup(GTK_LABEL(title_lbl), title_markup);
@@ -963,22 +1092,13 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 gtk_box_pack_start(GTK_BOX(hdr), title_lbl, TRUE, TRUE, 0);
                                 gtk_box_pack_start(GTK_BOX(detail_page), hdr, FALSE, FALSE, 0);
 
-                                /* info grid */
                                 GtkWidget *grid = gtk_grid_new();
                                 gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
                                 gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
                                 gtk_box_pack_start(GTK_BOX(detail_page), grid, FALSE, FALSE, 10);
 
                                 int info_row = 0;
-                                GtkWidget *lbl_user = gtk_label_new("Uploaded by:");
-                                gtk_label_set_xalign(GTK_LABEL(lbl_user), 0.0);
-                                GtkWidget *val_user = gtk_label_new("—"); /* not provided here */
-                                gtk_label_set_xalign(GTK_LABEL(val_user), 0.0);
-                                gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, info_row, 1, 1);
-                                gtk_grid_attach(GTK_GRID(grid), val_user, 1, info_row, 1, 1);
-                                info_row++;
 
-                                /* size */
                                 GtkWidget *lbl_size = gtk_label_new("Size:");
                                 gtk_label_set_xalign(GTK_LABEL(lbl_size), 0.0);
                                 char *size_display = NULL;
@@ -991,7 +1111,6 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 info_row++;
                                 g_free(size_display);
 
-                                /* date */
                                 GtkWidget *lbl_date = gtk_label_new("Created:");
                                 gtk_label_set_xalign(GTK_LABEL(lbl_date), 0.0);
                                 GtkWidget *val_date = gtk_label_new(ds_dt ? ds_dt : "—");
@@ -1000,22 +1119,27 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 gtk_grid_attach(GTK_GRID(grid), val_date, 1, info_row, 1, 1);
                                 info_row++;
 
-                                /* url */
                                 if (ds_url && *ds_url) {
-                                    GtkWidget *lbl_url = gtk_label_new("URL:");
+                                    GtkWidget *lbl_url = gtk_label_new("Download Link:");
                                     gtk_label_set_xalign(GTK_LABEL(lbl_url), 0.0);
+
                                     GtkWidget *val_url = gtk_label_new(NULL);
-                                    char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", ds_url, ds_url);
+
+                                    /* texto do link = apenas o basename do arquivo (ex.: winequality_...csv) */
+                                    const char *base = strrchr(ds_url, '/');
+                                    const char *fname = (base && *(base+1)) ? base+1 : ds_url;
+
+                                    char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", ds_url, fname);
                                     gtk_label_set_markup(GTK_LABEL(val_url), url_markup);
                                     gtk_label_set_xalign(GTK_LABEL(val_url), 0.0);
                                     gtk_label_set_selectable(GTK_LABEL(val_url), TRUE);
                                     g_free(url_markup);
+
                                     gtk_grid_attach(GTK_GRID(grid), lbl_url, 0, info_row, 1, 1);
                                     gtk_grid_attach(GTK_GRID(grid), val_url, 1, info_row, 1, 1);
                                     info_row++;
                                 }
 
-                                /* description */
                                 if (ds_desc && ds_desc[0]) {
                                     GtkWidget *desc_frame = gtk_frame_new("Description");
                                     GtkWidget *desc_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -1029,42 +1153,43 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                     gtk_box_pack_start(GTK_BOX(detail_page), desc_frame, FALSE, FALSE, 10);
                                 }
 
-                                /* actions */
                                 GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
-                                GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
+                                GtkWidget *btn_open_url = gtk_button_new_with_label("Import to Environment");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_open_url), "pf-btn");
                                 if (ds_url && *ds_url) {
                                     g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(ds_url), g_free);
                                     g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
                                 } else {
                                     gtk_widget_set_sensitive(btn_open_url, FALSE);
                                 }
+                                pf_apply_hand_cursor_to(btn_open_url);
                                 gtk_box_pack_start(GTK_BOX(btn_box), btn_open_url, TRUE, TRUE, 0);
                                 gtk_box_pack_start(GTK_BOX(detail_page), btn_box, FALSE, FALSE, 0);
 
-                                /* add the detail page to the stack under a unique name (preloaded) */
                                 gtk_stack_add_named(GTK_STACK(pui->stack), detail_page, stack_child_name);
                                 gtk_widget_show_all(detail_page);
                                 g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_profile_clicked), pui);
                                 debug_log("Preloaded detail page for '%s' (child=%s)", ds_name, stack_child_name);
 
-                                /* --- create the list card (item_box) and attach click handlers so the whole card is clickable --- */
                                 GtkWidget *item_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(item_box), "dataset-row");
                                 gtk_widget_set_margin_start(item_box, 6);
                                 gtk_widget_set_margin_end(item_box, 6);
                                 gtk_widget_set_margin_top(item_box, 4);
                                 gtk_widget_set_margin_bottom(item_box, 4);
 
-                                /* horizontal row with name button + meta */
                                 GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 GtkWidget *btn_name = gtk_button_new_with_label(ds_name);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_name), "pf-btn");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_name), "dataset-name");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_name), "link");
+                                pf_apply_hand_cursor_to(btn_name);
 
-                                /* save stack child name on button and connect (keep name click behavior) */
                                 g_object_set_data_full(G_OBJECT(btn_name), "dataset_stack_name", g_strdup(stack_child_name), g_free);
                                 g_signal_connect(btn_name, "clicked", G_CALLBACK(on_dataset_info_clicked), pui);
                                 gtk_box_pack_start(GTK_BOX(hrow), btn_name, FALSE, FALSE, 0);
 
-                                /* meta label */
                                 char meta[256] = "";
                                 if (ds_size) snprintf(meta + strlen(meta), sizeof(meta) - strlen(meta), "%s", ds_size);
                                 if (ds_dt) {
@@ -1072,6 +1197,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                     strncat(meta, ds_dt, sizeof(meta) - strlen(meta) - 1);
                                 }
                                 GtkWidget *lbl_meta = gtk_label_new(meta);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(lbl_meta), "dataset-meta");
                                 gtk_label_set_xalign(GTK_LABEL(lbl_meta), 0.0);
                                 gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
 
@@ -1086,23 +1212,40 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
                                 GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
                                 gtk_box_pack_start(GTK_BOX(item_box), sep, FALSE, FALSE, 6);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(sep), "row-sep");
 
-                                /* create listrow (declared once) */
                                 GtkWidget *listrow = gtk_list_box_row_new();
 
-                                /* Make the entire card clickable and store stack_child_name on the clickable widget */
                                 #if GTK_CHECK_VERSION(4,0,0)
                                     g_object_set_data_full(G_OBJECT(item_box), "dataset_stack_name", g_strdup(stack_child_name), g_free);
+
+                                    /* clique para abrir detalhes (pode ficar no item_box) */
                                     GtkGesture *gest = gtk_gesture_click_new();
                                     gtk_widget_add_controller(item_box, GTK_EVENT_CONTROLLER(gest));
                                     g_signal_connect(gest, "pressed", G_CALLBACK(on_item_box_gesture_pressed), pui);
+
+                                    /* CONTEÚDO dentro do row */
                                     gtk_container_add(GTK_CONTAINER(listrow), item_box);
+
+                                    /* HOVER azul — NO ROW (não no item_box) */
+                                    GtkEventController *motion = gtk_event_controller_motion_new();
+                                    gtk_widget_add_controller(listrow, motion);
                                 #else
                                     GtkWidget *eb = gtk_event_box_new();
                                     gtk_container_add(GTK_CONTAINER(eb), item_box);
+                                    gtk_event_box_set_visible_window(GTK_EVENT_BOX(eb), FALSE);
+
                                     g_object_set_data_full(G_OBJECT(eb), "dataset_stack_name", g_strdup(stack_child_name), g_free);
                                     g_signal_connect(eb, "button-press-event", G_CALLBACK(on_item_box_button_press), pui);
+                                    gtk_style_context_add_class(gtk_widget_get_style_context(eb), "eventbox-clickable");
+                                    pf_apply_hand_cursor_to(eb);
+
+                                    /* Conteúdo do row */
                                     gtk_container_add(GTK_CONTAINER(listrow), eb);
+
+                                    gtk_widget_add_events(listrow, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+                                    g_signal_connect(listrow, "enter-notify-event", G_CALLBACK(on_row_enter), NULL);
+                                    g_signal_connect(listrow, "leave-notify-event", G_CALLBACK(on_row_leave), NULL);
                                 #endif
 
                                 gtk_list_box_insert(GTK_LIST_BOX(list), listrow, -1);
@@ -1122,26 +1265,20 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
         debug_log("user_id <= 0 — skipping dataset fetch");
     }
 
-    /* --- Garantir que a profile page fique visível e esconder todas as detail pages preloaded --- */
+    /* Garantir profile visível e esconder detalhes */
     if (pui && GTK_IS_STACK(pui->stack)) {
         debug_log("Enforcing profile as visible child - scanning stack children (container API)...");
-
-        /* usa API genérica do container para obter filhos (portável) */
         GList *kids = gtk_container_get_children(GTK_CONTAINER(pui->stack));
         for (GList *l = kids; l; l = l->next) {
             GtkWidget *child = GTK_WIDGET(l->data);
-            /* imprime endereço e visibilidade (útil para debug) */
             debug_log(" stack child: %p visible=%d", child, gtk_widget_get_visible(child));
             if (child != pui->profile_page) {
-                /* esconder explicitamente detail pages adicionadas */
                 gtk_widget_hide(child);
                 debug_log("  -> hid child %p", child);
             }
         }
-        /* liberar a lista obtida por gtk_container_get_children (não libera widgets) */
         g_list_free(kids);
 
-        /* forçar profile visível usando widget (mais robusto que usar nome) */
         gtk_stack_set_visible_child(GTK_STACK(pui->stack), pui->profile_page);
 
         const char *vis = gtk_stack_get_visible_child_name(GTK_STACK(pui->stack));
@@ -1150,14 +1287,10 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
         debug_log("Could not enforce profile visible: pui/stack invalid");
     }
 
-
-
     gtk_widget_show_all(win);
     debug_log("Window shown (gtk_widget_show_all called)");
     cJSON_Delete(root);
     debug_log("Exiting profile_create_and_show_from_json()");
 }
-
-
 
 #endif /* PROFILE_H */

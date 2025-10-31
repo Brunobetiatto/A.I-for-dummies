@@ -1422,11 +1422,11 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     GtkWidget *v_user_event = gtk_event_box_new();
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(v_user_event), FALSE);
     gtk_container_add(GTK_CONTAINER(v_user_event), lbl_user_inner);
-    gtk_widget_set_tooltip_text(v_user_event, "Abrir perfil do usuário");
+    gtk_widget_set_tooltip_text(v_user_event, "Open User Profile");
     {
         /* cauda “(abrir perfil)” para indicar que é clicável */
         GtkWidget *user_row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-        GtkWidget *user_hint = gtk_label_new("(abrir perfil)");
+        GtkWidget *user_hint = gtk_label_new("(Open Profile)");
         gtk_widget_set_name(user_hint, "user-link-hint");
         gtk_box_pack_start(GTK_BOX(user_row_box), v_user_event, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(user_row_box), user_hint, FALSE, FALSE, 0);

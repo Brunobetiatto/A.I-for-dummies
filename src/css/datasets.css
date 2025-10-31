@@ -180,7 +180,6 @@ scrollbar slider {
   border: 1px solid #7a7a7a;
 };
 
-/* Adicione estas regras ao seu datasets.css */
 
 /* Estilo para links clicáveis */
 .link {
@@ -202,9 +201,6 @@ scrollbar slider {
     color: #ff5500;
     text-decoration: underline;
 }
-
-
-/* Estilo para o upload */
 
 /* upload dialog status — success / error */
 .upload-success {

@@ -57,18 +57,7 @@
 .profile-panel button.close-tab:hover { background-image: linear-gradient(to bottom, #f7f7f7, #e3e3e3); }
 
 /* Bio frame */
-.profile-panel frame {
-  margin-top: 6px;
-  margin-bottom: 8px;
-}
 .profile-panel frame > label { font-weight: bold; }
-.profile-panel .bio {
-  padding: 8px;
-  background-image: linear-gradient(to bottom, #f7f7f7, #efefef);
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-}
-
 /* Datasets list area */
 .profile-panel .datasets-frame {
   margin-top: 10px;
@@ -120,8 +109,8 @@
 
 /* Scrollbar tweaks (desktop-friendly) */
 .profile-panel scrollbar slider {
-  background-image: linear-gradient(to bottom, #e8e8e8, #d3d3d3);
-  border: 1px solid #bfbfbf;
+  background-image: linear-gradient(to bottom, #424242, #424242);
+  border: 1px solid #424242;
 }
 
 /* Make labels a bit more readable */
@@ -133,53 +122,6 @@
 @media (max-width: 640px) {
   .profile-panel .profile-header { flex-direction: column; align-items: flex-start; gap: 6px; }
   .profile-panel image, .profile-panel .avatar { max-width: 72px; max-height: 72px; }
-}
-
-/* ===== Win95 Titlebar (reuso aqui também) ===== */
-headerbar#w95-titlebar,
-.titlebar#w95-titlebar{
-  background-image: linear-gradient(to right, #000080, #000080); /* ativo */
-  color:#fff;
-  min-height:26px;
-  border:1px solid #404040;
-}
-#w95-titlebar .title-icon { margin-right:6px; }
-#w95-title{ font-weight:700; font-size:10pt; letter-spacing:.2px; }
-
-/* Botões da titlebar com o mesmo look 3D (classe já vem do C: .envbar-btn) */
-headerbar#w95-titlebar button.envbar-btn{
-  border-width: 2px;
-  border-style: outset;
-  border-color: buttonface;
-  border-right-color:#424242;
-  border-bottom-color:#424242;
-  background: silver;
-  color: black;
-  padding: 4px 6px;
-  border-radius: 1px;
-  box-shadow: none;
-  min-width: 0;
-  min-height: 0;
-}
-headerbar#w95-titlebar button.envbar-btn:hover,
-headerbar#w95-titlebar button.envbar-btn:focus,
-headerbar#w95-titlebar button.envbar-btn:active{
-  border: 2px inset #818181;
-  background: silver;
-  color:#424242;
-  box-shadow: -1px -1px #000;
-}
-headerbar#w95-titlebar button.envbar-btn:disabled{
-  cursor: default;
-  background-color: silver;
-  border-style: outset;
-  border-right-color:#424242;
-  border-bottom-color:#424242;
-  color: grey;
-  text-shadow: 1px 1px #fff;
-}
-headerbar#w95-titlebar button.envbar-btn image{
-  -gtk-icon-filter: none;
 }
 
 /* ====== Botões 3D no PROFILE (renomeado) ====== */
@@ -245,8 +187,7 @@ headerbar#w95-titlebar button.envbar-btn image{
 .profile-panel frame{ margin:6px 0 8px 0; }
 .profile-panel frame > label{ font-weight:bold; }
 .profile-panel .bio{
-  padding:8px; background-image: linear-gradient(to bottom,#f7f7f7,#efefef);
-  border:1px solid #d0d0d0; border-radius:4px;
+  padding:8px;
 }
 .profile-panel .datasets-frame{
   margin-top:10px; padding:8px;
@@ -275,8 +216,8 @@ headerbar#w95-titlebar button.envbar-btn image{
 
 /* Scrollbar e labels */
 .profile-panel scrollbar slider{
-  background-image: linear-gradient(to bottom,#e8e8e8,#d3d3d3);
-  border:1px solid #bfbfbf;
+  background-image: linear-gradient(to bottom,#424242,#424242);
+  border:1px solid #424242;
 }
 .profile-panel label{ color:#222; }
 
@@ -321,4 +262,143 @@ headerbar#w95-titlebar button.envbar-btn image{ -gtk-icon-filter:none; }
   -gtk-icon-filter: none;
 }
 
-#profile-window .bio { outline: 2px solid lime; }
+.profile-root { background: #CDCDCD }
+
+/* ===== Ajustes pedid os (perfil) ===== */
+
+/* 1) Tirar branco e usar cinza liso (#D3D3D3) */
+.profile-panel .bio,
+.profile-panel .datasets-frame,
+.profile-panel .dataset-row{
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* (opcional) viewport/linhas no mesmo tom, evitando “faixas” brancas */
+#profile-window scrolledwindow,
+#profile-window viewport,
+#profile-window list row {
+  background: #cecece;
+}
+
+
+.link { 
+  color: #0066cc;
+  text-decoration: none;
+}
+
+/* Quando o mouse entra na linha do dataset, pintar o “link” */
+.eventbox-clickable:hover .link {
+  color: #ff5500;
+  text-decoration: underline;
+}
+
+/* Se o "link" for um botão (pf-btn), deixá-lo com cara de link */
+#profile-window .pf-btn.link {
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  text-align: left;
+}
+#profile-window .pf-btn.link:hover,
+#profile-window .pf-btn.link:focus {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* ===== Hover azul na linha do dataset ===== */
+/* Estado via classe adicionada no C (robusto) */
+#profile-window .dataset-row.row-hover {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important; /* azul claro Win-like */
+  border-color: #4f79c3 !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+
+/* Deixa o "nome do dataset" com cara de link ao passar o mouse */
+#profile-window .dataset-row.row-hover .pf-btn.dataset-name {
+  text-decoration: underline;
+}
+
+/* Meta mais legível sobre o azul */
+#profile-window .dataset-row.row-hover .dataset-meta {
+  color: #052a75;
+}
+
+/* ===== Fallback puro CSS (sem classe), cobre GTK3 e GTK4 ===== */
+#profile-window .eventbox-clickable:hover .dataset-row,
+#profile-window list row:hover .dataset-row,
+#profile-window .dataset-row:hover {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  border-color: #4f79c3 !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+
+#profile-window .eventbox-clickable:hover .pf-btn.dataset-name,
+#profile-window list row:hover .pf-btn.dataset-name,
+#profile-window .dataset-row:hover .pf-btn.dataset-name {
+  text-decoration: underline;
+}
+
+/* ===== Hover azul aplicado no GtkListBoxRow ===== */
+#profile-window list row.row-hover,
+#profile-window list row.row-hover:hover,
+#profile-window list row.row-hover:focus {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+
+/* Conteúdo dentro do row quando hover está ativo */
+#profile-window list row.row-hover .dataset-row {
+  border-color: #4f79c3 !important;
+}
+#profile-window list row.row-hover .pf-btn.dataset-name {
+  text-decoration: underline;
+}
+#profile-window list row.row-hover .dataset-meta {
+  color: #052a75;
+}
+
+/* Se você quiser manter o fallback por :hover puro (sem classe), pode deixar: */
+#profile-window list row:hover .dataset-row {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  border-color: #4f79c3 !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+
+/* ===== Garantia de hover dentro do wrapper .profile-root (alta prioridade) ===== */
+.profile-root list row.row-hover,
+.profile-root list row.row-hover:hover,
+.profile-root list row.row-hover:focus,
+.profile-root list row:hover .dataset-row,
+.profile-root .dataset-row.row-hover {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  border-color: #4f79c3 !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+
+.profile-root list row.row-hover .pf-btn.dataset-name,
+.profile-root .dataset-row.row-hover .pf-btn.dataset-name {
+  text-decoration: underline;
+}
+
+.profile-root list row.row-hover .dataset-meta,
+.profile-root .dataset-row.row-hover .dataset-meta {
+  color: #052a75;
+}
+
+/* classe aplicada pelo C */
+#profile-window .dataset-row.row-hover {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  border-color: #4f79c3 !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}
+#profile-window .dataset-row.row-hover .pf-btn.dataset-name { text-decoration: underline; }
+#profile-window .dataset-row.row-hover .dataset-meta { color: #052a75; }
+
+/* (opcional) se quiser pintar o row também */
+#profile-window list row.row-hover {
+  background: linear-gradient(to bottom, #cfe3ff, #b5d1ff) !important;
+  box-shadow: inset 1px 1px 0 0 #ffffff, inset -1px -1px 0 0 #3a5ca1 !important;
+}

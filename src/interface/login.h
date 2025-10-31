@@ -1074,12 +1074,12 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
 
     GtkWidget *lbl_email = make_icon_text("Email", "email.png", 16);
     ctx->email_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->email_entry), "seu@email.com");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->email_entry), "your@email.com");
     gtk_widget_set_hexpand(ctx->email_entry, TRUE);
     gtk_grid_attach(GTK_GRID(login_grid), lbl_email, 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(login_grid), ctx->email_entry, 1, 1, 1, 1);
 
-    GtkWidget *lbl_pass  = make_icon_text("Senha", "password.png", 16);
+    GtkWidget *lbl_pass  = make_icon_text("Password", "password.png", 16);
     ctx->pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->pass_entry), FALSE);
     gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->pass_entry), "••••••");
@@ -1087,7 +1087,7 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_grid_attach(GTK_GRID(login_grid), lbl_pass, 0, 2, 1, 1);
     gtk_grid_attach(GTK_GRID(login_grid), ctx->pass_entry, 1, 2, 1, 1);
 
-    GtkWidget *btn_login = gtk_button_new_with_label("Entrar");
+    GtkWidget *btn_login = gtk_button_new_with_label("Enter");
     gtk_widget_set_name(btn_login, "login-btn");
     gtk_widget_set_hexpand(btn_login, TRUE);
     gtk_grid_attach(GTK_GRID(login_grid), btn_login, 0, 3, 2, 1);
@@ -1117,33 +1117,33 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
 
     GtkWidget *lbl_reg_title = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(lbl_reg_title),
-                         "<span size='xx-large' weight='bold'>Cadastro</span>");
+                         "<span size='xx-large' weight='bold'>Register</span>");
     gtk_grid_attach(GTK_GRID(reg_grid), lbl_reg_title, 0, 0, 2, 1);
     gtk_widget_set_halign(lbl_reg_title, GTK_ALIGN_CENTER);
 
-    GtkWidget *reg_nome_label = make_icon_text("Nome", "user.png", 16);
+    GtkWidget *reg_nome_label = make_icon_text("Name", "user.png", 16);
     ctx->reg_nome_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_nome_entry), "Seu nome completo");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_nome_entry), "Your Complete Name");
     gtk_widget_set_hexpand(ctx->reg_nome_entry, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), reg_nome_label, 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_nome_entry, 1, 1, 1, 1);
 
     GtkWidget *reg_email_label = make_icon_text("Email", "email.png", 16);
     ctx->reg_email_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_email_entry), "email@dominio.com");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_email_entry), "email@domain.com");
     gtk_widget_set_hexpand(ctx->reg_email_entry, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), reg_email_label, 0, 2, 1, 1);
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_email_entry, 1, 2, 1, 1);
 
-    GtkWidget *reg_pass_label = make_icon_text("Senha", "password.png", 16);
+    GtkWidget *reg_pass_label = make_icon_text("Password", "password.png", 16);
     ctx->reg_pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->reg_pass_entry), FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_pass_entry), "••••••");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->reg_pass_entry), "••••••••••••");
     gtk_widget_set_hexpand(ctx->reg_pass_entry, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), reg_pass_label, 0, 3, 1, 1);
     gtk_grid_attach(GTK_GRID(reg_grid), ctx->reg_pass_entry, 1, 3, 1, 1);
 
-    GtkWidget *btn_register = gtk_button_new_with_label("Cadastrar");
+    GtkWidget *btn_register = gtk_button_new_with_label("Register");
     gtk_widget_set_hexpand(btn_register, TRUE);
     gtk_grid_attach(GTK_GRID(reg_grid), btn_register, 0, 4, 2, 1);
 
@@ -1158,11 +1158,11 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_box_pack_start(GTK_BOX(reg_box), make_app_hero(), FALSE, FALSE, 0);
     GtkWidget *reg_panel = wrap_CSS(LOGIN_CSS, "metal-panel", reg_grid, "login-panel");
     gtk_container_add(GTK_CONTAINER(reg_box), reg_panel);
-    GtkWidget *cad_tab = make_tab_label_login("Cadastro", "assets/cadastro.png");
+    GtkWidget *cad_tab = make_tab_label_login("Register", "assets/cadastro.png");
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), reg_box, cad_tab);
 
     // BOTÃO "Esqueci minha senha"
-    GtkWidget *forgot_btn = gtk_button_new_with_label("Esqueci minha senha");
+    GtkWidget *forgot_btn = gtk_button_new_with_label("Forgot my Password");
     gtk_widget_set_name(forgot_btn, "link-like-button");
     gtk_button_set_relief(GTK_BUTTON(forgot_btn), GTK_RELIEF_NONE);
     set_button_icon(forgot_btn, "forgot.png", 16);
@@ -1178,7 +1178,7 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     gtk_widget_set_halign(debug_btn, GTK_ALIGN_CENTER);
 
     ctx->btn_debug = GTK_BUTTON(debug_btn);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
+    gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Open Debug window debug/backlog");
     g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
     
     /* habilita eventos de “mouse entrou/saiu” */
@@ -1199,30 +1199,30 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     // Email
     GtkWidget *lbl_recovery_email = gtk_label_new("Email:");
     ctx->recovery_email_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_email_entry), "seu@email.com");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_email_entry), "your@email.com");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), lbl_recovery_email, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_email_entry, FALSE, FALSE, 0);
 
 
     // Botão pedir código (guarde no ctx)
-    ctx->btn_recovery_request = gtk_button_new_with_label("Enviar Código");
+    ctx->btn_recovery_request = gtk_button_new_with_label("Send Code");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->btn_recovery_request, FALSE, FALSE, 0);
 
     // Código e nova senha (crie e guarde no ctx)
     ctx->lbl_recovery_code = gtk_label_new("Código:");
     ctx->recovery_code_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_code_entry), "Código recebido");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_code_entry), "Code received");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->lbl_recovery_code, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_code_entry, FALSE, FALSE, 0);
 
-    ctx->lbl_recovery_new_pass = gtk_label_new("Nova senha:");
+    ctx->lbl_recovery_new_pass = gtk_label_new("New Password:");
     ctx->recovery_new_pass_entry = gtk_entry_new();
     gtk_entry_set_visibility(GTK_ENTRY(ctx->recovery_new_pass_entry), FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "••••••");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ctx->recovery_new_pass_entry), "••••••••••••");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->lbl_recovery_new_pass, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->recovery_new_pass_entry, FALSE, FALSE, 0);
 
-    ctx->btn_recovery_verify = gtk_button_new_with_label("Redefinir Senha");
+    ctx->btn_recovery_verify = gtk_button_new_with_label("Reset Password");
     gtk_box_pack_start(GTK_BOX(ctx->recovery_box), ctx->btn_recovery_verify, FALSE, FALSE, 0);
 
     // Status da recuperação

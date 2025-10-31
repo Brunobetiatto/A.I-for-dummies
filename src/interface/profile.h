@@ -1122,6 +1122,36 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
         debug_log("user_id <= 0 — skipping dataset fetch");
     }
 
+    /* --- Garantir que a profile page fique visível e esconder todas as detail pages preloaded --- */
+    if (pui && GTK_IS_STACK(pui->stack)) {
+        debug_log("Enforcing profile as visible child - scanning stack children (container API)...");
+
+        /* usa API genérica do container para obter filhos (portável) */
+        GList *kids = gtk_container_get_children(GTK_CONTAINER(pui->stack));
+        for (GList *l = kids; l; l = l->next) {
+            GtkWidget *child = GTK_WIDGET(l->data);
+            /* imprime endereço e visibilidade (útil para debug) */
+            debug_log(" stack child: %p visible=%d", child, gtk_widget_get_visible(child));
+            if (child != pui->profile_page) {
+                /* esconder explicitamente detail pages adicionadas */
+                gtk_widget_hide(child);
+                debug_log("  -> hid child %p", child);
+            }
+        }
+        /* liberar a lista obtida por gtk_container_get_children (não libera widgets) */
+        g_list_free(kids);
+
+        /* forçar profile visível usando widget (mais robusto que usar nome) */
+        gtk_stack_set_visible_child(GTK_STACK(pui->stack), pui->profile_page);
+
+        const char *vis = gtk_stack_get_visible_child_name(GTK_STACK(pui->stack));
+        debug_log("After forcing, stack visible child name -> %s", vis ? vis : "(null)");
+    } else {
+        debug_log("Could not enforce profile visible: pui/stack invalid");
+    }
+
+
+
     gtk_widget_show_all(win);
     debug_log("Window shown (gtk_widget_show_all called)");
     cJSON_Delete(root);

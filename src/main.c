@@ -70,41 +70,26 @@ GtkWidget* create_main_window(UserSession *session) {
 
     /* guardar sessão no env para acesso por outras tabs */
     if (session) {
-        env->current_user_id = session->id;
-        env->current_user_name = session->nome ? g_strdup(session->nome) : NULL;
-        env->current_user_email = session->email ? g_strdup(session->email) : NULL;
-        env->token = session->token ? g_strdup(session->token) : NULL;
-        /* a env passa a assumir a posse dos strings (g_strdup acima): liberá-los quando o env for destruído */
-        /* liberar a struct session (somente a struct) — NÃO liberar as strings, pois já duplicadas */
-        user_session_free(session);
-    } else {
-        env->current_user_id = 0;
-        env->current_user_name = NULL;
-        env->current_user_email = NULL;
-        env->token = NULL;
+        env->current_user_id   = session->id;
+        env->current_user_name = session->nome  ? g_strdup(session->nome)  : NULL;
+        env->current_user_email= session->email ? g_strdup(session->email) : NULL;
+        env->token             = session->token ? g_strdup(session->token) : NULL;
+        user_session_free(session); // strings já duplicadas acima
     }
 
     GtkWidget *main_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(main_win), "AI For Dummies - Main");
     gtk_window_set_default_size(GTK_WINDOW(main_win), 800, 600);
     g_signal_connect(main_win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-
     env->main_window = GTK_WINDOW(main_win);
 
     /* garantir que o env seja liberado quando a janela principal for destruída */
     g_object_set_data_full(G_OBJECT(main_win), "env", env, env_free);
 
-    /* layout: vbox com header (user + logout) e notebook abaixo */
+    /* layout root */
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-    /* header */
-    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_margin_start(header, 8);
-    gtk_widget_set_margin_end(header, 8);
-    gtk_widget_set_margin_top(header, 6);
-    gtk_widget_set_margin_bottom(header, 6);
-
-    /* label de usuário à esquerda */
+    /* === Widgets de sessão (criamos AQUI, mas vamos injetar na barra do Environment) === */
     char user_label_text[256] = "";
     if (env->current_user_name && *env->current_user_name) {
         snprintf(user_label_text, sizeof(user_label_text), "Logged as: %s", env->current_user_name);
@@ -113,31 +98,39 @@ GtkWidget* create_main_window(UserSession *session) {
     } else {
         snprintf(user_label_text, sizeof(user_label_text), "Logged in");
     }
-    GtkWidget *lbl_user = gtk_label_new(user_label_text);
+    GtkWidget *lbl_user  = gtk_label_new(user_label_text);
     gtk_label_set_xalign(GTK_LABEL(lbl_user), 0.0);
 
-    /* botão de logout à direita */
     GtkWidget *btn_logout = gtk_button_new_with_label("Logout");
     g_signal_connect(btn_logout, "clicked", G_CALLBACK(on_logout_clicked), env);
 
-    /* packing: label expande para empurrar o botão para a direita */
-    gtk_box_pack_start(GTK_BOX(header), lbl_user, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(header), btn_logout, FALSE, FALSE, 0);
+    // Guardar no contexto (útil se você quiser atualizar depois)
+    env->session_label = GTK_LABEL(lbl_user);
+    env->btn_logout    = GTK_BUTTON(btn_logout);
 
     /* notebook com tabs */
     GtkWidget *nb = gtk_notebook_new();
 
-    /* adicionar header e notebook ao vbox */
-    gtk_box_pack_start(GTK_BOX(vbox), header, FALSE, FALSE, 0);
+    /* adicionar notebook ao vbox */
     gtk_box_pack_start(GTK_BOX(vbox), nb, TRUE, TRUE, 0);
 
     /* adicionar vbox na janela principal */
     gtk_container_add(GTK_CONTAINER(main_win), vbox);
 
-    /* Criar abas */
-    add_datasets_tab(GTK_NOTEBOOK(nb), env);
+    /* Criar abas (Environment precisa vir antes de injetar na barra) */
+    add_datasets_tab   (GTK_NOTEBOOK(nb), env);
     add_environment_tab(GTK_NOTEBOOK(nb), env);
-    add_profile_tab(GTK_NOTEBOOK(nb), env);
+
+    /* >>> INJETAR na barra cinza, usando o slot dedicado (session_box) */
+    if (env->session_box) {
+        gtk_box_pack_start(env->session_box, lbl_user,  FALSE, FALSE, 0);  /* Logged as … (à esquerda do slot) */
+        gtk_box_pack_end  (env->session_box, btn_logout, FALSE, FALSE, 0); /* Logout (gruda à direita do slot) */
+    } else if (env->topbar) { /* fallback, se session_box não existir */
+        gtk_box_pack_start(env->topbar, lbl_user,  FALSE, FALSE, 0);
+        gtk_box_pack_end  (env->topbar, btn_logout, FALSE, FALSE, 0);
+    }
+
+    add_profile_tab    (GTK_NOTEBOOK(nb), env);
 
     gtk_widget_show_all(main_win);
     return main_win;

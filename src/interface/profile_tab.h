@@ -341,6 +341,9 @@ static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data) {
     const char *email_text = gtk_entry_get_text(GTK_ENTRY(ctx->entry_email));
     cJSON_AddStringToObject(j, "nome",  name_text  ? name_text  : "");
     cJSON_AddStringToObject(j, "email", email_text ? email_text : "");
+    debug_log("profile_tab: preparando update com nome='%s' email='%s'", 
+              name_text ? name_text : "(null)", 
+              email_text ? email_text : "(null)");
 
     GtkTextIter s,e;
     gtk_text_buffer_get_start_iter(ctx->bio_buffer, &s);
@@ -498,6 +501,7 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                     if (path && g_file_test(path, G_FILE_TEST_EXISTS)) {
                         GError *err = NULL;
                         GdkPixbuf *pix = load_cover_from_file(path, AVATAR_SIZE, &err);
+                        debug_log("profile path: %s", path);
                         if (pix) {
                             gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->avatar_image), pix);
                             fit_avatar_box(ctx, pix);
@@ -507,7 +511,9 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
                             if (err) g_error_free(err);
                             profile_tab_set_status(ctx, "Erro ao carregar imagem selecionada", FALSE);
                         }
+                        
                         g_free(path);
+
                     }
                 }
             }

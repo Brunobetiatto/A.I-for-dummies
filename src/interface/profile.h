@@ -20,7 +20,7 @@
   #include <wchar.h>
 #endif
 
-/* Estrutura para gerenciar a stack na janela de perfil */
+/* Estrutura para gerenciar a stack na janela de perfi */
 typedef struct {
     GtkStack *stack;
     GtkWidget *profile_page;
@@ -45,7 +45,9 @@ typedef struct {
 static void fill_dataset_details_in_stack(ProfileWindowUI *pui, const char *dataset_name);
 static void on_back_to_profile_clicked(GtkButton *btn, gpointer user_data);
 static void on_dataset_info_clicked(GtkButton *btn, gpointer user_data);
+static void install_env_w95_titlebar(GtkWindow *win, const char *title_text);
 static GdkPixbuf* pixbuf_cover_square_(GdkPixbuf *src, int target);
+
 
 /* Funções auxiliares para conversão de caracteres */
 static WCHAR* utf8_to_wchar_alloc(const char *utf8) {
@@ -73,6 +75,46 @@ static void fit_avatar_box_(ProfileWindowUI *ctx, GdkPixbuf *pix){
     gtk_widget_set_size_request(ctx->avatar_box, AVATAR_SIZE, AVATAR_SIZE);
 }
 
+static void ensure_profile_css_loaded(void){
+    static gboolean done = FALSE;
+    if (done) return;
+
+    GtkCssProvider *prov = gtk_css_provider_new();
+    GError *err = NULL;
+
+    const char *cands[] = {
+        "css/profile.css", "../css/profile.css", "./css/profile.css", "profile.css"
+    };
+    gboolean ok = FALSE;
+    for (guint i = 0; i < G_N_ELEMENTS(cands); ++i){
+        if (g_file_test(cands[i], G_FILE_TEST_EXISTS)){
+            gtk_css_provider_load_from_path(prov, cands[i], &err);
+            if (!err){ ok = TRUE; break; }
+            g_clear_error(&err);
+        }
+    }
+    if (!ok){
+        // fallback silencioso (evita crash se o arquivo não for encontrado)
+        gtk_css_provider_load_from_data(prov, "", -1, NULL);
+    }
+
+#if GTK_CHECK_VERSION(4,0,0)
+    gtk_style_context_add_provider_for_display(
+        gdk_display_get_default(),
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER
+    );
+#else
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_USER
+    );
+#endif
+
+    g_object_unref(prov);
+    done = TRUE;
+}
 
 static GdkPixbuf* load_cover_from_file_(const char *path, int target, GError **err){
     if (!path) return NULL;
@@ -406,9 +448,11 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     /* montar a nova página (mesmo markup de antes) */
     GtkWidget *dataset_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_container_set_border_width(GTK_CONTAINER(dataset_page), 12);
+    gtk_style_context_add_class(gtk_widget_get_style_context(dataset_page), "profile-panel");
 
     GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_back), "pf-btn");
     GtkWidget *title = gtk_label_new(NULL);
     char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", d->nome ? d->nome : "—");
     gtk_label_set_markup(GTK_LABEL(title), title_markup);
@@ -424,11 +468,8 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     gtk_box_pack_start(GTK_BOX(dataset_page), grid, FALSE, FALSE, 10);
 
     int row = 0;
-    GtkWidget *lbl_user = gtk_label_new("Uploaded by:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_user), 0.0);
     GtkWidget *val_user = gtk_label_new(d->usuario_nome ? d->usuario_nome : "—");
     gtk_label_set_xalign(GTK_LABEL(val_user), 0.0);
-    gtk_grid_attach(GTK_GRID(grid), lbl_user, 0, row, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), val_user, 1, row, 1, 1);
     row++;
 
@@ -495,6 +536,7 @@ static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
     GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
     GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_open_url), "pf-btn");
     if (d->url && *d->url) {
         g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(d->url), g_free);
         g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
@@ -632,6 +674,7 @@ static void on_dataset_info_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent) {
+    ensure_profile_css_loaded();
     debug_log("profile_create_and_show_from_json() called");
 
     if (!user_json) {
@@ -682,9 +725,10 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     /* Build window */
     debug_log("Creating profile window widgets");
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_widget_set_name(win, "profile-window");
     char title[256];
-    snprintf(title, sizeof(title), "%s", nome);
-    gtk_window_set_title(GTK_WINDOW(win), title);
+    snprintf(title, sizeof(title), "Perfil de %s", nome ? nome : "—");
+    install_env_w95_titlebar(GTK_WINDOW(win), title);
     gtk_window_set_default_size(GTK_WINDOW(win), 520, 360);
     if (parent) {
         gtk_window_set_transient_for(GTK_WINDOW(win), parent);
@@ -709,6 +753,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
     /* --- AVATAR WIDGET (criado localmente para suportar load remoto/local) --- */
     GtkWidget *avatar_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    pui->avatar_box = avatar_box;
     gtk_widget_set_hexpand(avatar_box, FALSE);
     gtk_widget_set_vexpand(avatar_box, FALSE);
 
@@ -741,6 +786,10 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
     gtk_box_pack_start(GTK_BOX(h_top), v_top, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(profile_page), h_top, FALSE, FALSE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(profile_page), "profile-panel");
+    gtk_style_context_add_class(gtk_widget_get_style_context(h_top), "profile-header");
+    gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(pui->avatar_image)), "avatar");
+
 
     /* Bio */
     GtkWidget *frame = gtk_frame_new("Bio");
@@ -751,6 +800,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     gtk_label_set_line_wrap(GTK_LABEL(lbl_bio), TRUE);
     gtk_box_pack_start(GTK_BOX(frame_box), lbl_bio, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile_page), frame, FALSE, FALSE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(frame_box), "bio");
 
     /* Datasets area (scrolled list) */
     GtkWidget *ds_frame = gtk_frame_new("Datasets");
@@ -760,13 +810,17 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
     gtk_widget_set_vexpand(sc, TRUE);
     GtkWidget *list = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);
     gtk_container_add(GTK_CONTAINER(sc), list);
     gtk_box_pack_start(GTK_BOX(ds_box_outer), sc, TRUE, TRUE, 0);
 
     gtk_box_pack_start(GTK_BOX(profile_page), ds_frame, TRUE, TRUE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(ds_frame), "datasets-frame");
 
     /* Close button */
     GtkWidget *btn_close = gtk_button_new_with_label("Close");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "pf-btn");    
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "close-tab");  
     g_signal_connect(btn_close, "clicked", G_CALLBACK(profile_close_cb), win);
     gtk_box_pack_start(GTK_BOX(profile_page), btn_close, FALSE, FALSE, 0);
 
@@ -774,7 +828,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     gtk_stack_add_named(GTK_STACK(stack), profile_page, "profile");
     pui->profile_page = profile_page;
 
-    /* Keep a placeholder dataset_page (optional) */
+    /* Keep a placeholder dataset_page */
     GtkWidget *dataset_placeholder = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_container_set_border_width(GTK_CONTAINER(dataset_placeholder), 10);
     gtk_stack_add_named(GTK_STACK(stack), dataset_placeholder, "dataset");
@@ -782,7 +836,8 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
     /* style */
     GtkStyleContext *ctx = gtk_widget_get_style_context(stack);
-    gtk_style_context_add_class(ctx, "metal-panel");
+    gtk_style_context_add_class(gtk_widget_get_style_context(profile_page), "profile-panel");
+
 
     #if GTK_CHECK_VERSION(4,0,0)
         gtk_window_set_child(GTK_WINDOW(win), stack);
@@ -793,8 +848,6 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
     debug_log("UI skeleton built — ready to fetch datasets if user_id > 0");
 
     
-
-    /* ----------------------- CARREGAR AVATAR (mesma lógica do exemplo) ----------------------- */
     if (avatar && *avatar) {
         debug_log("Avatar string present: %s", avatar);
         if (g_str_has_prefix(avatar, "http://") || g_str_has_prefix(avatar, "https://")) {
@@ -951,9 +1004,12 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 GtkWidget *detail_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
                                 gtk_container_set_border_width(GTK_CONTAINER(detail_page), 12);
 
+                                gtk_style_context_add_class(gtk_widget_get_style_context(detail_page), "profile-panel");
+
                                 /* header */
                                 GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_back), "pf-btn");  
                                 GtkWidget *title_lbl = gtk_label_new(NULL);
                                 char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", ds_name);
                                 gtk_label_set_markup(GTK_LABEL(title_lbl), title_markup);
@@ -1033,6 +1089,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
                                 GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_open_url), "pf-btn");
                                 if (ds_url && *ds_url) {
                                     g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(ds_url), g_free);
                                     g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
@@ -1050,6 +1107,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
                                 /* --- create the list card (item_box) and attach click handlers so the whole card is clickable --- */
                                 GtkWidget *item_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(item_box), "dataset-row");
                                 gtk_widget_set_margin_start(item_box, 6);
                                 gtk_widget_set_margin_end(item_box, 6);
                                 gtk_widget_set_margin_top(item_box, 4);
@@ -1058,6 +1116,8 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                 /* horizontal row with name button + meta */
                                 GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
                                 GtkWidget *btn_name = gtk_button_new_with_label(ds_name);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_name), "pf-btn");
+                                gtk_style_context_add_class(gtk_widget_get_style_context(btn_name), "dataset-name");
 
                                 /* save stack child name on button and connect (keep name click behavior) */
                                 g_object_set_data_full(G_OBJECT(btn_name), "dataset_stack_name", g_strdup(stack_child_name), g_free);
@@ -1072,6 +1132,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
                                     strncat(meta, ds_dt, sizeof(meta) - strlen(meta) - 1);
                                 }
                                 GtkWidget *lbl_meta = gtk_label_new(meta);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(lbl_meta), "dataset-meta");
                                 gtk_label_set_xalign(GTK_LABEL(lbl_meta), 0.0);
                                 gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
 
@@ -1086,6 +1147,7 @@ void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent)
 
                                 GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
                                 gtk_box_pack_start(GTK_BOX(item_box), sep, FALSE, FALSE, 6);
+                                gtk_style_context_add_class(gtk_widget_get_style_context(sep), "row-sep");
 
                                 /* create listrow (declared once) */
                                 GtkWidget *listrow = gtk_list_box_row_new();

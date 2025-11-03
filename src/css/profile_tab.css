@@ -1,13 +1,50 @@
 /* ============ Profile Tab — Win95 “card prateado” sem mudar fundo global ============ */
 
-/* raiz da aba (não toca no background da janela) */
+/* Container principal com altura controlada */
+.profile-tab {
+  background: #008080;
+  height: 50vh;
+  overflow: hidden;
+}
+
 .profile-tab .profile-tab-container {
   background: transparent;
   border: 0;
   padding: 0;
+  height: 50%;
+  display: flex;
+  flex-direction: column;
 }
 
-/* avatar */
+/* Container do card com rolagem */
+.profile-tab .profile-card-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* Card principal COM altura fixa e rolagem interna */
+.profile-tab .profile-card {
+  background: #e0deda;
+  color: #212529;
+  padding: 16px 18px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 20vh; /* Altura máxima relativa à viewport */
+  overflow-y: auto; /* Rolagem interna quando necessário */
+  border: 2px solid #fff;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  border-left-color: #fff;
+  border-top-color: #fff;
+  box-shadow: 1px 1px #000;
+  margin: 0 auto;
+}
+
+/* Restante do CSS mantido... */
 .profile-tab .avatar-image {
   border: 1px solid #808080;
   box-shadow: 0 0 0 2px #f0f0f0 inset;
@@ -15,10 +52,10 @@
   min-height: 180px;  
 }
 
-/* pilha dos campos */
-.profile-tab .fields-container { margin-top: 8px; }
+.profile-tab .fields-container { 
+  margin-top: 8px; 
+}
 
-/* entradas brancas ocupando a largura, estilo Win95 */
 .profile-tab .edit-input {
   background: #C0C0C0;
   color: #000;
@@ -28,24 +65,22 @@
   font-size: 10pt;
 }
 
-/* biografia (TextView) com a mesma cara */
 .profile-tab .edit-textview {
   background: #C0C0C0;
   color: #000;
   border: none;
-
 }
 
-/* barra de ações/status — centralizar o botão, manter seu estilo 3D */
 .profile-tab .actions-container {
   background: transparent;
   border: 0;
   padding-top: 12px;
   text-align: center;
 }
+
 .profile-tab .save-button {
   display: inline-block;
-  margin: 0 auto;                 /* centraliza no text-align:center */
+  margin: 0 auto;
   border-width: 2px;
   border-style: outset;
   border-color: buttonface;
@@ -57,6 +92,7 @@
   border-radius: 1px;
   font-weight: 700;
 }
+
 .profile-tab .save-button:hover,
 .profile-tab .save-button:focus,
 .profile-tab .save-button:active {
@@ -65,6 +101,7 @@
   color: #424242;
   box-shadow: -1px -1px #000;
 }
+
 .profile-tab .save-button:disabled {
   cursor: default;
   background-color: silver;
@@ -75,7 +112,6 @@
   text-shadow: 1px 1px #fff;
 }
 
-/* status/info box no estilo 95 */
 .profile-tab .status-message{
   font-weight: 700;
   background: #ffffff;
@@ -84,25 +120,10 @@
   padding: 6px 10px;
   margin-top: 10px;
 }
+
 .profile-tab .status-success{ color:#000080; border-color:#000080; }
 .profile-tab .status-error  { color:#800000; border-color:#800000; }
 
-/* Card branco com relevo Win95 */
-.profile-tab .profile-card{
-  background:#e0deda;
-  color:#212529;
-  padding:16px 18px;
-  margin-top: 40px;
-  max-width:560px;
-  border:2px solid #fff;
-  border-right-color:#424242;
-  border-bottom-color:#424242;
-  border-left-color:#fff;
-  border-top-color:#fff;
-  box-shadow:1px 1px #000;
-}
-
-/* Moldura 3D do avatar (no event box) */
 .profile-tab #avatar-box{
   background: var(--winface, #e0deda);
   padding:6px;
@@ -114,7 +135,6 @@
   box-shadow:1px 1px #000;
 }
 
-/* Nome grande abaixo do avatar */
 .profile-tab .profile-display-name{
   font-family:"MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
   font-weight:700;
@@ -124,7 +144,6 @@
   text-align:center;
 }
 
-/* Linha de edição (afundada) */
 .profile-tab .edit-row{
   background: transparent;
   padding: 0;
@@ -132,7 +151,6 @@
   box-shadow: none;
 }
 
-/* Botões de lápis com relevo 3D */
 .profile-tab .pencil-btn{
   background: var(--winface, silver);
   color:#000;
@@ -143,20 +161,20 @@
     inset 1px 1px 0 var(--highlight, #fff),
     inset -1px -1px 0 var(--darkshadow, #404040);
 }
+
 .profile-tab .pencil-btn:active{
   box-shadow:
     inset 1px 1px 0 var(--darkshadow, #404040),
     inset -1px -1px 0 var(--highlight, #fff);
 }
 
-/* Entradas */
 .profile-tab .edit-input{
   background:#fff; color:#000; border:none; border-radius:0; font-size:10pt;
 }
+
 .profile-tab .edit-input:focus{ outline:1px dotted #000; outline-offset:-4px; }
 .profile-tab .edit-textview{ background:#fff; color:#000; border:none; }
 
-/* Barra de ações */
 .profile-tab .save-button{
   border-width: 2px;
   border-style: outset;
@@ -171,6 +189,7 @@
   display: inline-block;
   margin: 0 auto;
 }
+
 .profile-tab .save-button:hover,
 .profile-tab .save-button:focus,
 .profile-tab .save-button:active{
@@ -179,6 +198,7 @@
   color:#424242;
   box-shadow: -1px -1px #000;
 }
+
 .profile-tab .actions-container{
   background: transparent;
   border: 0;
@@ -192,14 +212,13 @@
   min-width:90px;       
 }
 
-/* Moldura 3D do avatar (event box) */
 .profile-tab .avatar-box,
 .profile-tab #avatar-box {
   padding: 6px;             
   border: 4px solid #fff;    
   border-right-color:#424242;
   border-bottom-color:#424242;
-  box-shadow: 10px 10px #000; 
+  box-shadow: 2px 2px #000; 
   display: inline-block;
 }
 
@@ -233,7 +252,6 @@
   outline: none;
 }
 
-/* === Entradas: remover underline/bordas/sombras do tema (todos os estados) === */
 .profile-tab entry,
 .profile-tab entry:focus,
 .profile-tab entry:active,
@@ -247,7 +265,6 @@
   background: transparent; 
 }
 
-/* === TextView/ScrolledWindow === */
 .profile-tab textview,
 .profile-tab scrolledwindow,
 .profile-tab scrolledwindow > viewport,
@@ -259,7 +276,6 @@
   background: transparent;
 }
 
-/* === Relevo Win95 só no container que envolve os campos === */
 .profile-tab .edit-row{
   background:#fff;
   border:1px solid #d5d5d5;
@@ -270,7 +286,6 @@
     inset -2px -2px 0 #cfcfcf;
 }
 
-/* Inputs “limpos” dentro do berço */
 .profile-tab .edit-input,
 .profile-tab .edit-textview {
   border: 0;
@@ -285,7 +300,6 @@
   background: transparent;
 }
 
-/* === Entradas: remover underline/bordas/sombras do tema (todos os estados) === */
 .profile-tab entry,
 .profile-tab entry:focus,
 .profile-tab entry:active,
@@ -296,10 +310,9 @@
   box-shadow: none;
   background-image: none;
   outline: none;
-  background: transparent; /* container (.edit-row) é quem dá o fundo/relevo */
+  background: transparent;
 }
 
-/* === TextView/ScrolledWindow: idem === */
 .profile-tab textview,
 .profile-tab scrolledwindow,
 .profile-tab scrolledwindow > viewport,
@@ -311,7 +324,6 @@
   background: transparent;
 }
 
-/* === Relevo Win95 só no container que envolve os campos === */
 .profile-tab .edit-row{
   background:#fff;
   border:1px solid #d5d5d5;
@@ -323,7 +335,6 @@
   padding: 4px 6px;
 }
 
-/* Inputs “limpos” dentro do berço */
 .profile-tab .edit-input,
 .profile-tab .edit-textview {
   border: 0;
@@ -334,7 +345,6 @@
   font-size: 10pt;
 }
 
-/* Moldura colada na imagem */
 .profile-tab .avatar-box{
   padding:0 !important; 
   background:#e0deda;
@@ -345,20 +355,14 @@
   display:inline-block;
 }
 
-/* Aro interno da imagem*/
 .profile-tab .avatar-image{
   border:4px solid #fff;
   border-right-color:#424242;
   border-bottom-color:#424242;
-  box-shadow:2px 2px #000;     /* antes 1px */
-  box-shadow: 0 0 0 3px #f0f0f0 inset; /* antes 2px */
+  box-shadow:2px 2px #000;
+  box-shadow: 0 0 0 3px #f0f0f0 inset;
   min-width: 192px;
   min-height: 192px;
-}
-
-/* === Fundo teal da página da aba "Perfil" === */
-.profile-tab{
-  background:#008080;
 }
 
 .profile-tab .profile-tab-container,
@@ -373,4 +377,139 @@
 
 .welcome-banner {
   color: black;
+}
+
+/* ============ ESTILOS ESPECÍFICOS PARA DATASETS ============ */
+
+.profile-tab .datasets-section {
+  margin-top: 20px;
+  background: transparent;
+}
+
+.profile-tab .section-title {
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 12pt;
+  font-weight: bold;
+  color: #000;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+/* Container rolável dos datasets - ALTURA FIXA */
+.profile-tab .datasets-scrolled {
+  background: #e0deda;
+  border: 2px solid #fff;
+  border-right-color: #424242;
+  border-bottom-color: #424242;
+  border-left-color: #fff;
+  border-top-color: #fff;
+  box-shadow: 1px 1px #000;
+  max-height: 250px; /* Altura fixa máxima */
+  overflow-y: auto; /* Rolagem interna */
+}
+
+.profile-tab .datasets-list {
+  background: #e0deda;
+  padding: 4px;
+}
+
+.profile-tab .dataset-row {
+  background: #e0deda;
+  padding: 8px 6px;
+  margin: 2px 0;
+  border: 1px solid transparent;
+  transition: all 0.1s ease;
+}
+
+.profile-tab .dataset-row:hover {
+  background: #d0ceca;
+  border: 1px solid #808080;
+}
+
+.profile-tab .dataset-name {
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
+  font-weight: bold;
+  color: #000080;
+  margin: 0;
+}
+
+.profile-tab .dataset-meta {
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 8pt;
+  color: #555;
+  font-style: italic;
+  margin: 0;
+}
+
+.profile-tab .datasets-list label {
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 9pt;
+  color: #000;
+  margin: 2px 0 0 0;
+  line-height: 1.2;
+}
+
+.profile-tab .row-sep {
+  background-color: #808080;
+  min-height: 1px;
+  margin: 6px 2px;
+  border: none;
+}
+
+.profile-tab .datasets-section:empty::before {
+  content: "Nenhum dataset encontrado";
+  font-family: "MS Sans Serif", Tahoma, "DejaVu Sans", sans-serif;
+  font-size: 10pt;
+  color: #555;
+  font-style: italic;
+  text-align: center;
+  display: block;
+  padding: 20px;
+}
+
+/* Scrollbar estilo Win95 */
+.profile-tab .datasets-scrolled scrollbar {
+  background: #C0C0C0;
+}
+
+.profile-tab .datasets-scrolled scrollbar slider {
+  background: #C0C0C0;
+  border: 1px solid #808080;
+  border-radius: 0;
+}
+
+.profile-tab .datasets-scrolled scrollbar trough {
+  background: #E0E0E0;
+  border: 1px solid #808080;
+}
+
+.profile-tab .datasets-scrolled scrollbar button {
+  background: #C0C0C0;
+  border: 1px solid #808080;
+  color: #000;
+}
+
+/* Ajuste para garantir que o card principal tenha rolagem interna */
+.profile-tab .profile-card::-webkit-scrollbar {
+  width: 16px;
+}
+
+.profile-tab .profile-card::-webkit-scrollbar-track {
+  background: #C0C0C0;
+  border: 1px solid #808080;
+}
+
+.profile-tab .profile-card::-webkit-scrollbar-thumb {
+  background: #C0C0C0;
+  border: 1px solid #808080;
+}
+
+.profile-tab .datasets-section {
+  min-height: 60px;
+}
+
+/* Garantir que a seção de datasets não expanda demais */
+.profile-tab .datasets-section {
+  flex-shrink: 0;
 }

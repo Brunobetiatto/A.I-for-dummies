@@ -25,7 +25,7 @@ if PARENT not in sys.path:
 
 from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
-from database.CRUD.update import reset_user_password, update_user_info, update_dataset_info
+from database.CRUD.update import increment_dataset_views, reset_user_password, update_user_info, update_dataset_info
 from database.CRUD.read import get_user_by_id, get_datasets_by_user, get_dataset_by_name
 from database.CRUD.delete import delete_user, delete_dataset
 
@@ -738,6 +738,31 @@ def api_update_dataset(dataset_id):
                 cnx.close()
             except Exception:
                 pass
+
+
+@app.route('/dataset/<int:dataset_id>/view', methods=['POST'])
+def api_increment_dataset_view(dataset_id):
+    cnx = None
+    try:
+        # Log para debug
+        app.logger.debug("api_increment_dataset_view called for id=%d", dataset_id)
+
+        cnx = get_db_connection()
+        new_count = increment_dataset_views(cnx, dataset_id)
+
+        if new_count < 0:
+            return jsonify({'status': 'ERROR', 'message': 'Dataset not found'}), 404
+
+        return jsonify({'status': 'OK', 'message': 'View incremented', 'visualizacoes': new_count}), 200
+
+    except Exception as e:
+        app.logger.exception("Error incrementing view for dataset %s: %s", dataset_id, e)
+        return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+    finally:
+        if cnx:
+            try: cnx.close()
+            except Exception: pass
+
 
 # Função para enviar email com o código
 def send_reset_code_email(to_email, user_name, reset_code):

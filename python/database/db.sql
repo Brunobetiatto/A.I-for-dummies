@@ -153,3 +153,7 @@ INSERT INTO dataset (usuario_idusuario, nome, descricao, url, tamanho) VALUES
 (7, 'Dataset de Transporte', 'Conjunto de dados de tráfego e transporte', 'http://example.com/dataset8', '600MB'),
 (8, 'Dataset de Redes Sociais', 'Conjunto de dados de interações em redes sociais', 'http://example.com/dataset9', '800MB'),
 (9, 'Dataset de Jogos', 'Conjunto de dados de comportamento em jogos', 'http://example.com/dataset10', '1.2GB');
+
+-- Adicionando coluna de visualizações na tabela dataset
+ALTER TABLE `aifordummies`.`dataset`
+ADD COLUMN `visualizacoes` INT NOT NULL DEFAULT 0 AFTER `dataCadastro`;

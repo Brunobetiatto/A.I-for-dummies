@@ -15,7 +15,7 @@
 
 #ifndef PROFILE_TAB_H
 #define PROFILE_TAB_H
-#define AVATAR_SIZE 192
+#define AVATAR_SIZE 120
 
 typedef struct {
     GtkWidget *container;

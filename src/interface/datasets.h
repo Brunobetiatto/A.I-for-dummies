@@ -43,7 +43,7 @@ typedef struct {
     GtkLabel   *lbl_rows;
     GtkLabel   *lbl_link;
     GtkLabel   *lbl_desc;
-
+    GtkLabel  *lbl_visualization; 
     GtkWidget  *user_event;
 } DatasetsUI;
 
@@ -900,6 +900,45 @@ static void free_all_meta_from_store(GtkListStore *store) {
     }
 }
 
+/* helper: cell data func para coluna Views (versão corrigida: sem G_IS_HASH_TABLE) */
+static void views_cell_data_func(GtkTreeViewColumn *col,
+                                 GtkCellRenderer   *renderer,
+                                 GtkTreeModel      *model,
+                                 GtkTreeIter       *iter,
+                                 gpointer           user_data)
+{
+    (void)col; (void)user_data;
+    gpointer meta_ptr = NULL;
+    gtk_tree_model_get(model, iter, DS_COL_META, &meta_ptr, -1);
+
+    int views = 0;
+
+    if (meta_ptr) {
+        /* assumimos que meta_ptr é um GHashTable* (como usado no resto do app) */
+        GHashTable *meta = (GHashTable*) meta_ptr;
+        gpointer v = g_hash_table_lookup(meta, "visualizacoes");
+        if (!v) v = g_hash_table_lookup(meta, "views");
+        if (!v) v = g_hash_table_lookup(meta, "visualizacao"); /* fallback */
+
+        if (v) {
+            /* pode ser armazenado com GINT_TO_POINTER ou como string */
+            guintptr uv = (guintptr)v;
+            if (uv > 0 && uv <= 0xFFFF) {
+                views = GPOINTER_TO_INT(v);
+            } else {
+                /* assume string */
+                const char *s = (const char*) v;
+                if (s) views = atoi(s);
+            }
+        }
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d", views);
+    g_object_set(renderer, "text", buf, NULL);
+}
+
+
 /* Preenche o painel de detalhes a partir do meta + título já pronto */
 static void fill_details_from_meta(DatasetsUI *dui, GHashTable *meta, const char *title_mk) {
     if (!dui) return;
@@ -970,6 +1009,8 @@ static void fill_details_from_meta(DatasetsUI *dui, GHashTable *meta, const char
 /* duplo-clique/Enter na linha da lista => abrir detalhes */
 static void on_ds_row_activated(GtkTreeView *tv, GtkTreePath *path,
                                 GtkTreeViewColumn *col, gpointer user_data) {
+    debug_log("on_ds_row_activated: showing details for selected dataset");  
+    
     (void)col;
     DatasetsUI *dui = (DatasetsUI*)user_data;
     GtkTreeModel *m = gtk_tree_view_get_model(tv);
@@ -983,6 +1024,55 @@ static void on_ds_row_activated(GtkTreeView *tv, GtkTreePath *path,
         DS_COL_DESC, &desc,
         DS_COL_SIZE, &size,
         DS_COL_META, &meta, -1);
+
+    /* --- NOVO: extrair id do dataset do meta e incrementar views --- */
+    int ds_id = 0;
+    if (meta) {
+        /* tenta chaves comuns */
+        gpointer v = g_hash_table_lookup(meta, "iddataset");
+        if (!v) v = g_hash_table_lookup(meta, "id");
+        if (!v) v = g_hash_table_lookup(meta, "dataset_id");
+
+        if (v) {
+            /* primeira tentativa: foi armazenado como inteiro com GINT_TO_POINTER */
+            int maybe = GPOINTER_TO_INT(v);
+            if (maybe > 0) {
+                ds_id = maybe;
+            } else {
+                /* segunda tentativa: talvez seja string com número */
+                const char *sv = (const char *)v;
+                if (sv && *sv) {
+                    /* aceita apenas se começar por dígito/menos */
+                    if ((sv[0] >= '0' && sv[0] <= '9') || sv[0] == '-') {
+                        ds_id = atoi(sv);
+                    }
+                }
+            }
+        }
+    }
+
+    if (ds_id > 0) {
+        char inc_cmd[64];
+        snprintf(inc_cmd, sizeof(inc_cmd), "INCREMENT_DATASET_VIEWS %d", ds_id);
+        debug_log("on_ds_row_activated: calling increment views: %s", inc_cmd);
+
+        WCHAR *winc = utf8_to_wchar_alloc(inc_cmd);
+        if (winc) {
+            WCHAR *wres = run_api_command(winc);
+            free(winc);
+            if (wres) {
+                /* ignoramos o corpo, apenas liberamos se necessário */
+                free(wres);
+            } else {
+                debug_log("on_ds_row_activated: run_api_command returned NULL for increment");
+            }
+        } else {
+            debug_log("on_ds_row_activated: utf8_to_wchar_alloc failed for increment command");
+        }
+    } else {
+        debug_log("on_ds_row_activated: no valid dataset id found in meta (skipping increment)");
+    }
+    /* --- fim incremento --- */
 
     gchar *mk = g_markup_printf_escaped("<b>%s</b>", name ? name : "Dataset");
     fill_details_from_meta(dui, meta, mk);
@@ -1152,6 +1242,7 @@ static void on_load_dataset(GtkButton *btn, gpointer user_data) {
 
 /* helper: open upload dialog using the notebook's toplevel window as parent */
 static void on_open_upload_dialog(GtkButton *btn, gpointer user_data) {
+    debug_log("on_open_upload_dialog: opening upload dialog");
     EnvCtx *env = (EnvCtx*) user_data;
     GtkNotebook *nb = GTK_NOTEBOOK(gtk_widget_get_parent(GTK_WIDGET(btn)));
     GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(btn));
@@ -1469,6 +1560,18 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_tree_view_column_set_sort_column_id(c_size, DS_COL_SIZE);
     gtk_tree_view_column_set_sort_indicator(c_size, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_size);
+
+     /* --- Nova coluna: Views (não requer mudança no store) --- */
+    GtkCellRenderer *r4 = gtk_cell_renderer_text_new();
+    g_object_set(r4, "xalign", 1.0, NULL); /* alinhar à direita */
+    GtkTreeViewColumn *c_views = gtk_tree_view_column_new();
+    gtk_tree_view_column_set_title(c_views, "Views");
+    gtk_tree_view_column_pack_start(c_views, r4, TRUE);
+    /* não usamos atributo direto: usamos cell_data_func que lê DS_COL_META */
+    gtk_tree_view_column_set_cell_data_func(c_views, r4, views_cell_data_func, NULL, NULL);
+    gtk_tree_view_column_set_resizable(c_views, TRUE);
+    /* opcional: não definir sort_column_id (ou definir um custom sort) */
+    gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_views);
 
     DatasetsUI *dui = g_new0(DatasetsUI, 1);
     dui->stack = GTK_STACK(stack);
@@ -1795,30 +1898,103 @@ static gboolean str_contains_ci(const char *hay, const char *needle) {
 }
 
 /* todas as palavras (separadas por espaço) devem aparecer em pelo menos um dos campos */
+static gboolean is_numeric_string(const char *s) {
+    if (!s || !*s) return FALSE;
+    const char *p = s;
+    /* permitir apenas dígitos para considerar numérico (ajuste se quiser sinais/decimais) */
+    while (*p) {
+        if (!g_ascii_isdigit(*p)) return FALSE;
+        p++;
+    }
+    return TRUE;
+}
+
 static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data) {
     GtkEntry *entry = GTK_ENTRY(user_data);
     const char *q = gtk_entry_get_text(entry);
     if (!q || !*q) return TRUE;
 
-    gchar *name=NULL, *desc=NULL, *size=NULL;
+    /* split por espaços (tokens) */
+    gchar **tokens = g_strsplit(q, " ", -1);
+    if (!tokens) return TRUE;
+
+    gchar *name = NULL, *desc = NULL, *size = NULL;
+    gpointer meta_ptr = NULL;
+
+    /* Pegamos também a coluna DS_COL_META (pointer) para ler views */
     gtk_tree_model_get(model, iter,
-        DS_COL_NAME, &name,
-        DS_COL_DESC, &desc,
-        DS_COL_SIZE, &size, -1);
+                       DS_COL_NAME, &name,
+                       DS_COL_DESC, &desc,
+                       DS_COL_SIZE, &size,
+                       DS_COL_META, &meta_ptr,
+                       -1);
 
     gboolean visible = TRUE;
-    gchar **tokens = g_strsplit(q, " ", -1);
-    for (int i=0; tokens && tokens[i]; ++i) {
+
+    for (int i = 0; tokens && tokens[i]; ++i) {
         const char *t = tokens[i];
         if (!t || !*t) continue;
-        if (!(str_contains_ci(name, t) || str_contains_ci(desc, t) || str_contains_ci(size, t))) {
-            visible = FALSE; break;
+
+        gboolean token_match = FALSE;
+
+        /* procura case-insensitive em name/desc/size usando helper existente */
+        if (name && str_contains_ci(name, t)) token_match = TRUE;
+        if (!token_match && desc && str_contains_ci(desc, t)) token_match = TRUE;
+        if (!token_match && size && str_contains_ci(size, t)) token_match = TRUE;
+
+        /* se ainda não bateu, tente comparar com 'views' (meta) */
+        if (!token_match && meta_ptr) {
+            /* tratamos meta_ptr como GHashTable* (é o uso usual no seu código) */
+            GHashTable *meta = (GHashTable *) meta_ptr;
+            const char *vstr = NULL;
+            gpointer vptr = NULL;
+
+            /* tente chaves comuns */
+            if (meta) {
+                vptr = g_hash_table_lookup(meta, "visualizacoes");
+                if (!vptr) vptr = g_hash_table_lookup(meta, "views");
+            }
+
+            if (vptr) {
+                char *tmp_str = NULL;
+                /* se estiver armazenado como pointer-integer */
+                if (GPOINTER_TO_UINT(vptr) <= (guint)G_MAXINT && ((gintptr)vptr & (gintptr)0xFFFFFFFF) == (gintptr)vptr) {
+                    /* muitas vezes pointers-integers são usados via GINT_TO_POINTER */
+                    int val = GPOINTER_TO_INT(vptr);
+                    tmp_str = g_strdup_printf("%d", val);
+                    vstr = tmp_str;
+                } else {
+                    /* caso seja string */
+                    vstr = (const char*) vptr;
+                }
+
+                if (vstr) {
+                    /* se token for numérico, comparar numericamente / substring */
+                    if (is_numeric_string(t)) {
+                        /* permitir correspondência por substring também (ex: token "12" bate em "123") */
+                        if (str_contains_ci(vstr, t)) token_match = TRUE;
+                    } else {
+                        /* token textual: também tente comparar com views string */
+                        if (str_contains_ci(vstr, t)) token_match = TRUE;
+                    }
+                }
+
+                if (tmp_str) g_free(tmp_str);
+            }
         }
+
+        /* se esse token não bateu em nenhum campo -> linha invisível */
+        if (!token_match) { visible = FALSE; break; }
     }
+
     g_strfreev(tokens);
-    g_free(name); g_free(desc); g_free(size);
+    if (name) g_free(name);
+    if (desc) g_free(desc);
+    if (size) g_free(size);
+
     return visible;
 }
+
 
 static void on_search_changed(GtkEditable *e, gpointer user_data) {
     GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(e), "ds-filter"));
@@ -1842,12 +2018,13 @@ static void on_search_activate(GtkEntry *e, gpointer user_data) {
     } while (gtk_tree_model_iter_next(m, &it));
 
     if (count == 1) {
-        gchar *name=NULL,*desc=NULL,*size=NULL;
+        gchar *name=NULL,*desc=NULL,*size=NULL,*views=NULL;
         GHashTable *meta=NULL;
         gtk_tree_model_get(m, &first,
             DS_COL_NAME, &name,
             DS_COL_DESC, &desc,
             DS_COL_SIZE, &size,
+            
             DS_COL_META, &meta, -1);
         gchar *mk = g_markup_printf_escaped("<b>%s</b>", name ? name : "Dataset");
         fill_details_from_meta(dui, meta, mk);

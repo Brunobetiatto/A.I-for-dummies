@@ -359,8 +359,8 @@
   border-bottom-color:#424242;
   box-shadow:2px 2px #000;
   box-shadow: 0 0 0 3px #f0f0f0 inset;
-  min-width: 192px;
-  min-height: 192px;
+  min-width: 130px;
+  min-height: 130px;
 }
 
 .profile-tab .profile-tab-container,

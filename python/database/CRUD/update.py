@@ -109,3 +109,88 @@ def update_dataset_info(cnx, dataset_id: int, updates: dict) -> bool:
         raise
     finally:
         cur.close()
+
+def increment_dataset_views(cnx, dataset_id: int) -> int:
+    """
+    Incrementa visualizacoes em 1 para dataset_id e retorna o novo contador.
+    Retorna -1 se o dataset não existir.
+    Lança exceção em erro inesperado.
+    """
+    if dataset_id <= 0:
+        raise ValueError("dataset_id must be > 0")
+
+    cur = cnx.cursor()
+    try:
+        # Garante que NULLs não causem problemas
+        sql_update = "UPDATE dataset SET visualizacoes = COALESCE(visualizacoes, 0) + 1 WHERE iddataset = %s"
+        cur.execute(sql_update, (dataset_id,))
+
+        if cur.rowcount == 0:
+            # dataset não existe
+            cnx.commit()
+            return -1
+
+        # Buscar o novo valor
+        cur.execute("SELECT visualizacoes FROM dataset WHERE iddataset = %s", (dataset_id,))
+        row = cur.fetchone()
+        cnx.commit()
+
+        if not row:
+            return -1
+
+        # row pode ser tuple/list ou dict (dependendo do cursor)
+        if isinstance(row, dict):
+            # tenta chave com nome da coluna
+            val = None
+            for key in ("visualizacoes", "Visualizacoes", "visualizacoes".lower()):
+                if key in row:
+                    val = row.get(key)
+                    break
+            # se não achar a chave, pega o primeiro valor do dict
+            if val is None:
+                # pegar primeiro value seguro
+                try:
+                    val = next(iter(row.values()))
+                except StopIteration:
+                    val = None
+        else:
+            # tuple/list -> primeiro elemento
+            try:
+                val = row[0]
+            except Exception:
+                val = None
+
+        if val is None:
+            return -1
+
+        # Normalizar tipos: bytes/str/Decimal -> int
+        if isinstance(val, bytes):
+            try:
+                sval = val.decode()
+            except Exception:
+                sval = val.decode(errors="ignore")
+            return int(float(sval))  # cobre "123" ou "123.0"
+        if isinstance(val, str):
+            return int(float(val))
+        # Decimal ou numeric-like
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            try:
+                return int(float(val))
+            except Exception as e:
+                raise ValueError(f"Could not convert visualizacoes value to int: {val!r}") from e
+
+    except Exception:
+        # rollback em caso de erro
+        try:
+            cnx.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+

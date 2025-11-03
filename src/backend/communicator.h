@@ -587,6 +587,28 @@ bool api_get_user_by_id(int user_id, char **response) {
     return (*response != NULL);
 }
 
+bool api_increment_dataset_views(int dataset_id, char **response_out) {
+    if (dataset_id <= 0) return false;
+    if (response_out) *response_out = NULL;
+
+    char endpoint[128];
+    snprintf(endpoint, sizeof(endpoint), "/dataset/%d/view", dataset_id);
+
+    /* data == NULL pois não precisamos enviar body; api_request deve lidar com isso */
+    char *resp = api_request("POST", endpoint, NULL);
+    if (!resp) return false;
+
+    if (response_out) {
+        *response_out = resp; /* caller fará free() */
+    } else {
+        free(resp);
+    }
+
+    /* Sentença simplista para detectar sucesso */
+    bool ok = (strstr(resp, "\"status\":\"OK\"") != NULL);
+    return ok;
+}
+
 bool api_get_user_datasets(int user_id, char **response) {
     char endpoint[256];
     snprintf(endpoint, sizeof(endpoint), "/user/%d/datasets", user_id);
@@ -1102,6 +1124,15 @@ WCHAR* run_api_command(const WCHAR *command) {
             int dataset_id = atoi(token);
             if (dataset_id > 0) {
                 api_delete_dataset(dataset_id, &response);
+            }
+        }
+    }
+    else if (token && strcmp(token, "INCREMENT_DATASET_VIEWS") == 0) {
+        token = strtok(NULL, " ");
+        if (token) {
+            int dataset_id = atoi(token);
+            if (dataset_id > 0) {
+                api_increment_dataset_views(dataset_id, &response);
             }
         }
     }

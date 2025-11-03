@@ -16,7 +16,7 @@
 #ifndef ENV_H
 #define ENV_H
 
-/* --------- Barra Win95 para a janela do Environment ---------- */
+/* -------- Barra Win95 para a janela do Environment ---------- */
 
 #include <gtk/gtk.h>
 
@@ -128,19 +128,6 @@ static gboolean idle_iconize_logout(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-static gchar *find_python(void) {
-#if defined(G_OS_WIN32)
-    const char *cands[] = {"python.exe", "py.exe", "python3.exe", NULL};
-#else
-    const char *cands[] = {"python3", "python", NULL};
-#endif
-    for (int i=0;cands[i];++i) {
-        gchar *p = g_find_program_in_path(cands[i]);
-        if (p) return p;
-    }
-    return NULL;
-}
-
 /* Guarda/obtém o pixbuf-fonte no próprio GtkImage (sem mexer em EnvCtx) */
 static void set_plot_src(GtkImage *img, GdkPixbuf *pb) {
     if (!img) return;
@@ -179,69 +166,6 @@ static void update_plot_scaled(EnvCtx *ctx) {
 static void on_plot_size_allocate(GtkWidget *w, GtkAllocation *alloc, gpointer user_data) {
     (void)w; (void)alloc;
     update_plot_scaled((EnvCtx*)user_data);
-}
-
-/* Find the newest PNG whose name starts with prefix inside dir. Caller g_free()s the result. */
-static gchar* find_latest_frame(const gchar *dir, const gchar *prefix) {
-    if (!dir || !prefix) return NULL;
-    GDir *d = g_dir_open(dir, 0, NULL);
-    if (!d) return NULL;
-
-    const gchar *name;
-    time_t best_mtime = 0;
-    gchar *best = NULL;
-
-    while ((name = g_dir_read_name(d))) {
-        if (!g_str_has_suffix(name, ".png")) continue;
-        if (!g_str_has_prefix(name, prefix)) continue;
-
-        gchar *full = g_build_filename(dir, name, NULL);
-        GStatBuf st;
-        if (g_stat(full, &st) == 0) {
-            if (st.st_mtime >= best_mtime) {
-                best_mtime = st.st_mtime;
-                g_free(best);
-                best = full;  /* keep */
-            } else {
-                g_free(full);
-            }
-        } else {
-            g_free(full);
-        }
-    }
-    g_dir_close(d);
-    return best;
-}
-
-/* Periodic image refresher for Plot tab */
-static gboolean tick_update_plot(gpointer user_data) {
-    EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx || !ctx->plot_img || !ctx->plot_dir || !ctx->plot_prefix) return TRUE;
-
-    gchar *latest = find_latest_frame(ctx->plot_dir, ctx->plot_prefix);
-    if (!latest) return TRUE;
-
-    gboolean changed = (!ctx->plot_last || g_strcmp0(ctx->plot_last, latest) != 0);
-    if (changed) {
-        GError *err = NULL;
-        /* Load and swap pixbuf (this does NOT keep the file open) */
-        GdkPixbuf *pb = gdk_pixbuf_new_from_file(latest, &err);
-        if (pb) {
-            gtk_image_set_from_pixbuf(ctx->plot_img, pb);
-            g_object_unref(pb);
-
-            g_free(ctx->plot_last);
-            ctx->plot_last = latest; latest = NULL;
-
-            /* Auto-redirect to Plot page when a new frame appears */
-            if (ctx->right_nb && ctx->plot_page_idx >= 0)
-                gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
-        } else if (err) {
-            g_error_free(err);
-        }
-    }
-    g_free(latest);
-    return TRUE; /* keep timer */
 }
 
 // ---- trainer stdout JSON lines ------------------------------------
@@ -914,6 +838,7 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 }
 
 static void on_start_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx) return;
 
@@ -1009,6 +934,7 @@ static void set_icon_tab(GtkNotebook *nb, GtkWidget *page,
 /* quando qualquer página é adicionada ao notebook da direita */
 static void on_right_nb_page_added(GtkNotebook *nb, GtkWidget *child,
                                    guint page_num, gpointer user_data) {
+    (void)page_num; (void)user_data;
     GtkWidget *tabw = gtk_notebook_get_tab_label(nb, child);
     if (GTK_IS_LABEL(tabw)) {
         const gchar *t = gtk_label_get_text(GTK_LABEL(tabw));
@@ -1016,34 +942,6 @@ static void on_right_nb_page_added(GtkNotebook *nb, GtkWidget *child,
             set_icon_tab(nb, child, "assets/preview.png", "Preview Dataset");
         }
     }
-}
-
-static void on_train_clicked(GtkButton *b, gpointer user) {
-    (void)b;
-    EnvCtx *ctx = (EnvCtx*)user;
-    /* Atualiza o label de status, se existir */
-    if (ctx && ctx->status) {
-        gtk_label_set_text(GTK_LABEL(ctx->status), "Em desenvolvimento");
-    }
-
-    /* Determina janela-pai (se disponível) para modal */
-    GtkWindow *parent = NULL;
-    if (ctx && ctx->main_window && GTK_IS_WINDOW(ctx->main_window)) {
-        parent = GTK_WINDOW(ctx->main_window);
-    } else if (ctx && ctx->status) {
-        GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(ctx->status));
-        if (toplevel && GTK_IS_WINDOW(toplevel)) parent = GTK_WINDOW(toplevel);
-    }
-
-    /* Dialog simples informando que está em desenvolvimento */
-    GtkWidget *dlg = gtk_message_dialog_new(parent,
-        (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
-        GTK_MESSAGE_INFO,
-        GTK_BUTTONS_OK,
-        "Em desenvolvimento — recurso ainda não implementado.");
-    gtk_window_set_title(GTK_WINDOW(dlg), "Aviso");
-    gtk_dialog_run(GTK_DIALOG(dlg));
-    gtk_widget_destroy(dlg);
 }
 
 static gboolean parse_percent_entry(const char *txt, double *out) {
@@ -1225,6 +1123,7 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
 }
 
 static void on_algo_changed(GtkComboBox *box, gpointer user_data) {
+    (void)box;
     rebuild_hparams_ui((EnvCtx*)user_data);
 }
 
@@ -1237,16 +1136,19 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* === Carrega o CSS cedo para poder embrulhar a barra === */
     char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
 
-    /* Instala a titlebar Win95 na janela toplevel (como antes) */
+    /* Instala a titlebar Win95 na janela toplevel */
     GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
     if (GTK_IS_WINDOW(tl)) {
         GtkWindow *w = GTK_WINDOW(tl);
         install_env_w95_titlebar(w, "AI for Dummies");
         gtk_window_set_resizable(w, TRUE);
 
-        GdkScreen *screen = gdk_screen_get_default();
-        gint sw = gdk_screen_get_width(screen);
-        gint sh = gdk_screen_get_height(screen);
+        GdkDisplay   *display = gdk_display_get_default();
+        GdkMonitor   *monitor = display ? gdk_display_get_primary_monitor(display) : NULL;
+        GdkRectangle  rect = {0};
+        if (monitor) gdk_monitor_get_geometry(monitor, &rect);
+        gint sw = rect.width;
+        gint sh = rect.height;
         gtk_window_set_default_size(
             w,
             CLAMP(sw * 0.45, 420, 1200),
@@ -1256,9 +1158,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_container_set_border_width(GTK_CONTAINER(w), 12);
     }
 
-    /* === TOP ROW: StackSwitcher (esq) + filler + sessão + Debug (dir) === */
+    /* === TOP ROW: StackSwitcher + filler + sessão + Debug  === */
     GtkWidget *toprow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_name(toprow, "env-toolbar-row");        /* nome interno da linha */
+    gtk_widget_set_name(toprow, "env-toolbar-row");  
     ctx->topbar = GTK_BOX(toprow);
 
     /* Switcher à esquerda */
@@ -1583,8 +1485,15 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_widget_show_all(outer);
 
     /* Caminhos e timers */
-    if (!ctx->fit_img_path) { gchar *tmp = g_get_tmp_dir(); ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png",     NULL); }
-    if (!ctx->metrics_path) { gchar *tmp = g_get_tmp_dir(); ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL); }
+    if (!ctx->fit_img_path) {
+    const gchar *tmp = g_get_tmp_dir();
+    ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png", NULL);
+    }
+    if (!ctx->metrics_path) {
+        const gchar *tmp = g_get_tmp_dir();
+        ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL);
+    }
+
 
     /* Frame Win95 inicial do Plot */
     {

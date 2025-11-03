@@ -36,7 +36,7 @@ typedef struct {
     GtkStack   *stack;
     DsListView list;
 
-    GtkWidget  *title_label; /* top title in details */
+    GtkWidget  *title_label;
 
     GtkLabel   *lbl_user;
     GtkLabel   *lbl_size;
@@ -147,17 +147,6 @@ static void trim_spaces(char *s) {
     while (*q) *p++ = *q++;
     *p = 0;
     for (int i=(int)strlen(s)-1; i>=0 && (s[i]==' '||s[i]=='\t'||s[i]=='\r'||s[i]=='\n'); --i) s[i]=0;
-}
-
-/* If text looks like AA (e.g. "diagnosisdiagnosis"), collapse to A. */
-static char* collapse_double(const char *txt) {
-    if (!txt) return g_strdup("");
-    size_t n = strlen(txt);
-    if (n >= 2 && (n % 2) == 0) {
-        size_t h = n/2;
-        if (strncmp(txt, txt + h, h) == 0) return g_strndup(txt, h);
-    }
-    return g_strdup(txt);
 }
 
 /* --- Helpers de conversão de tamanho para MB --- */
@@ -311,23 +300,6 @@ static char* canonicalize_token_list(const char *txt) {
     return g_string_free(out, FALSE);
 }
 
-/* Return TRUE if entry already contains token (comma-separated list) */
-static gboolean entry_contains_token(GtkEntry *e, const char *name) {
-    if (!e || !name || !*name) return FALSE;
-    const char *txt = gtk_entry_get_text(e);
-    if (!txt) return FALSE;
-
-    gboolean found = FALSE;
-    gchar **parts = g_strsplit(txt, ",", -1);
-    for (int i=0; parts && parts[i]; ++i) {
-        char *t = g_strdup(parts[i]); trim_spaces(t);
-        if (*t && g_strcmp0(t, name) == 0) { found = TRUE; g_free(t); break; }
-        g_free(t);
-    }
-    g_strfreev(parts);
-    return found;
-}
-
 static GdkPixbuf* render_drag_badge(const char *text) {
     const int pad_x = 12, pad_y = 6, radius = 10;
     cairo_surface_t *dummy = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
@@ -457,7 +429,7 @@ static char* extract_payload(GtkSelectionData *sel) {
         gint len = gtk_selection_data_get_length(sel);
         return (len > 0 && data) ? g_strndup((const char*)data, len) : g_strdup("");
     }
-    return gtk_selection_data_get_text(sel); /* UTF-8 */
+    return (char*)gtk_selection_data_get_text(sel);
 }
 
 static void on_x_drag_data_received(GtkWidget *w, GdkDragContext *ctx,
@@ -521,6 +493,7 @@ static void on_y_drag_data_received(GtkWidget *w, GdkDragContext *ctx,
     gtk_drag_finish(ctx, success, FALSE, time_);
 }
 gboolean on_user_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data) {
+    (void)ev; (void)user_data;
     gpointer p = g_object_get_data(G_OBJECT(w), "uploader-id");
     if (!p) return TRUE;
     int uploader_id = GPOINTER_TO_INT(p);
@@ -609,8 +582,6 @@ static void wire_treeview_headers_for_dnd(EnvCtx *ctx, GtkTreeView *tv) {
 
     (void)ctx;
     if (!tv || !GTK_IS_TREE_VIEW(tv)) return;
-
-    gtk_tree_view_set_rules_hint(tv, TRUE);
 
     cols = gtk_tree_view_get_columns(tv);
     for (l = cols; l; l = l->next) {
@@ -704,18 +675,6 @@ static const char* meta_get_any(GHashTable *ht, const char **aliases, int n_alia
     return "";
 }
 
-/* Compact human-readable size if given as bytes (string). Fallback: original. */
-static char* pretty_size(const char *sbytes) {
-    if (!sbytes || !*sbytes) return g_strdup("");
-    char *end = NULL;
-    double v = g_ascii_strtod(sbytes, &end);
-    if (end == sbytes) return g_strdup(sbytes);
-    const char *units[] = {"B","KB","MB","GB","TB"};
-    int ui = 0;
-    while (v >= 1024.0 && ui < 4) { v /= 1024.0; ui++; }
-    return g_strdup_printf("%.1f %s", v, units[ui]);
-}
-
 /* Card click context and handler — PURE C */
 typedef struct {
     GtkStack   *stack;        /* the list/details stack */
@@ -734,157 +693,6 @@ static void on_back_to_list_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 static gchar* make_download_link_markup(const char *url);
-
-/* Click on a card: fill details from its metadata and switch to details page */
-static gboolean on_card_button(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
-    if (!widget || !user_data) return FALSE;
-    if (ev->type != GDK_BUTTON_PRESS || ev->button != 1) return FALSE;
-
-    DatasetsUI *dui = (DatasetsUI*)user_data;
-
-    /* Read metadata map attached to the card and any precomputed title */
-    GHashTable *meta = (GHashTable*)g_object_get_data(G_OBJECT(widget), "dataset-meta");
-    const char *title_mk = (const char*)g_object_get_data(G_OBJECT(widget), "card-title");
-
-    /* Set header/title */
-    if (title_mk && GTK_IS_LABEL(dui->title_label)) {
-        gtk_label_set_markup(GTK_LABEL(dui->title_label), title_mk);
-    }
-
-    /* Aliases for typical fields (used only when meta is present) */
-    const char *A_TITLE[] = {"nome","name","title"};
-    const char *A_USER[]  = {"usuario","user","owner","author","autor","usuario_nome","enviado_por_nome"};
-    const char *A_SIZE[]  = {"size","tamanho","bytes"};
-    const char *A_ROWS[]  = {"rows","linhas","nrows","amostras","samples"};
-    const char *A_LINK[]  = {"link","url","source","path"};
-    const char *A_DESC[]  = {"descricao","description","desc","enviado_por_descricao"};
-
-    /* Prefer uploader info stored directly on the eventbox (set by refresh_datasets_cb) */
-    const char *ev_uploader_name  = (const char*)g_object_get_data(G_OBJECT(widget), "uploader-name");
-    const char *ev_uploader_email = (const char*)g_object_get_data(G_OBJECT(widget), "uploader-email");
-    gpointer     ev_uploader_id_p = g_object_get_data(G_OBJECT(widget), "uploader-id");
-    gpointer     ev_dataset_id_p  = g_object_get_data(G_OBJECT(widget), "dataset-id");
-
-    /* Fallbacks: read from meta if not present as dedicated fields */
-    const char *v_user = ev_uploader_name;
-    if (!v_user || !*v_user) {
-        v_user = meta ? meta_get_any(meta, A_USER, G_N_ELEMENTS(A_USER)) : NULL;
-    }
-
-    const char *v_email = ev_uploader_email;
-    if ((!v_email || !*v_email) && meta) {
-        const char *A_EMAIL[] = {"usuario_email","enviado_por_email","email","user_email","owner_email"};
-        v_email = meta_get_any(meta, A_EMAIL, G_N_ELEMENTS(A_EMAIL));
-    }
-
-    const char *v_size = meta ? meta_get_any(meta, A_SIZE, G_N_ELEMENTS(A_SIZE)) : NULL;
-    const char *v_rows = meta ? meta_get_any(meta, A_ROWS, G_N_ELEMENTS(A_ROWS)) : NULL;
-    const char *v_link = meta ? meta_get_any(meta, A_LINK, G_N_ELEMENTS(A_LINK)) : NULL;
-    const char *v_desc = meta ? meta_get_any(meta, A_DESC, G_N_ELEMENTS(A_DESC)) : NULL;
-
-    /* Prepare size pretty string (pretty_size returns allocated string or NULL) */
-    char *size_pp = NULL;
-    if (v_size && *v_size) {
-        size_pp = size_to_mb_string(v_size);
-    }
-
-
-    /* Compose display for user: prefer name, otherwise show email, otherwise dash */
-    char user_display[256] = "—";
-    if (v_user && *v_user) {
-        g_snprintf(user_display, sizeof(user_display), "%s", v_user);
-    }
-
-    /* Set labels (use "—" when nothing) */
-    gtk_label_set_text(dui->lbl_user, user_display);
-    gtk_label_set_text(dui->lbl_rows, (v_rows && *v_rows) ? v_rows : "—");
-    gtk_label_set_text(dui->lbl_desc, (v_desc && *v_desc) ? v_desc : "—");
-
-    if (size_pp && *size_pp) {
-        gtk_label_set_text(dui->lbl_size, size_pp);
-    } else {
-        gtk_label_set_text(dui->lbl_size, (v_size && *v_size) ? v_size : "—");
-    }
-
-    /* Link label: make clickable markup if present, otherwise dash */
-    if (v_link && *v_link) {
-    gchar *mk = make_download_link_markup(v_link);
-    gtk_label_set_markup(GTK_LABEL(dui->lbl_link), mk);
-    g_free(mk);
-    } else {
-        gtk_label_set_text(dui->lbl_link, "—");
-    }
-
-    if (size_pp) g_free(size_pp);
-
-    /* Show details page */
-    if (GTK_IS_STACK(dui->stack)) {
-        gtk_stack_set_visible_child_name(dui->stack, "details");
-    }
-
-    /* --- Configure the user-event widget so a click on the uploader opens the user detail --- */
-    if (dui->user_event) {
-        /* set uploader-id (if present on eventbox use that; otherwise try to parse from meta) */
-        gint uid = 0;
-        gboolean have_uid = FALSE;
-
-        if (ev_uploader_id_p) {
-            uid = GPOINTER_TO_INT(ev_uploader_id_p);
-            if (uid > 0) have_uid = TRUE;
-        } else if (meta) {
-            const char *A_USER_ID[] = {
-                "usuario_idusuario", "usuarioid", "user_id", "uploader_id",
-                "idusuario", "id", "owner_id", NULL
-            };
-            const char *uid_str = meta_get_any(meta, A_USER_ID, 7);
-            if (uid_str && *uid_str) {
-                uid = atoi(uid_str);
-                if (uid > 0) have_uid = TRUE;
-            }
-        }
-
-        /* set or clear uploader-id on dui->user_event */
-        if (have_uid) {
-            g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", GINT_TO_POINTER(uid));
-            gtk_widget_set_sensitive(dui->user_event, TRUE);
-        } else {
-            g_object_set_data(G_OBJECT(dui->user_event), "uploader-id", NULL);
-            gtk_widget_set_sensitive(dui->user_event, FALSE);
-        }
-
-        /* Move uploader-name/email into dui->user_event — free previous stored strings to avoid leaks. */
-        const char *prev_name = (const char*)g_object_get_data(G_OBJECT(dui->user_event), "uploader-name");
-       
-        if (v_user && *v_user) g_object_set_data_full(G_OBJECT(dui->user_event), "uploader-name", g_strdup(v_user), g_free);
-        else g_object_set_data(G_OBJECT(dui->user_event), "uploader-name", NULL);
-
-        const char *prev_email = (const char*)g_object_get_data(G_OBJECT(dui->user_event), "uploader-email");
-    
-        if (v_email && *v_email) g_object_set_data_full(G_OBJECT(dui->user_event), "uploader-email", g_strdup(v_email), g_free);
-        else g_object_set_data(G_OBJECT(dui->user_event), "uploader-email", NULL);
-
-        /* Optionally carry dataset-id to dui->user_event for context (clear old if any) */
-        g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", NULL);
-
-        if (ev_dataset_id_p) {
-            g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", ev_dataset_id_p);
-        } else if (meta) {
-            const char *A_DATASET_ID[] = {"iddataset","id","dataset_id", NULL};
-            const char *did_str = meta_get_any(meta, A_DATASET_ID, 3);
-            if (did_str && *did_str) {
-                int did = atoi(did_str);
-                if (did > 0) g_object_set_data(G_OBJECT(dui->user_event), "dataset-id", GINT_TO_POINTER(did));
-            }
-        }
-    }
-
-    debug_log("on_card_button: clicked dataset, uploader='%s' email='%s' uid=%d",
-              ev_uploader_name ? ev_uploader_name : "(none)",
-              ev_uploader_email ? ev_uploader_email : "(none)",
-              ev_uploader_id_p ? GPOINTER_TO_INT(ev_uploader_id_p) : 0);
-
-    return TRUE;
-}
 
 /* Libera o meta (GHashTable*) de todas as linhas antes de limpar a store */
 static void free_all_meta_from_store(GtkListStore *store) {
@@ -1172,87 +980,13 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
     cJSON_Delete(root);
 }
 
-
-static void populate_ds_combo_from_api(EnvCtx *ctx) {
-    if (!ctx || !ctx->ds_combo) return;
-
-    char *resp = NULL;
-    if (!api_dump_table("dataset", &resp) || !resp) {
-        fprintf(stderr, "populate_ds_combo_from_api: api_dump_table failed\n");
-        if (resp) free(resp);
-        return;
-    }
-
-    cJSON *root = cJSON_Parse(resp);
-    free(resp);
-    if (!root) { fprintf(stderr, "populate_ds_combo_from_api: invalid JSON\n"); return; }
-
-    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
-    if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0) {
-        cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
-        fprintf(stderr, "API error: %s\n", cJSON_IsString(msg) ? msg->valuestring : "(no message)");
-        cJSON_Delete(root);
-        return;
-    }
-
-    cJSON *columns = cJSON_GetObjectItemCaseSensitive(root, "columns");
-    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    if (!cJSON_IsArray(columns) || !cJSON_IsArray(data)) { cJSON_Delete(root); return; }
-
-    /* find 'nome' column index */
-    int nome_idx = -1;
-    int ncols = cJSON_GetArraySize(columns);
-    for (int i = 0; i < ncols; ++i) {
-        cJSON *col = cJSON_GetArrayItem(columns, i);
-        if (cJSON_IsString(col) && strcmp(col->valuestring, "nome") == 0) { nome_idx = i; break; }
-    }
-
-    /* clear and append */
-    gtk_combo_box_text_remove_all(ctx->ds_combo);
-    cJSON *row;
-    cJSON_ArrayForEach(row, data) {
-        if (!cJSON_IsArray(row)) continue;
-        cJSON *cell = (nome_idx >= 0) ? cJSON_GetArrayItem(row, nome_idx) : NULL;
-        if (cell && cJSON_IsString(cell)) gtk_combo_box_text_append_text(ctx->ds_combo, cell->valuestring);
-    }
-
-    cJSON_Delete(root);
-}
-
-static void on_refresh_datasets(GtkButton *btn, gpointer user_data) {
-    EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx) return;
-    populate_ds_combo_from_api(ctx);
-    gtk_label_set_text(GTK_LABEL(ctx->status), "Datasets refreshed");
-}
-
-static void on_load_dataset(GtkButton *btn, gpointer user_data) {
-    EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx) return;
-    const char *sel = gtk_combo_box_text_get_active_text(ctx->ds_combo);
-    if (!sel) {
-        gtk_label_set_text(GTK_LABEL(ctx->status), "No dataset selected");
-        return;
-    }
-    char buf[256];
-    snprintf(buf, sizeof(buf), "Loaded dataset: %s", sel);
-    gtk_label_set_text(GTK_LABEL(ctx->status), buf);
-    g_free((gpointer)sel);
-}
-
 /* helper: open upload dialog using the notebook's toplevel window as parent */
 static void on_open_upload_dialog(GtkButton *btn, gpointer user_data) {
     debug_log("on_open_upload_dialog: opening upload dialog");
     EnvCtx *env = (EnvCtx*) user_data;
-    GtkNotebook *nb = GTK_NOTEBOOK(gtk_widget_get_parent(GTK_WIDGET(btn)));
     GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(btn));
     GtkWindow *parent = GTK_WINDOW(toplevel);
-    int default_user_id = env ? env->current_user_id : 0;
-    /* prefill nome/email: passaremos a enviar também os strings (se estiverem presentes) */
     show_dataset_upload_dialog(parent, env);
-    /* se desejar pré-preencher enviado_por_nome/email automaticamente dentro do diálogo,
-       você pode modificar show_dataset_upload_dialog para aceitar nome/email extras
-       ou setar os entries via g_object_set_data no UploadUI. */
 }
 
 /* Importa dataset selecionado para o ambiente (chamada pelo botão "Import to Environment") */
@@ -1768,8 +1502,6 @@ static void tv_build_from_preview(GtkTreeView *tv, CsvPreview *pv, guint max_col
     for (GList *l = cols; l; l = l->next) gtk_tree_view_remove_column(tv, GTK_TREE_VIEW_COLUMN(l->data));
     g_list_free(cols);
 
-    gtk_tree_view_set_rules_hint(tv, TRUE);
-
     guint ncols = pv->columns ? pv->columns->len : 0;
     if (ncols == 0) return;
     if (max_cols && ncols > max_cols) ncols = max_cols;
@@ -1807,17 +1539,18 @@ static void tv_build_from_preview(GtkTreeView *tv, CsvPreview *pv, guint max_col
 
 static void csv_preview_free(CsvPreview *pv) {
     if (!pv) return;
-    if (pv->columns) g_ptr_array_free(pv->columns, TRUE);   /* cells freed by free_func */
-    if (pv->rows)    g_ptr_array_free(pv->rows, TRUE);      /* each row unref'd; rows free their cells */
+    if (pv->columns) g_ptr_array_free(pv->columns, TRUE);  
+    if (pv->rows)    g_ptr_array_free(pv->rows, TRUE);    
     g_free(pv);
 }
 
 typedef struct {
     gchar *path;
-    GtkTreeView *target_tv;   // <— add this
+    GtkTreeView *target_tv;
 } LoadTaskData;
 
 static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCancellable *canc) {
+    (void)src;
     LoadTaskData *td = (LoadTaskData*)task_data;
     GError *err = NULL;
 
@@ -1997,6 +1730,7 @@ static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpoi
 
 
 static void on_search_changed(GtkEditable *e, gpointer user_data) {
+    (void)user_data;
     GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(e), "ds-filter"));
     if (filter) gtk_tree_model_filter_refilter(filter);
 }
@@ -2034,6 +1768,7 @@ static void on_search_activate(GtkEntry *e, gpointer user_data) {
 
 /* clique no ícone secundário (x) limpa a busca */
 static void on_search_icon_press(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, gpointer u) {
+    (void)ev; (void)u;
     if (pos == GTK_ENTRY_ICON_SECONDARY) {
         gtk_entry_set_text(e, "");
         on_search_changed(GTK_EDITABLE(e), NULL);
@@ -2050,6 +1785,7 @@ static void on_clear_clicked(GtkButton *btn, gpointer user_data) {
 
 /* --- Callback após worker --- */
 static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
+    (void)src;
     EnvCtx *ctx = (EnvCtx*)user_data;
     GError *err = NULL;
     CsvPreview *pv = g_task_propagate_pointer(G_TASK(res), &err);
@@ -2073,10 +1809,13 @@ static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
 
     /* rebuild preview table */
     if (td && td->target_tv) {
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         tv_build_from_preview(td->target_tv, pv, 64);
-
+        G_GNUC_END_IGNORE_DEPRECATIONS
         enable_drop_on_env_entries(ctx);
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         wire_treeview_headers_for_dnd(ctx, td->target_tv);
+        G_GNUC_END_IGNORE_DEPRECATIONS
     }
 
 }
@@ -2223,6 +1962,7 @@ static void start_load_file(EnvCtx *ctx, const char *path) {
 
 
 static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 
@@ -2247,6 +1987,7 @@ static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
 
 /* --- File Chooser (Load) --- */
 static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx) return;
 
@@ -2356,6 +2097,7 @@ static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
 
 
 static void on_refresh_local_datasets(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 

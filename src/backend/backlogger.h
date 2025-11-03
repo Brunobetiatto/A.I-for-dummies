@@ -17,7 +17,9 @@
 #ifdef G_OS_WIN32
   #include <windows.h>
   #include <dbghelp.h>
-  #pragma comment(lib, "dbghelp.lib")
+  #if defined(_MSC_VER)
+    #pragma comment(lib, "dbghelp.lib")
+  #endif
 #endif
 
 #include <time.h>
@@ -26,7 +28,7 @@
 /* Globals                                                                   */
 /* ------------------------------------------------------------------------- */
 static gchar  *g_log_path  = NULL;
-static gchar  *g_dmp_path  = NULL;   /* Windows only */
+static gchar  *g_dmp_path  = NULL;
 static gchar  *g_header    = NULL;
 static GMutex  g_log_mutex;
 

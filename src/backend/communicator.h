@@ -599,7 +599,40 @@ bool api_get_dataset_by_name_(const char *filename, char **response){
     *response = api_request("GET", endpoint, NULL);
     return (*response != NULL);
 }
+bool api_update_dataset_info(int dataset_id,
+                             const char *nome,
+                             const char *descricao,
+                             char **response) {
+    if (dataset_id <= 0 || !response) return false;
+    *response = NULL;
 
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "nome", nome);
+    cJSON_AddStringToObject(json, "descricao", descricao);
+
+    char *data = cJSON_PrintUnformatted(json);
+
+    char endpoint[256];
+    snprintf(endpoint, sizeof(endpoint), "/update/dataset/%d", dataset_id);
+
+    char *resp = api_request("POST", endpoint, data);
+
+    cJSON_Delete(json);
+    free(data);
+
+    if (!resp) {
+        return false;
+    }
+
+    *response = resp; // caller deve free()
+
+    /* verificação rígida do JSON de sucesso */
+    if (strstr(resp, "\"status\":\"OK\"") != NULL) {
+        return true;
+    }
+
+    return false;
+}
 /* --- helper: simple percent-encode --- */
 static char *url_encode_simple(const char *s) {
     if (!s) return g_strdup("");
@@ -1072,6 +1105,24 @@ WCHAR* run_api_command(const WCHAR *command) {
             }
         }
     }
+    else if (token && strcmp(token, "UPDATE_DATASET_INFO") == 0) {
+        // Parse JSON data from command
+        token = strtok(NULL, "");
+        if (token) {
+            cJSON *json = cJSON_Parse(token);
+            if (json) {
+                cJSON *dataset_id = cJSON_GetObjectItemCaseSensitive(json, "dataset-id");
+                cJSON *nome = cJSON_GetObjectItemCaseSensitive(json, "nome");
+                cJSON *descricao = cJSON_GetObjectItemCaseSensitive(json, "descricao");
+                
+                if (cJSON_IsNumber(dataset_id) && cJSON_IsString(nome) && cJSON_IsString(descricao)) {
+                    api_update_dataset_info(dataset_id->valueint, nome->valuestring, descricao->valuestring, &response);
+                }
+                cJSON_Delete(json);
+            }
+        }
+    }
+  
     // *** ADICIONADO: novo comando UPLOAD_CSV <caminho do arquivo (restante da linha)> ***
     else if (token && strcmp(token, "UPLOAD_CSV") == 0) {
         token = strtok(NULL, ""); // pega resto da linha (path e/ou pares key=value) — pode conter espaços

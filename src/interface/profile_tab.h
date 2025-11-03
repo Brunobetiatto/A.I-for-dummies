@@ -634,6 +634,157 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
     profile_tab_load_datasets(ctx);
 }
 
+static void dataset_edit_clicked(GtkButton *btn, gpointer user_data) {
+    ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
+    if (!ctx) return;
+    debug_log("dataset_edit_clicked chamado");
+
+
+    /* recuperar id + dados atuais (armazenados ao criar o botão) */
+    int ds_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "dataset-id"));
+    const char *cur_name = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-name");
+    const char *cur_desc = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-desc");
+
+    debug_log("dataset_edit_clicked: id=%d nome='%s' desc='%s'", ds_id,
+              cur_name ? cur_name : "(null)",
+              cur_desc ? cur_desc : "(null)");
+
+    if (ds_id <= 0) {
+        profile_tab_set_status(ctx, "ID de dataset inválido para edição", FALSE);
+        return;
+    }
+
+    /* Construir diálogo modal simples */
+    GtkWindow *parent = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn)));
+    GtkWidget *dialog = gtk_dialog_new_with_buttons("Editar Dataset",
+                                                    parent,
+                                                    GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                    "_Cancelar", GTK_RESPONSE_CANCEL,
+                                                    "_Salvar", GTK_RESPONSE_ACCEPT,
+                                                    NULL);
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), 8);
+    gtk_container_add(GTK_CONTAINER(content), grid);
+
+    GtkWidget *lbl_name = gtk_label_new("Nome:");
+    gtk_label_set_xalign(GTK_LABEL(lbl_name), 0.0);
+    GtkWidget *entry_name = gtk_entry_new();
+    if (cur_name) gtk_entry_set_text(GTK_ENTRY(entry_name), cur_name);
+
+    GtkWidget *lbl_desc = gtk_label_new("Descrição:");
+    gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
+    GtkWidget *txt_desc = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(txt_desc), GTK_WRAP_WORD_CHAR);
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(txt_desc));
+    if (cur_desc) gtk_text_buffer_set_text(buf, cur_desc, -1);
+    GtkWidget *sc_desc = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_size_request(sc_desc, 400, 160);
+    gtk_container_add(GTK_CONTAINER(sc_desc), txt_desc);
+
+    gtk_grid_attach(GTK_GRID(grid), lbl_name, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), entry_name, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_desc, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), sc_desc, 1, 1, 1, 1);
+
+    gtk_widget_show_all(content);
+
+    int resp = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (resp == GTK_RESPONSE_ACCEPT) {
+        const char *new_name = gtk_entry_get_text(GTK_ENTRY(entry_name));
+
+        GtkTextIter s,e;
+        gtk_text_buffer_get_start_iter(buf, &s);
+        gtk_text_buffer_get_end_iter(buf, &e);
+        char *new_desc = gtk_text_buffer_get_text(buf, &s, &e, FALSE);
+
+        if (!new_name || !*new_name) {
+            profile_tab_set_status(ctx, "O nome do dataset não pode ficar vazio.", FALSE);
+            if (new_desc) g_free(new_desc);
+            gtk_widget_destroy(dialog);
+            return;
+        }
+
+        /* Montar JSON: { "dataset-id": X, "nome": "...", "descricao": "..." } */
+        cJSON *j = cJSON_CreateObject();
+        cJSON_AddNumberToObject(j, "dataset-id", ds_id);
+        cJSON_AddStringToObject(j, "nome", new_name);
+        cJSON_AddStringToObject(j, "descricao", new_desc ? new_desc : "");
+        char *payload = cJSON_PrintUnformatted(j);
+        cJSON_Delete(j);
+
+        if (!payload) {
+            profile_tab_set_status(ctx, "Erro ao construir payload JSON", FALSE);
+            if (new_desc) g_free(new_desc);
+            gtk_widget_destroy(dialog);
+            return;
+        }
+
+        char cmd[2048];
+        snprintf(cmd, sizeof(cmd), "UPDATE_DATASET_INFO %s", payload);
+        g_free(payload);
+
+        /* converter e enviar */
+        WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
+        if (!wcmd) {
+            profile_tab_set_status(ctx, "Erro de codificação (wchar)", FALSE);
+            if (new_desc) g_free(new_desc);
+            gtk_widget_destroy(dialog);
+            return;
+        }
+
+        WCHAR *wres = run_api_command(wcmd);
+        free(wcmd);
+
+        if (!wres) {
+            profile_tab_set_status(ctx, "Sem resposta do servidor", FALSE);
+            if (new_desc) g_free(new_desc);
+            gtk_widget_destroy(dialog);
+            return;
+        }
+
+        char *resp_utf8 = wchar_to_utf8_alloc(wres);
+        free(wres);
+
+        if (!resp_utf8) {
+            profile_tab_set_status(ctx, "Resposta inválida do servidor", FALSE);
+            if (new_desc) g_free(new_desc);
+            gtk_widget_destroy(dialog);
+            return;
+        }
+
+        /* interpretar resposta */
+        gboolean ok = FALSE;
+        cJSON *r = cJSON_Parse(resp_utf8);
+        if (r) {
+            cJSON *status = cJSON_GetObjectItemCaseSensitive(r, "status");
+            if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) ok = TRUE;
+            cJSON_Delete(r);
+        } else {
+            if (strncmp(resp_utf8, "OK", 2) == 0) ok = TRUE;
+        }
+
+        if (ok) {
+            profile_tab_set_status(ctx, "Dataset atualizado com sucesso.", TRUE);
+            /* recarrega a lista para refletir a alteração */
+            profile_tab_load_datasets(ctx);
+        } else {
+            char bufmsg[512];
+            snprintf(bufmsg, sizeof(bufmsg), "Falha ao atualizar dataset: %s", resp_utf8);
+            profile_tab_set_status(ctx, bufmsg, FALSE);
+        }
+
+        g_free(resp_utf8);
+        if (new_desc) g_free(new_desc);
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+
 /* Função para carregar a listagem de datasets */
 static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
     if (!ctx || !ctx->datasets_list || ctx->user_id <= 0) {
@@ -648,7 +799,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
     }
     g_list_free(children);
 
-    char cmd[64];
+    char cmd[128];
     snprintf(cmd, sizeof(cmd), "GET_USER_DATASETS_JSON %d", ctx->user_id);
     debug_log("profile_tab: buscando datasets com comando: %s", cmd);
 
@@ -660,7 +811,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
 
     WCHAR *wres = run_api_command(wcmd);
     free(wcmd);
-    
+
     if (!wres) {
         debug_log("profile_tab: run_api_command() retornou NULL para cmd: %s", cmd);
         return;
@@ -668,14 +819,14 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
 
     char *json_resp = wchar_to_utf8_alloc(wres);
     free(wres);
-    
+
     if (!json_resp) {
         debug_log("profile_tab: wchar_to_utf8_alloc() falhou ou retornou NULL");
         return;
     }
 
     debug_log("profile_tab: resposta JSON dos datasets recebida, tamanho: %zu", strlen(json_resp));
-    
+
     cJSON *r2 = cJSON_Parse(json_resp);
     if (!r2) {
         debug_log("profile_tab: falha ao parsear JSON de resposta dos datasets");
@@ -685,7 +836,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
 
     cJSON *st = cJSON_GetObjectItemCaseSensitive(r2, "status");
     cJSON *datasets = cJSON_GetObjectItemCaseSensitive(r2, "datasets");
-    
+
     if (st && cJSON_IsString(st)) {
         debug_log("profile_tab: status dos datasets: %s", st->valuestring);
     } else {
@@ -694,12 +845,18 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
 
     if (st && cJSON_IsString(st) && strcmp(st->valuestring, "OK") == 0 && cJSON_IsArray(datasets)) {
         debug_log("profile_tab: array de datasets encontrado, iterando...");
-        
+
         cJSON *ds;
         int dataset_count = 0;
-        
+
         cJSON_ArrayForEach(ds, datasets) {
+            /* extrair id corretamente (int) */
+            int ds_id = 0;
             cJSON *id_ds = cJSON_GetObjectItemCaseSensitive(ds, "iddataset");
+            if (!id_ds) id_ds = cJSON_GetObjectItemCaseSensitive(ds, "dataset_id");
+            if (id_ds && cJSON_IsNumber(id_ds)) ds_id = id_ds->valueint;
+            debug_log("profile_tab: dataset id = %d", ds_id);
+
             cJSON *nome_ds = cJSON_GetObjectItemCaseSensitive(ds, "nome");
             cJSON *desc_ds = cJSON_GetObjectItemCaseSensitive(ds, "descricao");
             cJSON *tamanho = cJSON_GetObjectItemCaseSensitive(ds, "tamanho");
@@ -722,7 +879,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
 
             /* Linha horizontal com nome e metadados */
             GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-            
+
             /* Nome do dataset como label (não clicável) */
             GtkWidget *name_lbl = gtk_label_new(ds_name);
             add_cls(name_lbl, "dataset-name");
@@ -736,34 +893,39 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
                 if (strlen(meta) > 0) strncat(meta, " • ", sizeof(meta) - strlen(meta) - 1);
                 strncat(meta, ds_dt, sizeof(meta) - strlen(meta) - 1);
             }
-            
+
             GtkWidget *lbl_meta = gtk_label_new(meta);
             add_cls(lbl_meta, "dataset-meta");
             gtk_label_set_xalign(GTK_LABEL(lbl_meta), 0.0);
             gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
 
-            gtk_box_pack_start(GTK_BOX(item_box), hrow, FALSE, FALSE, 0);
+            /* ----- BOTÕES: Editar e Excluir ----- */
+            /* Edit */
+            GtkWidget *btn_edit = gtk_button_new_with_label("Editar");
+            add_cls(btn_edit, "edit-button");
+            g_object_set_data(G_OBJECT(btn_edit), "dataset-id", GINT_TO_POINTER(ds_id));
+            /* duplica nome/descrição para uso posterior no diálogo */
+            g_object_set_data_full(G_OBJECT(btn_edit), "dataset-name", g_strdup(ds_name), g_free);
+            g_object_set_data_full(G_OBJECT(btn_edit), "dataset-desc", g_strdup(ds_desc), g_free);
+            g_signal_connect(btn_edit, "clicked", G_CALLBACK(dataset_edit_clicked), ctx);
+            pf_apply_hand_cursor_to(btn_edit);
 
-             /* ----- BOTÃO Excluir ----- */
-            /* tentar obter ID do JSON (espera "id" ou "dataset_id") */
-            int ds_id = 0;
-            if (!id_ds) id_ds = cJSON_GetObjectItemCaseSensitive(ds, "dataset_id");
-            if (id_ds && cJSON_IsNumber(id_ds)) ds_id = id_ds->valueint;
-            debug_log("profile_tab: dataset id = %d", ds_id);
-
+            /* Delete */
             GtkWidget *btn_delete = gtk_button_new_with_label("Excluir");
             add_cls(btn_delete, "delete-button");
-            /* armazena id e listrow (listrow ainda não criado; vamos setar logo depois também) */
             g_object_set_data(G_OBJECT(btn_delete), "dataset-id", GINT_TO_POINTER(ds_id));
-            /* conecta callback (ctx como user_data) */
             g_signal_connect(btn_delete, "clicked", G_CALLBACK(dataset_delete_clicked), ctx);
-            /* se id inválido, desabilita botão */
             if (ds_id <= 0) gtk_widget_set_sensitive(btn_delete, FALSE);
+            pf_apply_hand_cursor_to(btn_delete);
 
+            /* empacotar botões (ajuste visual: Edit antes do Delete) */
             gtk_box_pack_end(GTK_BOX(hrow), btn_delete, FALSE, FALSE, 0);
+            gtk_box_pack_end(GTK_BOX(hrow), btn_edit, FALSE, FALSE, 6);
 
-            /* Descrição */
-            if (ds_desc && strlen(ds_desc) > 0) {
+            gtk_box_pack_start(GTK_BOX(item_box), hrow, FALSE, FALSE, 0);
+
+            /* Descrição (se houver) */
+            if (ds_desc && *ds_desc) {
                 GtkWidget *lbl_desc = gtk_label_new(ds_desc);
                 gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
                 gtk_label_set_line_wrap(GTK_LABEL(lbl_desc), TRUE);
@@ -775,22 +937,23 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
             gtk_box_pack_start(GTK_BOX(item_box), sep, FALSE, FALSE, 6);
             add_cls(sep, "row-sep");
 
-            /* Criar e adicionar à lista */
+            /* Criar listrow e inserir na lista */
             GtkWidget *listrow = gtk_list_box_row_new();
             gtk_container_add(GTK_CONTAINER(listrow), item_box);
             gtk_list_box_insert(GTK_LIST_BOX(ctx->datasets_list), listrow, -1);
 
-            /* IMPORTANT: associe o listrow ao botão delete para que o callback possa
-            acessá-lo (botão já existe na variável btn_delete) */
+            /* associe o listrow ao botão delete (para remoção visual no callback) */
             g_object_set_data(G_OBJECT(btn_delete), "dataset-row", listrow);
-            
+            /* opcional: associe também ao botão edit para atualizações locais */
+            g_object_set_data(G_OBJECT(btn_edit), "dataset-row", listrow);
+
             gtk_widget_show_all(listrow);
             dataset_count++;
-            debug_log("profile_tab: inserido dataset '%s' na list box", ds_name);
+            debug_log("profile_tab: inserido dataset '%s' na list box (id=%d)", ds_name, ds_id);
         }
-        
+
         debug_log("profile_tab: total de %d datasets carregados", dataset_count);
-        
+
         /* Mostra ou esconde a seção baseado na quantidade de datasets */
         if (dataset_count > 0) {
             gtk_widget_show(ctx->datasets_section);
@@ -801,7 +964,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
         debug_log("profile_tab: resposta dos datasets não OK ou não é um array");
         gtk_widget_hide(ctx->datasets_section);
     }
-    
+
     cJSON_Delete(r2);
     g_free(json_resp);
 }

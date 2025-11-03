@@ -25,7 +25,7 @@ if PARENT not in sys.path:
 
 from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
-from database.CRUD.update import reset_user_password, update_user_info
+from database.CRUD.update import reset_user_password, update_user_info, update_dataset_info
 from database.CRUD.read import get_user_by_id, get_datasets_by_user, get_dataset_by_name
 from database.CRUD.delete import delete_user, delete_dataset
 
@@ -706,6 +706,31 @@ def api_get_dataset(nome):
         return jsonify({'status': 'OK', 'dataset': resp})
     except Exception as e:
         app.logger.exception("Error in api_get_dataset: %s", e)
+        return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
+    finally:
+        if cnx:
+            try:
+                cnx.close()
+            except Exception:
+                pass
+
+@app.route('/update/dataset/<int:dataset_id>', methods=['POST'])
+def api_update_dataset(dataset_id):
+    cnx = None
+    try:
+        cnx = get_db_connection()
+        updates = request.json
+        if not updates:
+            return jsonify({'status': 'ERROR', 'message': 'No data provided'}), 400
+
+        updated = update_dataset_info(cnx, dataset_id, updates)
+        if updated:
+            return jsonify({'status': 'OK', 'message': 'Dataset updated successfully'}), 200
+        else:
+            return jsonify({'status': 'ERROR', 'message': 'Dataset not updated'}), 500
+
+    except Exception as e:
+        app.logger.exception("Error in api_update_dataset: %s", e)
         return jsonify({'status': 'ERROR', 'message': 'Internal server error'}), 500
     finally:
         if cnx:

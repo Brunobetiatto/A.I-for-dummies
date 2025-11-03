@@ -429,7 +429,7 @@ static char* extract_payload(GtkSelectionData *sel) {
         gint len = gtk_selection_data_get_length(sel);
         return (len > 0 && data) ? g_strndup((const char*)data, len) : g_strdup("");
     }
-    return gtk_selection_data_get_text(sel); /* UTF-8 */
+    return (char*)gtk_selection_data_get_text(sel);
 }
 
 static void on_x_drag_data_received(GtkWidget *w, GdkDragContext *ctx,
@@ -582,8 +582,6 @@ static void wire_treeview_headers_for_dnd(EnvCtx *ctx, GtkTreeView *tv) {
 
     (void)ctx;
     if (!tv || !GTK_IS_TREE_VIEW(tv)) return;
-
-    gtk_tree_view_set_rules_hint(tv, TRUE);
 
     cols = gtk_tree_view_get_columns(tv);
     for (l = cols; l; l = l->next) {
@@ -1400,8 +1398,6 @@ static void tv_build_from_preview(GtkTreeView *tv, CsvPreview *pv, guint max_col
     GList *cols = gtk_tree_view_get_columns(tv);
     for (GList *l = cols; l; l = l->next) gtk_tree_view_remove_column(tv, GTK_TREE_VIEW_COLUMN(l->data));
     g_list_free(cols);
-
-    gtk_tree_view_set_rules_hint(tv, TRUE);
 
     guint ncols = pv->columns ? pv->columns->len : 0;
     if (ncols == 0) return;

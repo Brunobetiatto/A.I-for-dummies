@@ -322,9 +322,7 @@ static char* _default_send_command(const char *cmd_utf8) {
 
     WCHAR *wresp = NULL;
     char *ret = NULL;
-    if (&run_api_command) {
-        wresp = run_api_command(wcmd);
-    }
+    wresp = run_api_command(wcmd);
     free(wcmd);
     if (!wresp) return NULL;
 

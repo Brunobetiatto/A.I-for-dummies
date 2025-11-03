@@ -760,10 +760,12 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     add_cls(card, "profile-card");
     gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(card, GTK_ALIGN_CENTER);  
-    gtk_widget_set_vexpand(card, TRUE);
+    /* Não permitir que o card cresça com a janela — deixa o conteúdo rolar internamente */
+    gtk_widget_set_valign(card, GTK_ALIGN_START);
+    gtk_widget_set_vexpand(card, FALSE);
     gtk_widget_set_size_request(card, 520, -1);
-    gtk_box_pack_start(GTK_BOX(main_container), card, TRUE, TRUE, 0);
+    /* não expande o card no box principal — evita empurrar botões para fora */
+    gtk_box_pack_start(GTK_BOX(main_container), card, FALSE, FALSE, 0);
 
     /* avatar central clicável */
     ctx->avatar_image = gtk_image_new();

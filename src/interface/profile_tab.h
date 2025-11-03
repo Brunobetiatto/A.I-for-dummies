@@ -327,6 +327,77 @@ static void toggle_textview(GtkButton *btn, GtkTextView *tv){
         GTK_ICON_SIZE_MENU);
 }
 
+static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
+    ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
+
+    /* recuperar id e o widget-row (armazenados em object-data) */
+    gpointer id_ptr = g_object_get_data(G_OBJECT(btn), "dataset-id");
+    GtkWidget *row_widget = (GtkWidget*) g_object_get_data(G_OBJECT(btn), "dataset-row");
+    int dataset_id = GPOINTER_TO_INT(id_ptr);
+
+    if (dataset_id <= 0) {
+        profile_tab_set_status(ctx, "ID de dataset inválido", TRUE);
+        return;
+    }
+
+    /* Opcional: confirmar com o usuário antes de deletar */
+    GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn))),
+                                               GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                               GTK_MESSAGE_QUESTION,
+                                               GTK_BUTTONS_YES_NO,
+                                               "Deseja mesmo excluir o dataset %d?", dataset_id);
+    int resp = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+    if (resp != GTK_RESPONSE_YES) return;
+
+    /* montar comando e converter para WCHAR */
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "DELETE_DATASET %d", dataset_id);
+    WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
+    if (!wcmd) {
+        profile_tab_set_status(ctx, "Erro de memória (wchar)", TRUE);
+        return;
+    }
+
+    /* chamar API */
+    WCHAR *wresult = run_api_command(wcmd);
+    g_free(wcmd);
+
+    /* Se run_api_command retornar NULL -> erro */
+    if (!wresult) {
+        profile_tab_set_status(ctx, "Erro ao chamar API", TRUE);
+        return;
+    }
+
+    /* converter resposta para UTF-8 e analisar (ajuste conforme o formato real da resposta) */
+    char *result = wchar_to_utf8_alloc(wresult);
+    if (!result) {
+        profile_tab_set_status(ctx, "Erro ao interpretar resposta da API", TRUE);
+        return;
+    }
+
+    /* Interpretação simples: se contiver "OK", "SUCCESS" ou "DELETED" consideramos sucesso.
+       Ajuste essas condições conforme o protocolo real. */
+    if (strstr(result, "OK") || strstr(result, "Success") || strstr(result, "DELETED")) {
+        /* remover a linha da lista visualmente */
+        if (row_widget) {
+            /* remover do listbox e destruir */
+            gtk_widget_destroy(row_widget);
+        }
+        profile_tab_set_status(ctx, "Dataset excluído com sucesso.", FALSE);
+    } else {
+        /* exibimos a resposta como erro (ou mensagem) */
+        profile_tab_set_status(ctx, result, TRUE);
+    }
+
+    g_free(result);
+
+    /* Observação: se run_api_command alocou wresult e precisa ser liberado, faça aqui.
+       Eu não o libero porque o contrato de run_api_command não foi explicitado. */
+}
+
+
+
 static void on_edit_name (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_name)); }
 static void on_edit_email(GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_email)); }
 static void on_edit_bio  (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_textview(b, GTK_TEXT_VIEW(c->textview_bio)); }
@@ -622,6 +693,7 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
         int dataset_count = 0;
         
         cJSON_ArrayForEach(ds, datasets) {
+            cJSON *id_ds = cJSON_GetObjectItemCaseSensitive(ds, "iddataset");
             cJSON *nome_ds = cJSON_GetObjectItemCaseSensitive(ds, "nome");
             cJSON *desc_ds = cJSON_GetObjectItemCaseSensitive(ds, "descricao");
             cJSON *tamanho = cJSON_GetObjectItemCaseSensitive(ds, "tamanho");
@@ -665,6 +737,24 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
             gtk_box_pack_start(GTK_BOX(hrow), lbl_meta, TRUE, TRUE, 0);
 
             gtk_box_pack_start(GTK_BOX(item_box), hrow, FALSE, FALSE, 0);
+
+             /* ----- BOTÃO Excluir ----- */
+            /* tentar obter ID do JSON (espera "id" ou "dataset_id") */
+            int ds_id = 0;
+            if (!id_ds) id_ds = cJSON_GetObjectItemCaseSensitive(ds, "dataset_id");
+            if (id_ds && cJSON_IsNumber(id_ds)) ds_id = id_ds->valueint;
+            debug_log("profile_tab: dataset id = %d", ds_id);
+
+            GtkWidget *btn_delete = gtk_button_new_with_label("Excluir");
+            add_cls(btn_delete, "delete-button");
+            /* armazena id e listrow (listrow ainda não criado; vamos setar logo depois também) */
+            g_object_set_data(G_OBJECT(btn_delete), "dataset-id", GINT_TO_POINTER(ds_id));
+            /* conecta callback (ctx como user_data) */
+            g_signal_connect(btn_delete, "clicked", G_CALLBACK(dataset_delete_clicked), ctx);
+            /* se id inválido, desabilita botão */
+            if (ds_id <= 0) gtk_widget_set_sensitive(btn_delete, FALSE);
+
+            gtk_box_pack_end(GTK_BOX(hrow), btn_delete, FALSE, FALSE, 0);
 
             /* Descrição */
             if (ds_desc && strlen(ds_desc) > 0) {
@@ -923,7 +1013,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     GtkWidget *actions_frame = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     add_cls(actions_frame, "actions-container");
 
-    ctx->btn_save = gtk_button_new_with_label("Salvar Alterações");
+    ctx->btn_save = gtk_button_new_with_label("Salvar Alterações/Update Profile");
     add_cls(ctx->btn_save, "save-button");
     gtk_box_pack_start(GTK_BOX(actions_frame), ctx->btn_save, FALSE, FALSE, 0);
     gtk_box_set_center_widget(GTK_BOX(actions_frame), ctx->btn_save);
@@ -935,10 +1025,12 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_widget_hide(ctx->status_label);
     gtk_box_pack_end(GTK_BOX(actions_frame), ctx->status_label, FALSE, FALSE, 0);
 
-    /* colocar a barra de ações dentro do card */
-    gtk_box_pack_start(GTK_BOX(card), actions_frame, FALSE, FALSE, 0);
-    gtk_widget_set_hexpand(actions_frame, TRUE);
-    gtk_widget_set_hexpand(ctx->btn_save, TRUE);
+    
+   /* Colocar a barra de ações na base do card, mantendo-a visível */
+    gtk_box_pack_end(GTK_BOX(card), actions_frame, FALSE, FALSE, 0);
+    gtk_widget_set_hexpand(actions_frame, FALSE);
+    /* evitar que o botão fique esticado além do necessário */
+    gtk_widget_set_hexpand(ctx->btn_save, FALSE);
     gtk_widget_set_halign(ctx->btn_save, GTK_ALIGN_CENTER);
 
     /* Wrap with CSS */

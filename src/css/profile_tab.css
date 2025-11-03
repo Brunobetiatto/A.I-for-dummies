@@ -511,3 +511,21 @@
 .profile-tab .datasets-section {
   flex-shrink: 0;
 }
+
+.profile-tab .delete-button {
+  background: #d80000;        /* vermelho */
+  color: #fff;
+  border: 2px outset buttonface;
+  padding: 4px 10px;
+  font-weight: 700;
+  min-width: 72px;
+  border-right-color:#424242;
+  border-bottom-color:#424242;
+}
+
+.profile-tab .delete-button:active,
+.profile-tab .delete-button:hover {
+  border: 2px inset #818181;
+  box-shadow: -1px -1px #000;
+  color: #fff;
+}

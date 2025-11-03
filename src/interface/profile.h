@@ -42,7 +42,6 @@ typedef struct {
 } DatasetUIData;
 
 /* Protótipos */
-static void fill_dataset_details_in_stack(ProfileWindowUI *pui, const char *dataset_name);
 static void on_back_to_profile_clicked(GtkButton *btn, gpointer user_data);
 static void on_dataset_info_clicked(GtkButton *btn, gpointer user_data);
 static void install_env_w95_titlebar(GtkWindow *win, const char *title_text);
@@ -437,32 +436,6 @@ static gboolean on_item_box_button_press(GtkWidget *widget, GdkEventButton *even
 }
 
 
-
-/* Função para criar widget de avatar */
-static GtkWidget* make_avatar_widget(const char *avatar_url) {
-    GtkWidget *img = NULL;
-    debug_log("make_avatar_widget(): avatar_url=%s", avatar_url ? avatar_url : "(null)");
-    if (avatar_url && strlen(avatar_url) > 0 && g_file_test(avatar_url, G_FILE_TEST_EXISTS)) {
-        GError *err = NULL;
-        GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_scale(avatar_url, 96, 96, TRUE, &err);
-        debug_log("make_avatar_widget(): loaded pixbuf from file, pix=%p, err=%s", pix, err ? err->message : "(null)");
-        if (pix) {
-            debug_log("make_avatar_widget(): creating image from pixbuf");
-            img = gtk_image_new_from_pixbuf(pix);
-            g_object_unref(pix);
-        } else {
-            if (err) g_error_free(err);
-            debug_log("make_avatar_widget(): failed to load pixbuf, using default avatar");
-        }
-    }
-    if (!img) {
-        debug_log("make_avatar_widget(): using default avatar");
-        img = gtk_image_new_from_icon_name("avatar-default", GTK_ICON_SIZE_DIALOG);
-    }
-    debug_log("make_avatar_widget(): created img=%p", img);
-    return img;
-}
-
 static gboolean parse_to_mb_(const char *s, double *out_mb) {
     if (!s || !*s || !out_mb) return FALSE;
 
@@ -523,29 +496,6 @@ static char* size_to_mb_string_(const char *s) {
     double mb = 0.0;
     if (!parse_to_mb_(s, &mb)) return g_strdup(s ? s : "");
     return g_strdup_printf("%.1f MB", mb);
-}
-
-// Callback para abrir URL do dataset
-static void on_dataset_url_clicked(GtkButton *btn, gpointer user_data) {
-    const char *url = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-url");
-    GtkWindow *parent = GTK_WINDOW(user_data);
-    
-    if (!url) return;
-
-    GError *err = NULL;
-#if GTK_CHECK_VERSION(3,0,0)
-    gtk_show_uri_on_window(parent, url, GDK_CURRENT_TIME, &err);
-#else
-    GAppInfo *app = g_app_info_get_default_for_uri_scheme("http");
-    if (app) {
-        g_app_info_launch_default_for_uri(url, NULL, &err);
-        g_object_unref(app);
-    }
-#endif
-    if (err) {
-        g_warning("Failed to open URI '%s': %s", url, err->message);
-        g_error_free(err);
-    }
 }
 
 /* Função para preencher detalhes do dataset na stack */
@@ -667,75 +617,6 @@ out_free:
     return G_SOURCE_REMOVE;
 }
 
-static void fill_dataset_details_in_stack(ProfileWindowUI *pui, const char *dataset_name) {
-    if (!pui || !dataset_name) {
-        debug_log("fill_dataset_details_in_stack(): invalid args");
-        return;
-    }
-    debug_log("fill_dataset_details_in_stack(): fetching dataset '%s'", dataset_name);
-
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "GET_DATASET_JSON %s", dataset_name);
-    WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
-    if (!wcmd) {
-        debug_log("fill_dataset_details_in_stack(): utf8_to_wchar_alloc failed");
-        return;
-    }
-    WCHAR *wres = run_api_command(wcmd);
-    free(wcmd);
-    if (!wres) {
-        debug_log("fill_dataset_details_in_stack(): run_api_command returned NULL");
-        return;
-    }
-    char *json_resp = wchar_to_utf8_alloc(wres);
-    free(wres);
-    if (!json_resp) {
-        debug_log("fill_dataset_details_in_stack(): wchar_to_utf8_alloc failed");
-        return;
-    }
-
-    cJSON *root = cJSON_Parse(json_resp);
-    if (!root) {
-        debug_log("fill_dataset_details_in_stack(): cJSON_Parse failed");
-        g_free(json_resp);
-        return;
-    }
-    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
-    cJSON *dataset = cJSON_GetObjectItemCaseSensitive(root, "dataset");
-    if (!status || !cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0 ||
-        !dataset || !cJSON_IsObject(dataset)) {
-        debug_log("fill_dataset_details_in_stack(): invalid dataset response");
-        cJSON_Delete(root);
-        g_free(json_resp);
-        return;
-    }
-
-    DatasetUIData *d = g_new0(DatasetUIData, 1);
-    d->pui = pui;
-    cJSON *item;
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "nome");
-    d->nome = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "descricao");
-    d->descricao = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "tamanho");
-    d->tamanho = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "url");
-    d->url = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("");
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "dataCadastro");
-    d->data_cadastro = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-
-    // usuário (uploader)
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "enviado_por_nome");
-    d->usuario_nome = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-    item = cJSON_GetObjectItemCaseSensitive(dataset, "enviado_por_email");
-    d->usuario_email = item && cJSON_IsString(item) ? g_strdup(item->valuestring) : g_strdup("—");
-
-    cJSON_Delete(root);
-    g_free(json_resp);
-
-    // Agendar criação/atualização de UI na main loop
-    g_idle_add(fill_dataset_details_in_stack_ui, d);
-}
 static void on_back_to_profile_clicked(GtkButton *btn, gpointer user_data) {
     ProfileWindowUI *pui = (ProfileWindowUI*)user_data;
     if (pui && GTK_IS_STACK(pui->stack)) {

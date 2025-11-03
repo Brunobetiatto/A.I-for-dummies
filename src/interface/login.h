@@ -966,19 +966,6 @@ static void set_button_icon(GtkWidget *button, const char *icon_basename, int si
     gtk_button_set_image_position(GTK_BUTTON(button), GTK_POS_LEFT);
 }
 
-// helper para colocar imagem no botão (14px, mantém alpha)
-static void set_btn_image(GtkWidget *btn, const char *path) {
-    GError *err = NULL;
-    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, 14, 14, TRUE, &err);
-    if (pb) {
-        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
-        gtk_button_set_image(GTK_BUTTON(btn), img);
-        gtk_button_set_always_show_image(GTK_BUTTON(btn), TRUE);
-        g_object_unref(pb);
-    }
-    if (err) g_clear_error(&err);
-}
-
 static GtkWidget* make_tab_label_login(const char *text, const char *icon_path) {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
 

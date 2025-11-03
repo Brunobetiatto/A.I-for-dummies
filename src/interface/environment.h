@@ -128,19 +128,6 @@ static gboolean idle_iconize_logout(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-static gchar *find_python(void) {
-#if defined(G_OS_WIN32)
-    const char *cands[] = {"python.exe", "py.exe", "python3.exe", NULL};
-#else
-    const char *cands[] = {"python3", "python", NULL};
-#endif
-    for (int i=0;cands[i];++i) {
-        gchar *p = g_find_program_in_path(cands[i]);
-        if (p) return p;
-    }
-    return NULL;
-}
-
 /* Guarda/obtém o pixbuf-fonte no próprio GtkImage (sem mexer em EnvCtx) */
 static void set_plot_src(GtkImage *img, GdkPixbuf *pb) {
     if (!img) return;
@@ -211,37 +198,6 @@ static gchar* find_latest_frame(const gchar *dir, const gchar *prefix) {
     }
     g_dir_close(d);
     return best;
-}
-
-/* Periodic image refresher for Plot tab */
-static gboolean tick_update_plot(gpointer user_data) {
-    EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx || !ctx->plot_img || !ctx->plot_dir || !ctx->plot_prefix) return TRUE;
-
-    gchar *latest = find_latest_frame(ctx->plot_dir, ctx->plot_prefix);
-    if (!latest) return TRUE;
-
-    gboolean changed = (!ctx->plot_last || g_strcmp0(ctx->plot_last, latest) != 0);
-    if (changed) {
-        GError *err = NULL;
-        /* Load and swap pixbuf (this does NOT keep the file open) */
-        GdkPixbuf *pb = gdk_pixbuf_new_from_file(latest, &err);
-        if (pb) {
-            gtk_image_set_from_pixbuf(ctx->plot_img, pb);
-            g_object_unref(pb);
-
-            g_free(ctx->plot_last);
-            ctx->plot_last = latest; latest = NULL;
-
-            /* Auto-redirect to Plot page when a new frame appears */
-            if (ctx->right_nb && ctx->plot_page_idx >= 0)
-                gtk_notebook_set_current_page(ctx->right_nb, ctx->plot_page_idx);
-        } else if (err) {
-            g_error_free(err);
-        }
-    }
-    g_free(latest);
-    return TRUE; /* keep timer */
 }
 
 // ---- trainer stdout JSON lines ------------------------------------
@@ -1018,34 +974,6 @@ static void on_right_nb_page_added(GtkNotebook *nb, GtkWidget *child,
     }
 }
 
-static void on_train_clicked(GtkButton *b, gpointer user) {
-    (void)b;
-    EnvCtx *ctx = (EnvCtx*)user;
-    /* Atualiza o label de status, se existir */
-    if (ctx && ctx->status) {
-        gtk_label_set_text(GTK_LABEL(ctx->status), "Em desenvolvimento");
-    }
-
-    /* Determina janela-pai (se disponível) para modal */
-    GtkWindow *parent = NULL;
-    if (ctx && ctx->main_window && GTK_IS_WINDOW(ctx->main_window)) {
-        parent = GTK_WINDOW(ctx->main_window);
-    } else if (ctx && ctx->status) {
-        GtkWidget *toplevel = gtk_widget_get_toplevel(GTK_WIDGET(ctx->status));
-        if (toplevel && GTK_IS_WINDOW(toplevel)) parent = GTK_WINDOW(toplevel);
-    }
-
-    /* Dialog simples informando que está em desenvolvimento */
-    GtkWidget *dlg = gtk_message_dialog_new(parent,
-        (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
-        GTK_MESSAGE_INFO,
-        GTK_BUTTONS_OK,
-        "Em desenvolvimento — recurso ainda não implementado.");
-    gtk_window_set_title(GTK_WINDOW(dlg), "Aviso");
-    gtk_dialog_run(GTK_DIALOG(dlg));
-    gtk_widget_destroy(dlg);
-}
-
 static gboolean parse_percent_entry(const char *txt, double *out) {
     if (!txt) return FALSE;
     char buf[32]; g_strlcpy(buf, txt, sizeof buf);
@@ -1237,7 +1165,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* === Carrega o CSS cedo para poder embrulhar a barra === */
     char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
 
-    /* Instala a titlebar Win95 na janela toplevel (como antes) */
+    /* Instala a titlebar Win95 na janela toplevel */
     GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
     if (GTK_IS_WINDOW(tl)) {
         GtkWindow *w = GTK_WINDOW(tl);
@@ -1256,9 +1184,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_container_set_border_width(GTK_CONTAINER(w), 12);
     }
 
-    /* === TOP ROW: StackSwitcher (esq) + filler + sessão + Debug (dir) === */
+    /* === TOP ROW: StackSwitcher + filler + sessão + Debug  === */
     GtkWidget *toprow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_name(toprow, "env-toolbar-row");        /* nome interno da linha */
+    gtk_widget_set_name(toprow, "env-toolbar-row");  
     ctx->topbar = GTK_BOX(toprow);
 
     /* Switcher à esquerda */

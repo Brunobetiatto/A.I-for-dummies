@@ -633,24 +633,6 @@ bool api_update_dataset_info(int dataset_id,
 
     return false;
 }
-/* --- helper: simple percent-encode --- */
-static char *url_encode_simple(const char *s) {
-    if (!s) return g_strdup("");
-    GString *out = g_string_new(NULL);
-    for (const unsigned char *p = (const unsigned char*)s; *p; ++p) {
-        unsigned char c = *p;
-        if ((c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.' || c == '~') {
-            g_string_append_c(out, c);
-        } else {
-            g_string_append_printf(out, "%%%02X", c);
-        }
-    }
-    char *ret = g_string_free(out, FALSE);
-    return ret;
-}
 
 static size_t write_file_callback(void *ptr, size_t size, size_t nmemb, void *stream) {
     return fwrite(ptr, size, nmemb, (FILE *)stream);

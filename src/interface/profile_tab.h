@@ -61,11 +61,7 @@ static void set_default_avatar(ProfileTabCtx *ctx);
 static void profile_tab_load_user(ProfileTabCtx *ctx);
 static void profile_tab_load_datasets(ProfileTabCtx *ctx);
 static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data);
-static void profile_tab_on_name_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data);
-static void profile_tab_on_bio_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data);
-static gboolean profile_tab_on_name_focus_out(GtkWidget *entry, GdkEventFocus *event, gpointer user_data);
 static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus *event, gpointer user_data);
-static gboolean profile_tab_on_bio_key_press(GtkWidget *textview, GdkEventKey *event, gpointer user_data);
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data);
 
 static inline void add_cls(GtkWidget *w, const char *c){
@@ -319,51 +315,6 @@ static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpoi
     gtk_widget_destroy(fc);
 }
 
-static void profile_tab_on_name_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data) {
-    (void)lbl; (void)ev;
-    ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
-    if (!ctx || ctx->is_editing) return;
-    
-    ctx->is_editing = TRUE;
-    const char *current_name = gtk_label_get_text(GTK_LABEL(ctx->lbl_name));
-    gtk_entry_set_text(GTK_ENTRY(ctx->entry_name), current_name ? current_name : "");
-    
-    gtk_widget_hide(ctx->lbl_name);
-    gtk_widget_show(ctx->entry_name);
-    gtk_widget_grab_focus(ctx->entry_name);
-}
-
-static void profile_tab_on_bio_label_clicked(GtkWidget *lbl, GdkEventButton *ev, gpointer user_data) {
-    (void)lbl; (void)ev;
-    ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
-    if (!ctx || ctx->is_editing) return;
-    
-    ctx->is_editing = TRUE;
-    const char *current_bio = gtk_label_get_text(GTK_LABEL(ctx->lbl_bio));
-    gtk_text_buffer_set_text(ctx->bio_buffer, current_bio ? current_bio : "", -1);
-    
-    gtk_widget_hide(ctx->lbl_bio);
-    gtk_widget_show(ctx->textview_bio);
-    gtk_widget_grab_focus(ctx->textview_bio);
-}
-
-static gboolean profile_tab_on_name_focus_out(GtkWidget *entry, GdkEventFocus *event, gpointer user_data) {
-    (void)entry; (void)event;
-    ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
-    if (!ctx) return FALSE;
-    
-    const char *new_name = gtk_entry_get_text(GTK_ENTRY(ctx->entry_name));
-    if (new_name && *new_name) {
-        gtk_label_set_text(GTK_LABEL(ctx->lbl_name), new_name);
-    }
-    
-    gtk_widget_hide(ctx->entry_name);
-    gtk_widget_show(ctx->lbl_name);
-    ctx->is_editing = FALSE;
-    
-    return FALSE;
-}
-
 static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus *event, gpointer user_data) {
     (void)textview; (void)event;
     ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
@@ -382,18 +333,6 @@ static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus 
     gtk_widget_hide(ctx->textview_bio);
     gtk_widget_show(ctx->lbl_bio);
     ctx->is_editing = FALSE;
-    
-    return FALSE;
-}
-
-static gboolean profile_tab_on_bio_key_press(GtkWidget *textview, GdkEventKey *event, gpointer user_data) {
-    ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
-    if (!ctx) return FALSE;
-    
-    if (event->keyval == GDK_KEY_Return && (event->state & GDK_CONTROL_MASK)) {
-        profile_tab_on_bio_focus_out(textview, NULL, user_data);
-        return TRUE;
-    }
     
     return FALSE;
 }
@@ -442,7 +381,6 @@ static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
 
     /* recuperar id e opcionalmente o widget-row (armazenado em object-data) */
     gpointer id_ptr = g_object_get_data(G_OBJECT(btn), "dataset-id");
-    GtkWidget *row_widget = (GtkWidget*) g_object_get_data(G_OBJECT(btn), "dataset-row");
     int dataset_id = GPOINTER_TO_INT(id_ptr);
 
     if (dataset_id <= 0) {
@@ -509,13 +447,6 @@ static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
 
     g_free(result);
 }
-
-
-
-
-static void on_edit_name (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_name)); }
-static void on_edit_email(GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_entry(b, GTK_ENTRY(c->entry_email)); }
-static void on_edit_bio  (GtkButton *b, gpointer u){ ProfileTabCtx *c=(ProfileTabCtx*)u; toggle_textview(b, GTK_TEXT_VIEW(c->textview_bio)); }
 
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data) {
     (void)btn;

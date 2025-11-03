@@ -552,21 +552,6 @@ void debug_set_command_callback(debug_command_cb_t cb) {
     g_debug_ctx.custom_cb = cb;
 }
 
-/* cleanup helper (if you want to call on app exit) */
-static void debug_window_cleanup(void) {
-    int i;
-    if (g_debug_ctx.window) {
-        gtk_widget_destroy(g_debug_ctx.window);
-        g_debug_ctx.window = NULL;
-    }
-    for (i=0;i<g_debug_ctx.history_len;++i) {
-        free(g_debug_ctx.history[i]);
-        g_debug_ctx.history[i] = NULL;
-    }
-    g_debug_ctx.history_len = 0;
-    g_debug_ctx.history_pos = 0;
-}
-
 #ifdef __cplusplus
 }
 #endif

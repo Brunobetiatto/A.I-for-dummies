@@ -73,3 +73,39 @@ def update_user_info(cnx, user_id: int, updates: dict):
         raise
     finally:
         cur.close()
+
+def update_dataset_info(cnx, dataset_id: int, updates: dict) -> bool:
+    """
+    Atualiza campos do dataset. `updates` é um dict com chaves permitidas:
+    nome, descricao, visibilidade
+
+    Retorna True se atualizado com sucesso, False se nada foi atualizado.
+    """
+    if not updates or not isinstance(updates, dict):
+        return False
+
+    allowed = ['nome', 'descricao']
+    set_clauses = []
+    params = []
+    for k in allowed:
+        if k in updates:
+            set_clauses.append(f"`{k}` = %s")
+            params.append(updates[k])
+
+    if not set_clauses:
+        # nada a atualizar
+        return False
+
+    params.append(dataset_id)
+    sql = "UPDATE dataset SET " + ", ".join(set_clauses) + " WHERE iddataset = %s"
+
+    cur = cnx.cursor()
+    try:
+        cur.execute(sql, tuple(params))
+        cnx.commit()
+        return cur.rowcount > 0
+    except Exception:
+        traceback.print_exc()
+        raise
+    finally:
+        cur.close()

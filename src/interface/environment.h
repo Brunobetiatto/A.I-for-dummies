@@ -16,7 +16,7 @@
 #ifndef ENV_H
 #define ENV_H
 
-/* --------- Barra Win95 para a janela do Environment ---------- */
+/* -------- Barra Win95 para a janela do Environment ---------- */
 
 #include <gtk/gtk.h>
 
@@ -166,38 +166,6 @@ static void update_plot_scaled(EnvCtx *ctx) {
 static void on_plot_size_allocate(GtkWidget *w, GtkAllocation *alloc, gpointer user_data) {
     (void)w; (void)alloc;
     update_plot_scaled((EnvCtx*)user_data);
-}
-
-/* Find the newest PNG whose name starts with prefix inside dir. Caller g_free()s the result. */
-static gchar* find_latest_frame(const gchar *dir, const gchar *prefix) {
-    if (!dir || !prefix) return NULL;
-    GDir *d = g_dir_open(dir, 0, NULL);
-    if (!d) return NULL;
-
-    const gchar *name;
-    time_t best_mtime = 0;
-    gchar *best = NULL;
-
-    while ((name = g_dir_read_name(d))) {
-        if (!g_str_has_suffix(name, ".png")) continue;
-        if (!g_str_has_prefix(name, prefix)) continue;
-
-        gchar *full = g_build_filename(dir, name, NULL);
-        GStatBuf st;
-        if (g_stat(full, &st) == 0) {
-            if (st.st_mtime >= best_mtime) {
-                best_mtime = st.st_mtime;
-                g_free(best);
-                best = full;  /* keep */
-            } else {
-                g_free(full);
-            }
-        } else {
-            g_free(full);
-        }
-    }
-    g_dir_close(d);
-    return best;
 }
 
 // ---- trainer stdout JSON lines ------------------------------------
@@ -870,6 +838,7 @@ static gboolean spawn_python_training(EnvCtx *ctx) {
 }
 
 static void on_start_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx) return;
 
@@ -965,6 +934,7 @@ static void set_icon_tab(GtkNotebook *nb, GtkWidget *page,
 /* quando qualquer página é adicionada ao notebook da direita */
 static void on_right_nb_page_added(GtkNotebook *nb, GtkWidget *child,
                                    guint page_num, gpointer user_data) {
+    (void)page_num; (void)user_data;
     GtkWidget *tabw = gtk_notebook_get_tab_label(nb, child);
     if (GTK_IS_LABEL(tabw)) {
         const gchar *t = gtk_label_get_text(GTK_LABEL(tabw));
@@ -1153,6 +1123,7 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
 }
 
 static void on_algo_changed(GtkComboBox *box, gpointer user_data) {
+    (void)box;
     rebuild_hparams_ui((EnvCtx*)user_data);
 }
 
@@ -1172,9 +1143,12 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         install_env_w95_titlebar(w, "AI for Dummies");
         gtk_window_set_resizable(w, TRUE);
 
-        GdkScreen *screen = gdk_screen_get_default();
-        gint sw = gdk_screen_get_width(screen);
-        gint sh = gdk_screen_get_height(screen);
+        GdkDisplay   *display = gdk_display_get_default();
+        GdkMonitor   *monitor = display ? gdk_display_get_primary_monitor(display) : NULL;
+        GdkRectangle  rect = {0};
+        if (monitor) gdk_monitor_get_geometry(monitor, &rect);
+        gint sw = rect.width;
+        gint sh = rect.height;
         gtk_window_set_default_size(
             w,
             CLAMP(sw * 0.45, 420, 1200),
@@ -1511,8 +1485,15 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_widget_show_all(outer);
 
     /* Caminhos e timers */
-    if (!ctx->fit_img_path) { gchar *tmp = g_get_tmp_dir(); ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png",     NULL); }
-    if (!ctx->metrics_path) { gchar *tmp = g_get_tmp_dir(); ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL); }
+    if (!ctx->fit_img_path) {
+    const gchar *tmp = g_get_tmp_dir();
+    ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png", NULL);
+    }
+    if (!ctx->metrics_path) {
+        const gchar *tmp = g_get_tmp_dir();
+        ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL);
+    }
+
 
     /* Frame Win95 inicial do Plot */
     {

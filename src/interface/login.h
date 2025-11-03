@@ -223,6 +223,7 @@ static void start_recovery_timer(LoginCtx *ctx, gint seconds) {
 // Função de login
 // LOGIN: usar communicator.h (JSON) e callback em vez de chamar main diretamente
 void on_login_button_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
     LoginCtx *ctx = (LoginCtx*) user_data;
     if (!ctx) return;
 
@@ -324,6 +325,7 @@ void on_login_button_clicked(GtkButton *button, gpointer user_data) {
 
 // Função de registro
 void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
+    (void)button;
     const char *nome = gtk_entry_get_text(GTK_ENTRY(ctx->reg_nome_entry));
     const char *email = gtk_entry_get_text(GTK_ENTRY(ctx->reg_email_entry));
     const char *password = gtk_entry_get_text(GTK_ENTRY(ctx->reg_pass_entry));
@@ -409,6 +411,7 @@ void on_register_button_clicked(GtkButton *button, LoginCtx *ctx) {
 
 // Função "Esqueci minha senha"
 void on_forgot_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     LoginCtx *ctx = (LoginCtx*) user_data;
     if (!ctx) return;
 
@@ -999,10 +1002,12 @@ static void set_hand_cursor(GtkWidget *w, gboolean hand) {
 }
 
 static gboolean on_enter(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    (void)e; (void)u;
     set_hand_cursor(w, TRUE);
     return FALSE;
 }
 static gboolean on_leave(GtkWidget *w, GdkEventCrossing *e, gpointer u) {
+    (void)e; (void)u;
     set_hand_cursor(w, FALSE);
     return FALSE;
 }
@@ -1025,9 +1030,12 @@ GtkWidget* create_login_window(const LoginHandlers *handlers) {
     install_w95_titlebar(GTK_WINDOW(login_win));
     
     // Tela cheia proporcional
-    GdkScreen *screen = gdk_screen_get_default();
-    gint sw = gdk_screen_get_width(screen);
-    gint sh = gdk_screen_get_height(screen);
+    GdkDisplay   *display = gdk_display_get_default();
+    GdkMonitor   *monitor = display ? gdk_display_get_primary_monitor(display) : NULL;
+    GdkRectangle  rect = {0};
+    if (monitor) gdk_monitor_get_geometry(monitor, &rect);
+    gint sw = rect.width;
+    gint sh = rect.height;
     gtk_window_set_default_size(GTK_WINDOW(login_win),
         CLAMP(sw*0.45, 420, 1200), CLAMP(sh*0.4, 320, 900));
     gtk_window_set_position(GTK_WINDOW(login_win), GTK_WIN_POS_CENTER);

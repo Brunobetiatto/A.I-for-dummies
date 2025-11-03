@@ -61,7 +61,6 @@ static void set_default_avatar(ProfileTabCtx *ctx);
 static void profile_tab_load_user(ProfileTabCtx *ctx);
 static void profile_tab_load_datasets(ProfileTabCtx *ctx);
 static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data);
-static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus *event, gpointer user_data);
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data);
 
 static inline void add_cls(GtkWidget *w, const char *c){
@@ -315,28 +314,6 @@ static void profile_tab_on_avatar_clicked(GtkWidget *w, GdkEventButton *ev, gpoi
     gtk_widget_destroy(fc);
 }
 
-static gboolean profile_tab_on_bio_focus_out(GtkWidget *textview, GdkEventFocus *event, gpointer user_data) {
-    (void)textview; (void)event;
-    ProfileTabCtx *ctx = (ProfileTabCtx*)user_data;
-    if (!ctx) return FALSE;
-    
-    GtkTextIter start, end;
-    gtk_text_buffer_get_start_iter(ctx->bio_buffer, &start);
-    gtk_text_buffer_get_end_iter(ctx->bio_buffer, &end);
-    char *bio_text = gtk_text_buffer_get_text(ctx->bio_buffer, &start, &end, FALSE);
-    
-    if (bio_text) {
-        gtk_label_set_text(GTK_LABEL(ctx->lbl_bio), bio_text);
-        g_free(bio_text);
-    }
-    
-    gtk_widget_hide(ctx->textview_bio);
-    gtk_widget_show(ctx->lbl_bio);
-    ctx->is_editing = FALSE;
-    
-    return FALSE;
-}
-
 static GtkWidget* mk_icon_16(const char *path, const char *fallback_icon){
     GError *err = NULL;
     GdkPixbuf *pix = gdk_pixbuf_new_from_file(path, &err);
@@ -351,28 +328,6 @@ static GtkWidget* mk_icon_16(const char *path, const char *fallback_icon){
         img = gtk_image_new_from_icon_name(fallback_icon, GTK_ICON_SIZE_MENU);
     }
     return img;
-}
-
-static void toggle_entry(GtkButton *btn, GtkEntry *entry){
-    gboolean ed = gtk_editable_get_editable(GTK_EDITABLE(entry));
-    gtk_editable_set_editable(GTK_EDITABLE(entry), !ed);
-    gtk_widget_set_can_focus(GTK_WIDGET(entry), !ed);
-    if (!ed) gtk_widget_grab_focus(GTK_WIDGET(entry));
-    GtkWidget *child = gtk_bin_get_child(GTK_BIN(btn));
-    gtk_image_set_from_icon_name(GTK_IMAGE(child),
-        !ed ? "document-save-symbolic" : "document-edit-symbolic",
-        GTK_ICON_SIZE_MENU);
-}
-
-static void toggle_textview(GtkButton *btn, GtkTextView *tv){
-    gboolean ed = gtk_text_view_get_editable(tv);
-    gtk_text_view_set_editable(tv, !ed);
-    gtk_text_view_set_cursor_visible(tv, !ed);
-    if (!ed) gtk_widget_grab_focus(GTK_WIDGET(tv));
-    GtkWidget *child = gtk_bin_get_child(GTK_BIN(btn));
-    gtk_image_set_from_icon_name(GTK_IMAGE(child),
-        !ed ? "document-save-symbolic" : "document-edit-symbolic",
-        GTK_ICON_SIZE_MENU);
 }
 
 static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {

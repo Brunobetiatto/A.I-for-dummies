@@ -36,7 +36,7 @@ typedef struct {
     GtkStack   *stack;
     DsListView list;
 
-    GtkWidget  *title_label; /* top title in details */
+    GtkWidget  *title_label;
 
     GtkLabel   *lbl_user;
     GtkLabel   *lbl_size;
@@ -493,6 +493,7 @@ static void on_y_drag_data_received(GtkWidget *w, GdkDragContext *ctx,
     gtk_drag_finish(ctx, success, FALSE, time_);
 }
 gboolean on_user_clicked(GtkWidget *w, GdkEventButton *ev, gpointer user_data) {
+    (void)ev; (void)user_data;
     gpointer p = g_object_get_data(G_OBJECT(w), "uploader-id");
     if (!p) return TRUE;
     int uploader_id = GPOINTER_TO_INT(p);
@@ -888,53 +889,6 @@ static void refresh_datasets_cb(GtkWidget *btn, gpointer user_data) {
         GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(search_entry), "ds-filter"));
         if (filter) gtk_tree_model_filter_refilter(filter);
     }
-    cJSON_Delete(root);
-}
-
-
-static void populate_ds_combo_from_api(EnvCtx *ctx) {
-    if (!ctx || !ctx->ds_combo) return;
-
-    char *resp = NULL;
-    if (!api_dump_table("dataset", &resp) || !resp) {
-        fprintf(stderr, "populate_ds_combo_from_api: api_dump_table failed\n");
-        if (resp) free(resp);
-        return;
-    }
-
-    cJSON *root = cJSON_Parse(resp);
-    free(resp);
-    if (!root) { fprintf(stderr, "populate_ds_combo_from_api: invalid JSON\n"); return; }
-
-    cJSON *status = cJSON_GetObjectItemCaseSensitive(root, "status");
-    if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK") != 0) {
-        cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
-        fprintf(stderr, "API error: %s\n", cJSON_IsString(msg) ? msg->valuestring : "(no message)");
-        cJSON_Delete(root);
-        return;
-    }
-
-    cJSON *columns = cJSON_GetObjectItemCaseSensitive(root, "columns");
-    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    if (!cJSON_IsArray(columns) || !cJSON_IsArray(data)) { cJSON_Delete(root); return; }
-
-    /* find 'nome' column index */
-    int nome_idx = -1;
-    int ncols = cJSON_GetArraySize(columns);
-    for (int i = 0; i < ncols; ++i) {
-        cJSON *col = cJSON_GetArrayItem(columns, i);
-        if (cJSON_IsString(col) && strcmp(col->valuestring, "nome") == 0) { nome_idx = i; break; }
-    }
-
-    /* clear and append */
-    gtk_combo_box_text_remove_all(ctx->ds_combo);
-    cJSON *row;
-    cJSON_ArrayForEach(row, data) {
-        if (!cJSON_IsArray(row)) continue;
-        cJSON *cell = (nome_idx >= 0) ? cJSON_GetArrayItem(row, nome_idx) : NULL;
-        if (cell && cJSON_IsString(cell)) gtk_combo_box_text_append_text(ctx->ds_combo, cell->valuestring);
-    }
-
     cJSON_Delete(root);
 }
 
@@ -1486,17 +1440,18 @@ static void tv_build_from_preview(GtkTreeView *tv, CsvPreview *pv, guint max_col
 
 static void csv_preview_free(CsvPreview *pv) {
     if (!pv) return;
-    if (pv->columns) g_ptr_array_free(pv->columns, TRUE);   /* cells freed by free_func */
-    if (pv->rows)    g_ptr_array_free(pv->rows, TRUE);      /* each row unref'd; rows free their cells */
+    if (pv->columns) g_ptr_array_free(pv->columns, TRUE);  
+    if (pv->rows)    g_ptr_array_free(pv->rows, TRUE);    
     g_free(pv);
 }
 
 typedef struct {
     gchar *path;
-    GtkTreeView *target_tv;   // <— add this
+    GtkTreeView *target_tv;
 } LoadTaskData;
 
 static void task_read_preview(GTask *task, gpointer src, gpointer task_data, GCancellable *canc) {
+    (void)src;
     LoadTaskData *td = (LoadTaskData*)task_data;
     GError *err = NULL;
 
@@ -1603,6 +1558,7 @@ static gboolean search_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpoi
 }
 
 static void on_search_changed(GtkEditable *e, gpointer user_data) {
+    (void)user_data;
     GtkTreeModelFilter *filter = GTK_TREE_MODEL_FILTER(g_object_get_data(G_OBJECT(e), "ds-filter"));
     if (filter) gtk_tree_model_filter_refilter(filter);
 }
@@ -1639,6 +1595,7 @@ static void on_search_activate(GtkEntry *e, gpointer user_data) {
 
 /* clique no ícone secundário (x) limpa a busca */
 static void on_search_icon_press(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, gpointer u) {
+    (void)ev; (void)u;
     if (pos == GTK_ENTRY_ICON_SECONDARY) {
         gtk_entry_set_text(e, "");
         on_search_changed(GTK_EDITABLE(e), NULL);
@@ -1655,6 +1612,7 @@ static void on_clear_clicked(GtkButton *btn, gpointer user_data) {
 
 /* --- Callback após worker --- */
 static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
+    (void)src;
     EnvCtx *ctx = (EnvCtx*)user_data;
     GError *err = NULL;
     CsvPreview *pv = g_task_propagate_pointer(G_TASK(res), &err);
@@ -1678,10 +1636,13 @@ static void on_task_done(GObject *src, GAsyncResult *res, gpointer user_data) {
 
     /* rebuild preview table */
     if (td && td->target_tv) {
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         tv_build_from_preview(td->target_tv, pv, 64);
-
+        G_GNUC_END_IGNORE_DEPRECATIONS
         enable_drop_on_env_entries(ctx);
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         wire_treeview_headers_for_dnd(ctx, td->target_tv);
+        G_GNUC_END_IGNORE_DEPRECATIONS
     }
 
 }
@@ -1828,6 +1789,7 @@ static void start_load_file(EnvCtx *ctx, const char *path) {
 
 
 static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 
@@ -1852,6 +1814,7 @@ static void on_load_selected_dataset(GtkButton *btn, gpointer user_data) {
 
 /* --- File Chooser (Load) --- */
 static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx) return;
 
@@ -1961,6 +1924,7 @@ static void on_load_local_dataset(GtkButton *btn, gpointer user_data) {
 
 
 static void on_refresh_local_datasets(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     EnvCtx *ctx = (EnvCtx*)user_data;
     if (!ctx || !ctx->ds_combo) return;
 

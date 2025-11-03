@@ -30,6 +30,11 @@ static void upload_titlebar_on_max(GtkButton *btn, gpointer win_) {
     else                               gtk_window_maximize(win);
 }
 
+static gboolean destroy_widget_cb(gpointer w) {
+    if (GTK_IS_WIDGET(w)) gtk_widget_destroy(GTK_WIDGET(w));
+    return G_SOURCE_REMOVE;
+}
+
 /* Titlebar Win95 para o diálogo de upload */
 static void install_upload_w95_titlebar(GtkWindow *win, const char *title_text) {
     GtkWidget *hb = gtk_header_bar_new();
@@ -136,6 +141,7 @@ static void set_file_label(UploadUI *u, const char *path) {
 
 /* Choose file button callback */
 static void on_choose_file_clicked(GtkButton *b, gpointer user_data) {
+    (void)b;
     UploadUI *u = (UploadUI*)user_data;
     GtkWindow *parent = GTK_WINDOW(u->dialog);
 
@@ -189,7 +195,7 @@ static gboolean idle_set_progress_msg_free(gpointer data) {
         gtk_style_context_add_class(sc, "upload-success");
 
         /* opcional: fechar dialog automaticamente após 1.2s */
-        g_timeout_add_seconds(1, (GSourceFunc)gtk_widget_destroy, u->dialog);
+        g_timeout_add_seconds(1, destroy_widget_cb, u->dialog);
     } else {
         /* error: show reason (short) and red styling */
         gtk_label_set_text(GTK_LABEL(u->status_label), m->msg ? m->msg : "Falha no upload");
@@ -338,6 +344,7 @@ cleanup:
 
 /* Upload button clicked: spawn thread to do the upload */
 static void on_upload_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     UploadUI *u = (UploadUI*)user_data;
     if (!u) return;
 
@@ -373,6 +380,7 @@ static void on_upload_clicked(GtkButton *btn, gpointer user_data) {
 
 /* Build and show the dialog */
 static void show_dataset_upload_dialog(GtkWindow *parent, EnvCtx *env) {
+    (void)parent;
     const char *UPLOAD_CSS = parse_CSS_file("datasets_upload.css");
 
     GtkWidget *dialog = gtk_dialog_new();
@@ -384,7 +392,9 @@ static void show_dataset_upload_dialog(GtkWindow *parent, EnvCtx *env) {
 
     /* === CRIE O CONTENT, O BOX VERTICAL E O GRID AQUI === */
     GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
     GtkWidget *action  = gtk_dialog_get_action_area(GTK_DIALOG(dialog));
+    G_GNUC_END_IGNORE_DEPRECATIONS
 
     gtk_widget_set_no_show_all(action, TRUE);
     gtk_widget_hide(action);
@@ -505,4 +515,4 @@ static void show_dataset_upload_dialog(GtkWindow *parent, EnvCtx *env) {
 }
 
 
-#endif /* DATASETS_UPLOAD_H */
+#endif

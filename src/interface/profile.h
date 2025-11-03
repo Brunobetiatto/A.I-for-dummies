@@ -1,5 +1,3 @@
-// profile.h
-
 #include <gtk/gtk.h>
 #include <cjson/cJSON.h>
 #include <string.h>
@@ -428,6 +426,7 @@ static void on_import_to_environment_profile(GtkButton *btn, gpointer user_data)
 
 
 static gboolean on_item_box_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data) {
+    (void)event;
     const char *child_name = (const char*) g_object_get_data(G_OBJECT(widget), "dataset_stack_name");
     ProfileWindowUI *pui = (ProfileWindowUI*) user_data;
     debug_log("on_item_box_button_press(): widget=%p child=%s", widget, child_name ? child_name : "(null)");
@@ -487,6 +486,7 @@ static gboolean parse_to_mb_(const char *s, double *out_mb) {
 
 /* Função para fechar janela */
 static void profile_close_cb(GtkWidget *btn, gpointer data) {
+    (void)btn;
     GtkWidget *win = GTK_WIDGET(data);
     gtk_widget_destroy(win);
 }
@@ -498,126 +498,8 @@ static char* size_to_mb_string_(const char *s) {
     return g_strdup_printf("%.1f MB", mb);
 }
 
-/* Função para preencher detalhes do dataset na stack */
-static gboolean fill_dataset_details_in_stack_ui(gpointer user_data) {
-    DatasetUIData *d = (DatasetUIData*)user_data;
-    ProfileWindowUI *pui = d->pui;
-
-    if (!pui || !GTK_IS_STACK(pui->stack)) goto out_free;
-
-    GtkWidget *existing = gtk_stack_get_child_by_name(pui->stack, "dataset");
-    if (existing) gtk_widget_destroy(existing);
-
-    GtkWidget *dataset_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(dataset_page), 12);
-    gtk_style_context_add_class(gtk_widget_get_style_context(dataset_page), "profile-panel");
-
-    GtkWidget *hdr = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *btn_back = gtk_button_new_with_label("◀ Back to Profile");
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_back), "pf-btn");
-    GtkWidget *title = gtk_label_new(NULL);
-    char *title_markup = g_markup_printf_escaped("<span size='large' weight='bold'>Dataset: %s</span>", d->nome ? d->nome : "—");
-    gtk_label_set_markup(GTK_LABEL(title), title_markup); g_free(title_markup);
-    gtk_label_set_xalign(GTK_LABEL(title), 0.0);
-    gtk_box_pack_start(GTK_BOX(hdr), btn_back, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hdr), title, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(dataset_page), hdr, FALSE, FALSE, 0);
-
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-    gtk_box_pack_start(GTK_BOX(dataset_page), grid, FALSE, FALSE, 10);
-
-    int row = 0;
-
-    GtkWidget *lbl_size = gtk_label_new("Size:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_size), 0.0);
-    char *size_display = (d->tamanho && strcmp(d->tamanho, "—") != 0) ? size_to_mb_string_(d->tamanho) : g_strdup("—");
-    GtkWidget *val_size = gtk_label_new(size_display);
-    gtk_label_set_xalign(GTK_LABEL(val_size), 0.0);
-    gtk_grid_attach(GTK_GRID(grid), lbl_size, 0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), val_size, 1, row, 1, 1);
-    row++;
-    g_free(size_display);
-
-    GtkWidget *lbl_date = gtk_label_new("Created:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_date), 0.0);
-    GtkWidget *val_date = gtk_label_new(d->data_cadastro ? d->data_cadastro : "—");
-    gtk_label_set_xalign(GTK_LABEL(val_date), 0.0);
-    gtk_grid_attach(GTK_GRID(grid), lbl_date, 0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), val_date, 1, row, 1, 1);
-    row++;
-
-    if (d->url && *d->url) {
-        GtkWidget *lbl_url = gtk_label_new("Download Link:");
-        gtk_label_set_xalign(GTK_LABEL(lbl_url), 0.0);
-        GtkWidget *val_url = gtk_label_new(NULL);
-
-        /* texto do link = apenas o basename do arquivo */
-        const char *base = strrchr(d->url, '/');
-        const char *fname = (base && *(base+1)) ? base+1 : d->url;
-
-        char *url_markup = g_markup_printf_escaped("<a href=\"%s\">%s</a>", d->url, fname);
-        gtk_label_set_markup(GTK_LABEL(val_url), url_markup);
-        gtk_label_set_xalign(GTK_LABEL(val_url), 0.0);
-        gtk_label_set_selectable(GTK_LABEL(val_url), TRUE);
-        g_free(url_markup);
-
-        gtk_grid_attach(GTK_GRID(grid), lbl_url, 0, row, 1, 1);
-        gtk_grid_attach(GTK_GRID(grid), val_url, 1, row, 1, 1);
-        row++;
-    }
-
-    if (d->descricao && strcmp(d->descricao, "—") != 0) {
-        GtkWidget *desc_frame = gtk_frame_new("Description");
-        GtkWidget *desc_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-        gtk_container_set_border_width(GTK_CONTAINER(desc_box), 6);
-        GtkWidget *lbl_desc = gtk_label_new(d->descricao);
-        gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
-        gtk_label_set_line_wrap(GTK_LABEL(lbl_desc), TRUE);
-        gtk_label_set_selectable(GTK_LABEL(lbl_desc), TRUE);
-        gtk_box_pack_start(GTK_BOX(desc_box), lbl_desc, FALSE, FALSE, 0);
-        gtk_container_add(GTK_CONTAINER(desc_frame), desc_box);
-        gtk_box_pack_start(GTK_BOX(dataset_page), desc_frame, FALSE, FALSE, 10);
-    }
-
-    GtkWidget *btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_set_homogeneous(GTK_BOX(btn_box), TRUE);
-    GtkWidget *btn_open_url = gtk_button_new_with_label("import to environment");
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_open_url), "pf-btn");
-    if (d->url && *d->url) {
-        g_object_set_data_full(G_OBJECT(btn_open_url), "dataset-url", g_strdup(d->url), g_free);
-        g_signal_connect(btn_open_url, "clicked", G_CALLBACK(on_import_to_environment_profile), pui->parent_window);
-    } else {
-        gtk_widget_set_sensitive(btn_open_url, FALSE);
-    }
-
-    pf_apply_hand_cursor_to(btn_back);
-    pf_apply_hand_cursor_to(btn_open_url);
-
-    gtk_box_pack_start(GTK_BOX(btn_box), btn_open_url, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(dataset_page), btn_box, FALSE, FALSE, 0);
-
-    gtk_stack_add_named(pui->stack, dataset_page, "dataset");
-    pui->dataset_page = dataset_page;
-
-    gtk_widget_show_all(dataset_page);
-    gtk_stack_set_visible_child(GTK_STACK(pui->stack), dataset_page);
-    g_signal_connect(btn_back, "clicked", G_CALLBACK(on_back_to_profile_clicked), pui);
-
-out_free:
-    if (d->nome) g_free(d->nome);
-    if (d->descricao) g_free(d->descricao);
-    if (d->tamanho) g_free(d->tamanho);
-    if (d->url) g_free(d->url);
-    if (d->data_cadastro) g_free(d->data_cadastro);
-    if (d->usuario_nome) g_free(d->usuario_nome);
-    if (d->usuario_email) g_free(d->usuario_email);
-    g_free(d);
-    return G_SOURCE_REMOVE;
-}
-
 static void on_back_to_profile_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
     ProfileWindowUI *pui = (ProfileWindowUI*)user_data;
     if (pui && GTK_IS_STACK(pui->stack)) {
         gtk_stack_set_visible_child_name(pui->stack, "profile");
@@ -641,6 +523,7 @@ static void on_dataset_info_clicked(GtkButton *btn, gpointer user_data) {
 }
 
 void profile_create_and_show_from_json(const char *user_json, GtkWindow *parent) {
+    (void)parent;
     debug_log("profile_create_and_show_from_json() called");
 
     if (!user_json) {

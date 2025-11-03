@@ -329,23 +329,25 @@ static void toggle_textview(GtkButton *btn, GtkTextView *tv){
 
 static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
     ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
+    if (!ctx) return;
 
-    /* recuperar id e o widget-row (armazenados em object-data) */
+    /* recuperar id e opcionalmente o widget-row (armazenado em object-data) */
     gpointer id_ptr = g_object_get_data(G_OBJECT(btn), "dataset-id");
     GtkWidget *row_widget = (GtkWidget*) g_object_get_data(G_OBJECT(btn), "dataset-row");
     int dataset_id = GPOINTER_TO_INT(id_ptr);
 
     if (dataset_id <= 0) {
-        profile_tab_set_status(ctx, "ID de dataset inválido", TRUE);
+        profile_tab_set_status(ctx, "ID de dataset inválido", FALSE);
         return;
     }
 
-    /* Opcional: confirmar com o usuário antes de deletar */
-    GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn))),
-                                               GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                                               GTK_MESSAGE_QUESTION,
-                                               GTK_BUTTONS_YES_NO,
-                                               "Deseja mesmo excluir o dataset %d?", dataset_id);
+    /* confirmação */
+    GtkWidget *dialog = gtk_message_dialog_new(
+        GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn))),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_QUESTION,
+        GTK_BUTTONS_YES_NO,
+        "Deseja mesmo excluir o dataset %d?", dataset_id);
     int resp = gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
     if (resp != GTK_RESPONSE_YES) return;
@@ -355,46 +357,50 @@ static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
     snprintf(cmd, sizeof(cmd), "DELETE_DATASET %d", dataset_id);
     WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
     if (!wcmd) {
-        profile_tab_set_status(ctx, "Erro de memória (wchar)", TRUE);
+        profile_tab_set_status(ctx, "Erro de memória (wchar)", FALSE);
         return;
     }
 
-    /* chamar API */
+    /* chamar API (bloqueante) */
     WCHAR *wresult = run_api_command(wcmd);
-    g_free(wcmd);
+    free(wcmd);
 
-    /* Se run_api_command retornar NULL -> erro */
     if (!wresult) {
-        profile_tab_set_status(ctx, "Erro ao chamar API", TRUE);
+        profile_tab_set_status(ctx, "Erro ao chamar API", FALSE);
         return;
     }
 
-    /* converter resposta para UTF-8 e analisar (ajuste conforme o formato real da resposta) */
+    /* converter resposta WCHAR -> UTF-8 */
     char *result = wchar_to_utf8_alloc(wresult);
+    /* liberar wresult assim que convertido (conforme uso noutros lugares) */
+    free(wresult);
+
     if (!result) {
-        profile_tab_set_status(ctx, "Erro ao interpretar resposta da API", TRUE);
+        profile_tab_set_status(ctx, "Erro ao interpretar resposta da API", FALSE);
         return;
     }
 
-    /* Interpretação simples: se contiver "OK", "SUCCESS" ou "DELETED" consideramos sucesso.
-       Ajuste essas condições conforme o protocolo real. */
+    /* interpretar resposta simples */
+    gboolean ok = FALSE;
     if (strstr(result, "OK") || strstr(result, "Success") || strstr(result, "DELETED")) {
-        /* remover a linha da lista visualmente */
-        if (row_widget) {
-            /* remover do listbox e destruir */
-            gtk_widget_destroy(row_widget);
-        }
-        profile_tab_set_status(ctx, "Dataset excluído com sucesso.", FALSE);
+        ok = TRUE;
+    }
+
+    if (ok) {
+        /* Recarrega toda a listagem (mais robusto do que apenas destruir a linha)
+           — profile_tab_load_datasets limpa e reconsulta do backend. */
+        profile_tab_set_status(ctx, "Dataset excluído com sucesso.", TRUE);
+        profile_tab_load_datasets(ctx);
     } else {
-        /* exibimos a resposta como erro (ou mensagem) */
-        profile_tab_set_status(ctx, result, TRUE);
+        /* mostra a mensagem da API como erro (ou fallback) */
+        char buf[512];
+        snprintf(buf, sizeof(buf), "Falha ao excluir: %s", result);
+        profile_tab_set_status(ctx, buf, FALSE);
     }
 
     g_free(result);
-
-    /* Observação: se run_api_command alocou wresult e precisa ser liberado, faça aqui.
-       Eu não o libero porque o contrato de run_api_command não foi explicitado. */
 }
+
 
 
 
@@ -773,8 +779,12 @@ static void profile_tab_load_datasets(ProfileTabCtx *ctx) {
             GtkWidget *listrow = gtk_list_box_row_new();
             gtk_container_add(GTK_CONTAINER(listrow), item_box);
             gtk_list_box_insert(GTK_LIST_BOX(ctx->datasets_list), listrow, -1);
-            gtk_widget_show_all(listrow);
+
+            /* IMPORTANT: associe o listrow ao botão delete para que o callback possa
+            acessá-lo (botão já existe na variável btn_delete) */
+            g_object_set_data(G_OBJECT(btn_delete), "dataset-row", listrow);
             
+            gtk_widget_show_all(listrow);
             dataset_count++;
             debug_log("profile_tab: inserido dataset '%s' na list box", ds_name);
         }
@@ -829,13 +839,6 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     add_cls(main_container, "profile-tab-container");
     gtk_widget_set_hexpand(main_container, TRUE);
     gtk_widget_set_vexpand(main_container, TRUE);
-
-    /* banner "Bem-vindo" no topo */
-    ctx->welcome_label = gtk_label_new(NULL);
-    gtk_label_set_use_markup(GTK_LABEL(ctx->welcome_label), TRUE);
-    gtk_label_set_markup(GTK_LABEL(ctx->welcome_label),
-        "<span weight='bold' size='xx-large'>Bem-vindo ao seu perfil</span>");
-    add_cls(ctx->welcome_label, "welcome-banner");
 
     gtk_label_set_xalign(GTK_LABEL(ctx->welcome_label), 0.5);
     gtk_widget_set_halign(ctx->welcome_label, GTK_ALIGN_CENTER);

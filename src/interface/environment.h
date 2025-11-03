@@ -98,6 +98,36 @@ static void append_log(EnvCtx *ctx, const char *fmt, ...) {
     gtk_text_buffer_insert(buf, &end, "\n", -1);
 }
 
+// --- helpers para colocar ícone no Logout já existente ---
+static void set_button_icon_from_png(GtkButton *btn, const char *path, int w, int h) {
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, w, h, TRUE, NULL);
+    GtkWidget *img = pb ? gtk_image_new_from_pixbuf(pb)
+                        : gtk_image_new_from_icon_name("image-missing", GTK_ICON_SIZE_MENU);
+    if (pb) g_object_unref(pb);
+    gtk_button_set_image(btn, img);
+    gtk_button_set_always_show_image(btn, TRUE);
+    gtk_button_set_image_position(btn, GTK_POS_LEFT);
+}
+
+static void try_iconize_logout_in_session(GtkBox *session_box) {
+    GList *children = gtk_container_get_children(GTK_CONTAINER(session_box));
+    for (GList *l = children; l; l = l->next) {
+        if (GTK_IS_BUTTON(l->data)) {
+            const gchar *lbl = gtk_button_get_label(GTK_BUTTON(l->data));
+            if (lbl && (g_strcmp0(lbl, "Logout") == 0 || g_strcmp0(lbl, "Sair") == 0)) {
+                set_button_icon_from_png(GTK_BUTTON(l->data), "assets/logout.png", 16, 16);
+                break;
+            }
+        }
+    }
+    g_list_free(children);
+}
+
+static gboolean idle_iconize_logout(gpointer user_data) {
+    try_iconize_logout_in_session(GTK_BOX(user_data));
+    return G_SOURCE_REMOVE;
+}
+
 static gchar *find_python(void) {
 #if defined(G_OS_WIN32)
     const char *cands[] = {"python.exe", "py.exe", "python3.exe", NULL};
@@ -1247,6 +1277,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *session_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_name(session_box, "env-session");
     ctx->session_box = GTK_BOX(session_box);
+    g_idle_add(idle_iconize_logout, ctx->session_box);
 
     /* Botão Debug (sempre o último à direita) */
     ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));

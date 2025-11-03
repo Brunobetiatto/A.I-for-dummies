@@ -74,9 +74,41 @@ static void ds_on_session_debug_clicked(GtkButton *btn, gpointer user_data) {
     show_debug_window(parent);
 }
 
+/* --- helper para colocar PNG à esquerda do texto num GtkButton --- */
+static void set_button_png(GtkButton *btn, const char *path, int w, int h) {
+    if (!btn || !path) return;
+    GError *err = NULL;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, w, h, TRUE, &err);
+    if (pb) {
+        GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+        g_object_unref(pb);
+    #if !GTK_CHECK_VERSION(4,0,0)
+        gtk_button_set_always_show_image(btn, TRUE);
+    #endif
+        gtk_button_set_image(btn, img);
+        gtk_button_set_image_position(btn, GTK_POS_LEFT);
+    } else if (err) {
+        g_error_free(err);
+    }
+}
+
+/* ===== Session strip (Logged as / Logout / Debug) – Datasets ===== */
 static GtkWidget* ds_build_session_strip(EnvCtx *env) {
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_set_homogeneous(GTK_BOX(bar), FALSE);
 
+    /* espaçador que empurra tudo para a direita */
+    GtkWidget *sp = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(sp, TRUE);
+    gtk_box_pack_start(GTK_BOX(bar), sp, TRUE, TRUE, 0);
+
+    /* --- grupo da direita: [Logged as …] [Logout] [Debug] --- */
+    GtkWidget *right = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_set_homogeneous(GTK_BOX(right), FALSE);
+    gtk_widget_set_halign(right, GTK_ALIGN_END);
+    gtk_widget_set_hexpand(right, FALSE);
+
+    /* label "Logged as ..." (fica à ESQUERDA dos botões) */
     char who[256] = "";
     if (env && env->current_user_name && *env->current_user_name)
         g_snprintf(who, sizeof(who), "Logged as: %s", env->current_user_name);
@@ -86,21 +118,24 @@ static GtkWidget* ds_build_session_strip(EnvCtx *env) {
         g_snprintf(who, sizeof(who), "Logged in");
 
     GtkWidget *lbl = gtk_label_new(who);
-    gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
-    gtk_box_pack_start(GTK_BOX(bar), lbl, FALSE, FALSE, 0);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 1.0);
+    gtk_widget_set_hexpand(lbl, FALSE);
+    gtk_box_pack_start(GTK_BOX(right), lbl, FALSE, FALSE, 8);
 
-    /* spacer */
-    GtkWidget *sp = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_hexpand(sp, TRUE);
-    gtk_box_pack_start(GTK_BOX(bar), sp, TRUE, TRUE, 0);
-
-    GtkWidget *btn_debug  = gtk_button_new_with_label("Debug");
+    /* botões (ordem: Logout primeiro, depois Debug) */
     GtkWidget *btn_logout = gtk_button_new_with_label("Logout");
-    g_signal_connect(btn_debug,  "clicked", G_CALLBACK(ds_on_session_debug_clicked),  env);
-    g_signal_connect(btn_logout, "clicked", G_CALLBACK(ds_on_session_logout_clicked), env);
+    GtkWidget *btn_debug  = gtk_button_new_with_label("Debug");
+    set_button_png(GTK_BUTTON(btn_logout), "./assets/logout.png", 16, 16);
+    set_button_png(GTK_BUTTON(btn_debug),  "./assets/debug.png",  16, 16);
 
-    gtk_box_pack_end(GTK_BOX(bar), btn_logout, FALSE, FALSE, 0);
-    gtk_box_pack_end(GTK_BOX(bar), btn_debug,  FALSE, FALSE, 0);
+    g_signal_connect(btn_logout, "clicked", G_CALLBACK(ds_on_session_logout_clicked), env);
+    g_signal_connect(btn_debug,  "clicked", G_CALLBACK(ds_on_session_debug_clicked),  env);
+
+    gtk_box_pack_start(GTK_BOX(right), btn_logout, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(right), btn_debug,  FALSE, FALSE, 0);
+
+    /* adiciona o grupo da direita ao bar */
+    gtk_box_pack_start(GTK_BOX(bar), right, FALSE, FALSE, 0);
 
     return bar;
 }

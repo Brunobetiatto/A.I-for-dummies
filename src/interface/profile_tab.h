@@ -7,6 +7,7 @@
 #include <wchar.h>
 #include <windows.h>
 #include <math.h>
+#include "../css/css.h"
 
 #include "../backend/communicator.h"
 #include "context.h"
@@ -69,6 +70,114 @@ static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data);
 
 static inline void add_cls(GtkWidget *w, const char *c){
     if (w && c) gtk_style_context_add_class(gtk_widget_get_style_context(w), c);
+}
+static const char *PROFILE_CSS = NULL;
+
+static void prof_on_session_logout_clicked(GtkButton *btn, gpointer user_data) {
+    ds_on_session_logout_clicked(btn, user_data);
+}
+
+static void prof_on_session_debug_clicked(GtkButton *btn, gpointer user_data) {
+    ds_on_session_debug_clicked(btn, user_data);
+}
+
+/* ===== Session strip (Logged as / Debug / Logout) ===== */
+/* ===== Session strip (Logged as / Debug / Logout) ===== */
+static GtkWidget* prof_build_session_strip(EnvCtx *env) {
+    if (!PROFILE_CSS) {
+        PROFILE_CSS = parse_CSS_file("profile_tab.css");
+    }
+
+    /* Linha: filler à esquerda + sessão + Logout + Debug */
+    GtkWidget *toprow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_name(toprow, "env-toolbar-row");
+    gtk_widget_set_hexpand(toprow, TRUE);
+
+    gtk_widget_set_margin_start (toprow, 16);
+    gtk_widget_set_margin_end   (toprow, 16);
+    gtk_widget_set_margin_top   (toprow, 12);
+    gtk_widget_set_margin_bottom(toprow, 12);
+
+    GtkWidget *filler = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(filler, TRUE);
+    gtk_box_pack_start(GTK_BOX(toprow), filler, TRUE, TRUE, 0);
+
+    GtkWidget *session_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_name(session_box, "env-session");
+
+    char who[256] = "";
+    if (env && env->current_user_name && *env->current_user_name)
+        g_snprintf(who, sizeof(who), "Logged as: %s", env->current_user_name);
+    else if (env && env->current_user_email && *env->current_user_email)
+        g_snprintf(who, sizeof(who), "Logged as: %s", env->current_user_email);
+    else
+        g_snprintf(who, sizeof(who), "Logged in");
+
+    GtkWidget *lbl_who = gtk_label_new(who);
+    gtk_label_set_xalign(GTK_LABEL(lbl_who), 0.0);
+    gtk_box_pack_start(GTK_BOX(session_box), lbl_who, FALSE, FALSE, 0);
+
+    /* ---- BOTÃO LOGOUT COM ÍCONE ---- */
+    GtkWidget *btn_logout = gtk_button_new_with_label("Logout");
+    {
+        /* tenta carregar assets/logout.png (16x16); cai para um ícone do tema se faltar */
+        GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale("assets/logout.png", 16, 16, TRUE, NULL);
+        GtkWidget *img = pb ? gtk_image_new_from_pixbuf(pb)
+                            : gtk_image_new_from_icon_name("system-log-out-symbolic", GTK_ICON_SIZE_MENU);
+        if (pb) g_object_unref(pb);
+        gtk_button_set_image(GTK_BUTTON(btn_logout), img);
+        gtk_button_set_always_show_image(GTK_BUTTON(btn_logout), TRUE);
+        gtk_button_set_image_position(GTK_BUTTON(btn_logout), GTK_POS_LEFT);
+    }
+    gtk_widget_set_tooltip_text(btn_logout, "Encerrar sessão");
+    g_signal_connect(btn_logout, "clicked", G_CALLBACK(prof_on_session_logout_clicked), env);
+    pf_apply_hand_cursor_to(btn_logout);
+    gtk_box_pack_start(GTK_BOX(session_box), btn_logout, FALSE, FALSE, 0);
+
+    /* ---- BOTÃO DEBUG (já existia) ---- */
+    GtkWidget *btn_debug = gtk_button_new_with_label("Debug");
+    {
+        GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale("assets/debug.png", 16, 16, TRUE, NULL);
+        GtkWidget *img = pb ? gtk_image_new_from_pixbuf(pb) : gtk_image_new();
+        if (pb) g_object_unref(pb);
+        gtk_button_set_image(GTK_BUTTON(btn_debug), img);
+        gtk_button_set_always_show_image(GTK_BUTTON(btn_debug), TRUE);
+        gtk_button_set_image_position(GTK_BUTTON(btn_debug), GTK_POS_LEFT);
+    }
+    gtk_widget_set_tooltip_text(btn_debug, "Open Debug/Backlog Window");
+    pf_apply_hand_cursor_to(btn_debug);
+    g_signal_connect(btn_debug, "clicked", G_CALLBACK(prof_on_session_debug_clicked), env);
+
+    gtk_box_pack_end(GTK_BOX(toprow), btn_debug, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(toprow), session_box, FALSE, FALSE, 0);
+
+    /* Wrapper que pinta fundo: EventBox com classe metal-panel */
+    GtkWidget *panel = gtk_event_box_new();
+    gtk_widget_set_name(panel, "env-window");
+    add_cls(panel, "metal-panel");
+    gtk_container_add(GTK_CONTAINER(panel), toprow);
+
+    gtk_widget_set_size_request(panel, -1, 44);
+
+    /* Garante que o CSS está aplicado neste sub-árvore */
+    if (PROFILE_CSS) {
+        GtkCssProvider *prov = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(prov, PROFILE_CSS, -1, NULL);
+        gtk_style_context_add_provider(gtk_widget_get_style_context(panel),
+                                       GTK_STYLE_PROVIDER(prov),
+                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(prov);
+    }
+
+    gtk_widget_set_hexpand(panel, TRUE);
+    gtk_widget_set_halign(panel, GTK_ALIGN_FILL);
+    gtk_widget_set_vexpand(panel, FALSE);
+    gtk_widget_set_margin_start(panel, 0);
+    gtk_widget_set_margin_end(panel, 0);
+    gtk_widget_set_margin_top(panel, 0);
+    gtk_widget_set_margin_bottom(panel, 0);
+
+    return panel;
 }
 
 /* escala para cobrir AVATAR_SIZE x AVATAR_SIZE e recorta centro */
@@ -1003,6 +1112,10 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_widget_set_hexpand(main_container, TRUE);
     gtk_widget_set_vexpand(main_container, TRUE);
 
+    /* Session trip (Logged as / Debug / Logout) */
+    GtkWidget *session_strip_prof = prof_build_session_strip(env);
+    gtk_box_pack_start(GTK_BOX(main_container), session_strip_prof, FALSE, FALSE, 0);
+
     gtk_label_set_xalign(GTK_LABEL(ctx->welcome_label), 0.5);
     gtk_widget_set_halign(ctx->welcome_label, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand(ctx->welcome_label, TRUE);
@@ -1179,7 +1292,7 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     GtkWidget *actions_frame = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     add_cls(actions_frame, "actions-container");
 
-    ctx->btn_save = gtk_button_new_with_label("Salvar Alterações/Update Profile");
+    ctx->btn_save = gtk_button_new_with_label("Save Changes/Update Profile");
     add_cls(ctx->btn_save, "save-button");
     gtk_box_pack_start(GTK_BOX(actions_frame), ctx->btn_save, FALSE, FALSE, 0);
     gtk_box_set_center_widget(GTK_BOX(actions_frame), ctx->btn_save);

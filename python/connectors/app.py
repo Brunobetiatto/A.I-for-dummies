@@ -27,6 +27,7 @@ from database.CRUD.create import create_user, create_dataset
 from database.CRUD.read import verify_login
 from database.CRUD.update import reset_user_password, update_user_info
 from database.CRUD.read import get_user_by_id, get_datasets_by_user, get_dataset_by_name
+from database.CRUD.delete import delete_user, delete_dataset
 
 app = Flask(__name__)
 
@@ -64,6 +65,8 @@ def list_tables():
         return jsonify({'status': 'OK', 'tables': tables})
     except Exception as e:
         return jsonify({'status': 'ERROR', 'message': str(e)}), 500
+    
+
 
 @app.route('/table/<table_name>', methods=['GET'])
 @require_jwt()
@@ -611,6 +614,58 @@ def api_update_user_avatar(user_id):
     except Exception as e:
         app.logger.exception("Error in api_update_user_avatar: %s", e)
         
+
+
+
+@app.route('/delete/<int:user_id>/')
+def api_delete_user(user_id):
+    cnx = None
+    try:
+        cnx = get_db_connection()
+        user = get_user_by_id(cnx, user_id)
+        if not user:
+            return jsonify({'status':'ERROR','message':'User not found'}), 410
+
+        deleted = delete_user(cnx, user_id)
+        if deleted:
+            # 200 OK com JSON ou 204 No Content; escolhi 200 para compatibilidade com seu client
+            return jsonify({'status':'OK','message':'User deleted successfully'}), 200
+        else:
+            return jsonify({'status':'ERROR','message':'User not deleted'}), 500
+
+    except Exception as e:
+        app.logger.exception("Error in api_delete_user: %s", e)
+        return jsonify({'status':'ERROR','message':'Internal server error'}), 500
+    finally:
+        if cnx:
+            try:
+                cnx.close()
+            except Exception:
+                pass
+
+
+@app.route('/delete/dataset/<int:dataset_id>')
+def api_delete_dataset(dataset_id):
+    cnx = None
+    try:
+        cnx = get_db_connection()
+
+        # deletar o dataset
+        deleted = delete_dataset(cnx, dataset_id)
+        if deleted:
+            return jsonify({'status':'OK','message':'Dataset deleted successfully'}), 200
+        else:
+            return jsonify({'status':'ERROR','message':'Dataset not deleted'}), 500
+
+    except Exception as e:
+        app.logger.exception("Error in api_delete_dataset: %s", e)
+        return jsonify({'status':'ERROR','message':'Internal server error'}), 500
+    finally:
+        if cnx:
+            try:
+                cnx.close()
+            except Exception:
+                pass
 
 @app.route('/dataset/<string:nome>', methods=['GET'])
 def api_get_dataset(nome):

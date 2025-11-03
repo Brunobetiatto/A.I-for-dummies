@@ -40,6 +40,9 @@ static char *g_auth_token = NULL;
 char* process_api_response(const char *api_response);   // processa a resposta da API e formata para o main.c
 WCHAR* run_api_command(const WCHAR *command);           // executa comandos via API
 
+
+
+
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct ResponseData *mem = (struct ResponseData *)userp;
@@ -466,6 +469,68 @@ bool api_verify_reset_code(const char *email, const char *code, char **response)
     free(data);
     return (*response != NULL);
 }
+
+bool api_delete_user(int user_id, char **response) {
+    if (user_id <= 0) return false;
+
+    char endpoint[64];
+    snprintf(endpoint, sizeof(endpoint), "/delete/%d", user_id);
+
+    char *resp = api_request("DELETE", endpoint, NULL);
+
+    /* se recebeu HTML "Not Found", tenta com slash final */
+    if (resp && strstr(resp, "Not Found")) {
+        free(resp);
+        snprintf(endpoint, sizeof(endpoint), "/delete/%d/", user_id);
+        resp = api_request("DELETE", endpoint, NULL);
+    }
+
+    if (!resp) {
+        *response = NULL;
+        return false;
+    }
+
+    *response = resp; // caller deve free()
+
+    /* verificação rígida do JSON de sucesso */
+    if (strstr(resp, "\"status\":\"OK\"") != NULL) {
+        return true;
+    }
+
+    return false;
+}
+
+
+bool api_delete_dataset(int dataset_id, char **response) {
+    if (dataset_id <= 0) return false;
+
+    char endpoint[64];
+    snprintf(endpoint, sizeof(endpoint), "/delete/dataset/%d", dataset_id);
+
+    char *resp = api_request("DELETE", endpoint, NULL);
+
+    /* se recebeu HTML "Not Found", tenta com slash final */
+    if (resp && strstr(resp, "Not Found")) {
+        free(resp);
+        snprintf(endpoint, sizeof(endpoint), "/delete/dataset/%d/", dataset_id);
+        resp = api_request("DELETE", endpoint, NULL);
+    }
+
+    if (!resp) {
+        *response = NULL;
+        return false;
+    }
+
+    *response = resp; // caller deve free()
+
+    /* verificação rígida do JSON de sucesso */
+    if (strstr(resp, "\"status\":\"OK\"") != NULL) {
+        return true;
+    }
+
+    return false;
+}
+
 
 bool api_reset_password(const char *reset_token, const char *new_password, char **response) {
     cJSON *json = cJSON_CreateObject();
@@ -989,7 +1054,24 @@ WCHAR* run_api_command(const WCHAR *command) {
             }
         }
     }
-
+    else if (token && strcmp(token, "DELETE_USER") == 0) {
+        token = strtok(NULL, " ");
+        if (token) {
+            int user_id = atoi(token);
+            if (user_id > 0) {
+                api_delete_user(user_id, &response);
+            }
+        }
+    }
+    else if (token && strcmp(token, "DELETE_DATASET") == 0) {
+        token = strtok(NULL, " ");
+        if (token) {
+            int dataset_id = atoi(token);
+            if (dataset_id > 0) {
+                api_delete_dataset(dataset_id, &response);
+            }
+        }
+    }
     // *** ADICIONADO: novo comando UPLOAD_CSV <caminho do arquivo (restante da linha)> ***
     else if (token && strcmp(token, "UPLOAD_CSV") == 0) {
         token = strtok(NULL, ""); // pega resto da linha (path e/ou pares key=value) — pode conter espaços

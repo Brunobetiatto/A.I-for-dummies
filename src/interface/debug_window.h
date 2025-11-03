@@ -18,6 +18,7 @@
 #include <string.h>
 #include <gdk/gdkkeysyms.h>
 #include "../css/css.h" 
+#include "context.h"
 
 
 #ifndef DEBUG_WINDOW_H
@@ -199,6 +200,18 @@ static char* communicator_debug_wrapper(const char *cmd_utf8) {
     free(wresp);
 
     return resp; /* caller (debug_window) deve free() */
+}
+
+/* Wrapper público para abrir a janela de debug a partir de qualquer lugar */
+void show_debug_window(GtkWindow *parent) {
+    /* Garante que a janela exista/foi criada */
+    debug_window_create(parent);
+
+    /* Se você quer que os comandos passem pelo communicator: */
+    debug_set_command_callback(communicator_debug_wrapper);
+
+    /* Exibe e dá foco no input */
+    debug_window_show();
 }
 
 static void on_debug_button_clicked(GtkButton *b, gpointer user) {
@@ -531,6 +544,8 @@ void debug_window_show(void) {
     if (!g_debug_ctx.window) return;
     gtk_window_present(GTK_WINDOW(g_debug_ctx.window));
     gtk_widget_show_all(g_debug_ctx.window);
+    if (g_debug_ctx.cmd_view)
+        gtk_widget_grab_focus(GTK_WIDGET(g_debug_ctx.cmd_view)); 
 }
 
 void debug_set_command_callback(debug_command_cb_t cb) {

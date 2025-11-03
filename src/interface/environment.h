@@ -16,7 +16,7 @@
 #ifndef ENV_H
 #define ENV_H
 
-/* ---------- Barra Win95 para a janela do Environment ---------- */
+/* --------- Barra Win95 para a janela do Environment ---------- */
 
 #include <gtk/gtk.h>
 
@@ -1199,20 +1199,21 @@ static void on_algo_changed(GtkComboBox *box, gpointer user_data) {
 }
 
 /* Build the Environment tab (LEFT controls | RIGHT notebook) */
+/* Build the Environment tab (LEFT controls | RIGHT notebook) */
 void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_name(outer, "env-window");
+
+    /* === Carrega o CSS cedo para poder embrulhar a barra === */
+    char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
+
+    /* Instala a titlebar Win95 na janela toplevel (como antes) */
     GtkWidget *tl = gtk_widget_get_toplevel(GTK_WIDGET(nb));
     if (GTK_IS_WINDOW(tl)) {
         GtkWindow *w = GTK_WINDOW(tl);
-
-        /* mesma barra Win95 */
         install_env_w95_titlebar(w, "AI for Dummies");
+        gtk_window_set_resizable(w, TRUE);
 
-        /* IMPORTANTES para o toggle funcionar igual ao login: */
-        gtk_window_set_resizable(w, TRUE);  // deixa o WM memorizar o “normal size”
-
-        // Tela “proporcional” igual ao login
         GdkScreen *screen = gdk_screen_get_default();
         gint sw = gdk_screen_get_width(screen);
         gint sh = gdk_screen_get_height(screen);
@@ -1221,46 +1222,73 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
             CLAMP(sw * 0.45, 420, 1200),
             CLAMP(sh * 0.4,  320, 900)
         );
-
         gtk_window_set_position(w, GTK_WIN_POS_CENTER);
         gtk_container_set_border_width(GTK_CONTAINER(w), 12);
     }
 
-    /* top switcher (kept) */
+    /* === TOP ROW: StackSwitcher (esq) + filler + sessão + Debug (dir) === */
+    GtkWidget *toprow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_name(toprow, "env-toolbar-row");        /* nome interno da linha */
+    ctx->topbar = GTK_BOX(toprow);
+
+    /* Switcher à esquerda */
     ctx->stack = GTK_STACK(gtk_stack_new());
     gtk_stack_set_transition_type(ctx->stack, GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), ctx->stack);
-    gtk_box_pack_start(GTK_BOX(outer), switcher, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(toprow), switcher, FALSE, FALSE, 0);
 
-    /* Toolbar (debug/logout area)*/
-    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    /* Filler expansível */
+    GtkWidget *filler = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(filler, TRUE);
+    gtk_box_pack_start(GTK_BOX(toprow), filler, TRUE, TRUE, 0);
+
+    /* Slot de sessão: aqui o main.c injeta "Logged as …" e "Logout" */
+    GtkWidget *session_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_name(session_box, "env-session");
+    ctx->session_box = GTK_BOX(session_box);
+
+    /* Botão Debug (sempre o último à direita) */
     ctx->btn_debug = GTK_BUTTON(gtk_button_new_with_label("Debug"));
     {
         GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale("assets/debug.png", 16, 16, TRUE, NULL);
         GtkWidget *img = gtk_image_new_from_pixbuf(pb);
-        g_object_unref(pb);
+        if (pb) g_object_unref(pb);
         gtk_button_set_image(ctx->btn_debug, img);
         gtk_button_set_always_show_image(ctx->btn_debug, TRUE);
         gtk_button_set_image_position(ctx->btn_debug, GTK_POS_LEFT);
     }
     gtk_widget_set_tooltip_text(GTK_WIDGET(ctx->btn_debug), "Abrir janela de debug/backlog");
-    gtk_box_pack_end(GTK_BOX(toolbar), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
     g_signal_connect(ctx->btn_debug, "clicked", G_CALLBACK(on_debug_button_clicked), ctx);
-    gtk_box_pack_start(GTK_BOX(outer), toolbar, FALSE, FALSE, 0);
+
+    /* Ordem entre os pack_end: Debug POR ÚLTIMO, sessão imediatamente à esquerda */
+    gtk_box_pack_end(GTK_BOX(toprow), GTK_WIDGET(ctx->btn_debug), FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(toprow), session_box,               FALSE, FALSE, 0);
+
+    /* === EMBRULHA a linha no painel cinza Win95 ===
+       Dê o ID "env-toolbar" ao wrapper para casar com o seu CSS (#env-toolbar) */
+    GtkWidget *topbar_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", toprow, "env-toolbar");
+    gtk_box_pack_start(GTK_BOX(outer), topbar_panel, FALSE, FALSE, 0);
+
+    /* === Miolo: paned esquerda|direita === */
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
 
-    /* =============== LEFT controls =============== */
+    /* ======== LEFT controls ======== */
     GtkWidget *left_col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
-    // --- cria o notebook da esquerda com duas páginas
+    /* Notebook à esquerda (Pre-processing / Model) */
     GtkWidget *pre_box  = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     GtkWidget *model_box= gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     GtkWidget *left_nb  = gtk_notebook_new();
     gtk_style_context_add_class(gtk_widget_get_style_context(left_nb), "w95-notebook");
+    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), pre_box,  gtk_label_new("Pre-processing"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), model_box, gtk_label_new("Model"));
+    ctx->left_nb     = GTK_NOTEBOOK(left_nb);
+    ctx->preproc_box = pre_box;
+    ctx->model_box   = model_box;
 
-    /* Dataset row (single, not duplicated) */
+    /* Dataset row */
     {
         GtkWidget *ds_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         ctx->ds_combo       = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1268,10 +1296,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         GtkWidget *btn_open = gtk_button_new_with_label("Open");
         GtkWidget *btn_load = gtk_button_new_with_label("Load");
 
-        gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo), TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo),       TRUE,  TRUE,  0);
         gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(ds_row), btn_open, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(ds_row), btn_load, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), btn_open,                        FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(ds_row), btn_load,                        FALSE, FALSE, 0);
 
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Dataset", ds_row), FALSE, FALSE, 0);
 
@@ -1280,18 +1308,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_selected_dataset),  ctx);
     }
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), pre_box,  gtk_label_new("Pre-processing"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(left_nb), model_box, gtk_label_new("Model"));
-
-    // guarda em ctx (se precisar depois)
-    ctx->left_nb     = GTK_NOTEBOOK(left_nb);
-    ctx->preproc_box = pre_box;
-    ctx->model_box   = model_box;
-
-    // o notebook fica no topo da coluna; "Actions" vai abaixo
+    /* Coloca o notebook no topo da coluna esquerda */
     gtk_box_pack_start(GTK_BOX(left_col), left_nb, TRUE, TRUE, 0);
 
-    /* trainees row */
+    /* Trainee */
     {
         GtkWidget *tr_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         ctx->model_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1342,16 +1362,14 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
         gtk_box_pack_start(GTK_BOX(model_box), group_panel("Model", row), FALSE, FALSE, 0);
 
-        // área dinâmica de hyperparameters
+        /* Hyperparameters dinâmicos */
         ctx->model_params_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
         gtk_box_pack_start(GTK_BOX(model_box), group_panel("Hyperparameters", ctx->model_params_box), FALSE, FALSE, 0);
-
-        // quando o algoritmo mudar, reconstruir a área de hyperparams
         g_signal_connect(ctx->algo_combo, "changed", G_CALLBACK(on_algo_changed), ctx);
-        rebuild_hparams_ui(ctx); // inicial
+        rebuild_hparams_ui(ctx);
     }
 
-    /* Projection / Color */
+    /* Projection/Color */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         ctx->proj_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1371,10 +1389,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Projection & Color", row), FALSE, FALSE, 0);
     }
 
-    /* Data Treatment (impute/scale/onehot) */
+    /* Data Treatment */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
         GtkComboBoxText *cmb_scale  = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         gtk_combo_box_text_append_text(cmb_scale, "Standard Scale");
         gtk_combo_box_text_append_text(cmb_scale, "Min-Max Scale");
@@ -1396,7 +1413,6 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
         gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Data Treatment", row), FALSE, FALSE, 0);
 
-        /* store pointers without touching EnvCtx fields */
         g_object_set_data(G_OBJECT(pre_box), "scale_combo",  cmb_scale);
         g_object_set_data(G_OBJECT(pre_box), "impute_combo", cmb_impute);
         g_object_set_data(G_OBJECT(pre_box), "onehot_check", chk_onehot);
@@ -1454,30 +1470,23 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Actions */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
-        /* use ▶ (U+25B6) e ⏸ (U+23F8) – sem variation selector */
         ctx->btn_start = GTK_BUTTON(gtk_button_new_with_label("Start ▶"));
         ctx->btn_pause = GTK_BUTTON(gtk_button_new_with_label("Pause ⏸"));
-
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->btn_start), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->btn_pause), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Actions", row), FALSE, FALSE, 0);
-
         g_signal_connect(ctx->btn_start, "clicked", G_CALLBACK(on_start_clicked), ctx);
         g_signal_connect(ctx->btn_pause, "clicked", G_CALLBACK(on_pause_clicked), ctx);
     }
 
-
-    /* Wrap left in metal panel + pack */
-    char *ENVIRONMENT_CSS = parse_CSS_file("environment.css");
+    /* Wrap left/right com o mesmo look */
     GtkWidget *left_panel  = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", left_col,  "env-left-panel");
     gtk_paned_pack1(GTK_PANED(paned), left_panel, FALSE, TRUE);
 
-    /* =============== RIGHT: notebook =============== */
+    /* ======== RIGHT notebook ======== */
     GtkWidget *right_nb = gtk_notebook_new();
     ctx->right_nb = GTK_NOTEBOOK(right_nb);
-    g_signal_connect(ctx->right_nb, "page-added",
-                 G_CALLBACK(on_right_nb_page_added), ctx);
+    g_signal_connect(ctx->right_nb, "page-added", G_CALLBACK(on_right_nb_page_added), ctx);
 
     /* Logs */
     ctx->logs_view = GTK_TEXT_VIEW(gtk_text_view_new());
@@ -1494,11 +1503,9 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_widget_set_halign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
     gtk_widget_set_valign(GTK_WIDGET(ctx->plot_img), GTK_ALIGN_FILL);
     gtk_widget_set_size_request(GTK_WIDGET(ctx->plot_img), 1, 1);
-    g_signal_connect(ctx->plot_img, "size-allocate",
-                 G_CALLBACK(on_plot_size_allocate), ctx);
+    g_signal_connect(ctx->plot_img, "size-allocate", G_CALLBACK(on_plot_size_allocate), ctx);
     GtkWidget *plot_inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_box_pack_start(GTK_BOX(plot_inner), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
-    /* aplica o painel afundado Win95 */
     GtkWidget *plot_box = wrap_CSS(ENVIRONMENT_CSS, "w95-plot", plot_inner, "env-plot");
     GtkWidget *plot_tab = make_tab_label("assets/plot.png", "Plot");
     ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, plot_tab);
@@ -1510,15 +1517,8 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_notebook_append_page(ctx->right_nb, metrics_view, metrics_tab);
     ctx->metrics_view = GTK_TEXT_VIEW(metrics_view);
 
-    /* Wrap right too (consistent depth) */
     GtkWidget *right_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", right_nb, "env-right-panel");
     gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, TRUE);
-
-    /* free CSS buffer returned by parse_CSS_file (wrap_CSS already applied it) */
-    if (ENVIRONMENT_CSS) {
-        free(ENVIRONMENT_CSS);
-        ENVIRONMENT_CSS = NULL;
-    }
 
     /* Footer */
     GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -1529,13 +1529,13 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(outer), footer, FALSE, FALSE, 0);
 
     /* Finalize */
-    gtk_stack_add_titled(ctx->stack, paned, "environment", "Environment");
+    GtkWidget *paned_as_stack_page = paned; /* o paned é a página "Environment" da stack */
+    gtk_stack_add_titled(ctx->stack, paned_as_stack_page, "environment", "Environment");
 
-    /* Aba Environment com ícone */
     GtkWidget *env_tab = make_tab_label("assets/environment.png", "Environment");
     gtk_notebook_append_page(nb, outer, env_tab);
 
-    /* Substitui a label de texto "Datasets" por [ícone + texto] */
+    /* Substitui label “Datasets” da outra aba por [ícone + texto] se necessário */
     for (gint i = 0; i < gtk_notebook_get_n_pages(nb); ++i) {
         GtkWidget *page = gtk_notebook_get_nth_page(nb, i);
         GtkWidget *tabw = gtk_notebook_get_tab_label(nb, page);
@@ -1551,28 +1551,27 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
     gtk_widget_show_all(outer);
 
-    /* Default temp paths + pollers */
+    /* Caminhos e timers */
     if (!ctx->fit_img_path) { gchar *tmp = g_get_tmp_dir(); ctx->fit_img_path = g_build_filename(tmp, "aifd_fit.png",     NULL); }
     if (!ctx->metrics_path) { gchar *tmp = g_get_tmp_dir(); ctx->metrics_path = g_build_filename(tmp, "aifd_metrics.txt", NULL); }
 
-        /* Gera um PNG inicial estilo Win95 (area cyan) para a aba Plot */
+    /* Frame Win95 inicial do Plot */
     {
-        gchar *cmd = g_strdup_printf(
-            "python python/models.py --win95-mode area --win95-out \"%s\"",
-            ctx->fit_img_path
-        );
+        gchar *cmd = g_strdup_printf("python python/models.py --win95-mode area --win95-out \"%s\"", ctx->fit_img_path);
         g_spawn_command_line_async(cmd, NULL);
         g_free(cmd);
     }
 
     g_setenv("AIFD_PLOT_STYLE", "retro95", TRUE);
 
-    /* Use the single-file poller; metrics poller pops the tab once */
-    ctx->plot_timer_id = g_timeout_add(120, poll_fit_image_cb, ctx);
+    ctx->plot_timer_id    = g_timeout_add(120, poll_fit_image_cb, ctx);
     ctx->metrics_timer_id = g_timeout_add(500,  poll_metrics_cb,  ctx);
 
-    /* Populate datasets combo */
+    /* Popular datasets */
     on_refresh_local_datasets(GTK_BUTTON(ctx->btn_refresh_ds), ctx);
+
+    /* Libera o buffer CSS (já aplicado) */
+    if (ENVIRONMENT_CSS) { free(ENVIRONMENT_CSS); ENVIRONMENT_CSS = NULL; }
 }
 
 #endif

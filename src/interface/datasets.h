@@ -57,6 +57,53 @@ enum {
     DS_N_COLS
 };
 
+/* ===== Session strip (Logged as / Debug / Logout) – Datasets ===== */
+static void ds_on_session_logout_clicked(GtkButton *btn, gpointer user_data) {
+    (void)btn;
+    EnvCtx *env = (EnvCtx*)user_data;
+    /* Repassa o clique para o botão global já conectado em main.c */
+    if (env && env->btn_logout) g_signal_emit_by_name(env->btn_logout, "clicked");
+}
+
+void show_debug_window(GtkWindow *parent);
+
+static void ds_on_session_debug_clicked(GtkButton *btn, gpointer user_data) {
+    (void)user_data;
+    GtkWindow *parent = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn)));
+    /* Função declarada em debug_window.h */
+    show_debug_window(parent);
+}
+
+static GtkWidget* ds_build_session_strip(EnvCtx *env) {
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
+    char who[256] = "";
+    if (env && env->current_user_name && *env->current_user_name)
+        g_snprintf(who, sizeof(who), "Logged as: %s", env->current_user_name);
+    else if (env && env->current_user_email && *env->current_user_email)
+        g_snprintf(who, sizeof(who), "Logged as: %s", env->current_user_email);
+    else
+        g_snprintf(who, sizeof(who), "Logged in");
+
+    GtkWidget *lbl = gtk_label_new(who);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
+    gtk_box_pack_start(GTK_BOX(bar), lbl, FALSE, FALSE, 0);
+
+    /* spacer */
+    GtkWidget *sp = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(sp, TRUE);
+    gtk_box_pack_start(GTK_BOX(bar), sp, TRUE, TRUE, 0);
+
+    GtkWidget *btn_debug  = gtk_button_new_with_label("Debug");
+    GtkWidget *btn_logout = gtk_button_new_with_label("Logout");
+    g_signal_connect(btn_debug,  "clicked", G_CALLBACK(ds_on_session_debug_clicked),  env);
+    g_signal_connect(btn_logout, "clicked", G_CALLBACK(ds_on_session_logout_clicked), env);
+
+    gtk_box_pack_end(GTK_BOX(bar), btn_logout, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(bar), btn_debug,  FALSE, FALSE, 0);
+
+    return bar;
+}
 
 static void trim_spaces(char *s) {
     if (!s) return;
@@ -1198,6 +1245,12 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_container_set_border_width(GTK_CONTAINER(outer), 6);
 
     gtk_widget_set_name(outer, "datasets-window");
+
+    /* --- session strip (Logged as / Debug / Logout) --- */
+    GtkWidget *session_strip_ds =
+        wrap_CSS(DATASETS_CSS, "metal-panel", ds_build_session_strip(env), "env_session");
+    gtk_box_pack_start(GTK_BOX(outer), session_strip_ds, FALSE, FALSE, 0);
+    hand_cursor_forall(session_strip_ds, NULL);
 
     /* Top bar: search + upload + refresh */
     GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);

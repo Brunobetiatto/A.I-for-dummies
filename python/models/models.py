@@ -1496,7 +1496,7 @@ def main():
         r2, mae, mse, rmse = regression_metrics(yte, pred)
         text = "\n".join([
             "=== Regression Metrics ===",
-            f"R^2  : {r2:.6f}",
+            f"R²  : {r2:.6f}",
             f"MAE  : {mae:.6f}",
             f"MSE  : {mse:.6f}",
             f"RMSE : {rmse:.6f}",

@@ -44,7 +44,7 @@ typedef struct {
 
     // runtime      
     gchar               *pause_flag_path;
-
+    GtkWidget           *metrics_panel; /* painel da tabela de métricas */
     gchar               *fit_img_path; 
     guint               plot_timer_id; 
     time_t              fit_img_mtime; 

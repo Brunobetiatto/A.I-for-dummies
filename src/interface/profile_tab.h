@@ -56,6 +56,19 @@ typedef struct {
 
 } ProfileTabCtx;
 
+typedef struct {
+    ProfileTabCtx *ctx;
+    int dataset_id;
+} DelDlgState;
+
+typedef struct {
+    ProfileTabCtx *ctx;
+    int ds_id;
+    GtkWidget *entry_name;
+    GtkTextBuffer *buf_desc;
+    GtkWidget *dialog;
+} EditDlgState;
+
 /* Forward declarations */
 static void set_default_avatar(ProfileTabCtx *ctx);
 static void profile_tab_load_user(ProfileTabCtx *ctx);
@@ -76,7 +89,101 @@ static void prof_on_session_debug_clicked(GtkButton *btn, gpointer user_data) {
     ds_on_session_debug_clicked(btn, user_data);
 }
 
-/* ===== Session strip (Logged as / Debug / Logout) ===== */
+/* === Titlebar Win95 com título dinâmico (perfil / dialogs) === */
+static void install_w95_titlebar_named(GtkWindow *win,
+                                       const char *title_utf8,
+                                       const char *logo_path) {
+    if (!win) return;
+
+    GtkWidget *hb = gtk_header_bar_new();
+    gtk_widget_set_name(hb, "w95-titlebar");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+    gtk_header_bar_set_title(GTK_HEADER_BAR(hb), NULL);
+
+    /* ESQUERDA: logo + título */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *logo = NULL;
+    {
+        GError *err = NULL;
+        GdkPixbuf *pb_logo = gdk_pixbuf_new_from_file_at_scale(
+            (logo_path && *logo_path) ? logo_path : "assets/AI-for-dummies.png",
+            20, 20, TRUE, &err);
+        logo = pb_logo ? gtk_image_new_from_pixbuf(pb_logo) : gtk_image_new();
+        if (pb_logo) g_object_unref(pb_logo);
+        gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+        gtk_box_pack_start(GTK_BOX(left), logo, FALSE, FALSE, 0);
+    }
+
+    GtkWidget *title = gtk_label_new(title_utf8 && *title_utf8 ? title_utf8 : "AI for Dummies");
+    gtk_widget_set_name(title, "w95-title");
+    gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
+
+    /* DIREITA: botões Win95 (min/max/close) */
+    GtkWidget *btn_min   = gtk_button_new();
+    GtkWidget *btn_max   = gtk_button_new();
+    GtkWidget *btn_close = gtk_button_new();
+
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "win95");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "win95");
+
+    GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+
+    gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
+    gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
+    gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
+
+    if (pb_min)   g_object_unref(pb_min);
+    if (pb_max)   g_object_unref(pb_max);
+    if (pb_close) g_object_unref(pb_close);
+
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
+
+    /* sinais */
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close),   win);
+    g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
+    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(login_titlebar_on_max_clicked), win);
+
+    gtk_window_set_titlebar(win, hb);
+}
+
+/* Helperzinho p/ injetar CSS no subtree do widget (escopo local ao dialog) */
+static void apply_css_to(GtkWidget *root, const char *css_path) {
+    if (!root || !css_path) return;
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_path(prov, css_path, NULL);
+    gtk_style_context_add_provider(gtk_widget_get_style_context(root),
+        GTK_STYLE_PROVIDER(prov), GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(prov);
+}
+
+/* Centraliza e remove qualquer “linha interna”/separator padrão do GtkDialog */
+static void center_and_flatten_dialog(GtkDialog *dlg, const char *css_id) {
+    GtkWidget *w = GTK_WIDGET(dlg);
+    if (css_id && *css_id) gtk_widget_set_name(w, css_id);
+
+    gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER);
+
+    GtkWidget *content = gtk_dialog_get_content_area(dlg);
+    gtk_container_set_border_width(GTK_CONTAINER(content), 0);
+
+    /* estiliza cada botão de resposta */
+    const int responses[] = { GTK_RESPONSE_OK, GTK_RESPONSE_CANCEL, GTK_RESPONSE_YES, GTK_RESPONSE_NO, GTK_RESPONSE_ACCEPT, GTK_RESPONSE_REJECT };
+    for (guint i = 0; i < G_N_ELEMENTS(responses); ++i) {
+        GtkWidget *b = gtk_dialog_get_widget_for_response(dlg, responses[i]);
+        if (b) add_cls(b, "no-sep");
+    }
+}
+
 /* ===== Session strip (Logged as / Debug / Logout) ===== */
 static GtkWidget* prof_build_session_strip(EnvCtx *env) {
     if (!PROFILE_CSS) {
@@ -330,77 +437,93 @@ static GtkWidget* mk_icon_16(const char *path, const char *fallback_icon){
     return img;
 }
 
+static void on_delete_response(GtkDialog *dlg, gint response, gpointer user_data) {
+    DelDlgState *st = (DelDlgState*)user_data;
+    if (response == GTK_RESPONSE_YES) {
+        char cmd[64];
+        snprintf(cmd, sizeof(cmd), "DELETE_DATASET %d", st->dataset_id);
+        WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
+        if (!wcmd) {
+            profile_tab_set_status(st->ctx, "Erro de memória (wchar)", FALSE);
+        } else {
+            WCHAR *wresult = run_api_command(wcmd);
+            free(wcmd);
+            if (!wresult) {
+                profile_tab_set_status(st->ctx, "Erro ao chamar API", FALSE);
+            } else {
+                char *result = wchar_to_utf8_alloc(wresult);
+                free(wresult);
+                gboolean ok = result && (strstr(result, "OK") || strstr(result, "Success") || strstr(result, "DELETED"));
+                if (ok) {
+                    profile_tab_set_status(st->ctx, "Dataset excluído com sucesso.", TRUE);
+                    profile_tab_load_datasets(st->ctx);
+                } else {
+                    char buf[512];
+                    snprintf(buf, sizeof(buf), "Falha ao excluir: %s", result ? result : "(sem resposta)");
+                    profile_tab_set_status(st->ctx, buf, FALSE);
+                }
+                if (result) g_free(result);
+            }
+        }
+    }
+    gtk_widget_destroy(GTK_WIDGET(dlg));
+    g_free(st);
+}
+
 static void dataset_delete_clicked(GtkButton *btn, gpointer user_data) {
     ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
     if (!ctx) return;
 
-    /* recuperar id e opcionalmente o widget-row (armazenado em object-data) */
-    gpointer id_ptr = g_object_get_data(G_OBJECT(btn), "dataset-id");
-    int dataset_id = GPOINTER_TO_INT(id_ptr);
-
+    int dataset_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "dataset-id"));
     if (dataset_id <= 0) {
         profile_tab_set_status(ctx, "ID de dataset inválido", FALSE);
         return;
     }
 
-    /* confirmação */
-    GtkWidget *dialog = gtk_message_dialog_new(
-        GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn))),
-        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_QUESTION,
-        GTK_BUTTONS_YES_NO,
-        "Deseja mesmo excluir o dataset %d?", dataset_id);
-    int resp = gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
-    if (resp != GTK_RESPONSE_YES) return;
+    /* NÃO passamos parent, não é modal, não é transient */
+    char ttl[128];
+    g_snprintf(ttl, sizeof(ttl), "Excluir Dataset (ID %d)", dataset_id);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        ttl, NULL /* parent */,
+        0 /* flags */,
+        "_Yes", GTK_RESPONSE_YES,
+        "_No",  GTK_RESPONSE_NO,
+        NULL
+    );
 
-    /* montar comando e converter para WCHAR */
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "DELETE_DATASET %d", dataset_id);
-    WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
-    if (!wcmd) {
-        profile_tab_set_status(ctx, "Erro de memória (wchar)", FALSE);
-        return;
-    }
+    /* Titlebar Win95 + CSS local */
+    gtk_widget_set_name(dialog, "profile-delete-dialog");
+    install_w95_titlebar_named(GTK_WINDOW(dialog), ttl, "assets/close.png");
+    apply_css_to(dialog, "profile_tab.css");
+    center_and_flatten_dialog(GTK_DIALOG(dialog), "profile-delete-dialog");
 
-    /* chamar API (bloqueante) */
-    WCHAR *wresult = run_api_command(wcmd);
-    free(wcmd);
+    /* Conteúdo */
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *panel   = gtk_event_box_new(); add_cls(panel, "metal-panel");
+    gtk_container_add(GTK_CONTAINER(content), panel);
 
-    if (!wresult) {
-        profile_tab_set_status(ctx, "Erro ao chamar API", FALSE);
-        return;
-    }
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
+    gtk_container_add(GTK_CONTAINER(panel), box);
 
-    /* converter resposta WCHAR -> UTF-8 */
-    char *result = wchar_to_utf8_alloc(wresult);
-    /* liberar wresult assim que convertido (conforme uso noutros lugares) */
-    free(wresult);
+    char msg[160];
+    g_snprintf(msg, sizeof(msg), "Deseja mesmo excluir o dataset %d?", dataset_id);
+    GtkWidget *lbl = gtk_label_new(msg);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
+    gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
 
-    if (!result) {
-        profile_tab_set_status(ctx, "Erro ao interpretar resposta da API", FALSE);
-        return;
-    }
+    /* Botões com look Win95 */
+    GtkWidget *btn_yes = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
+    GtkWidget *btn_no  = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_NO);
+    if (btn_yes) { add_cls(btn_yes, "win95"); add_cls(btn_yes, "delete-confirm"); pf_apply_hand_cursor_to(btn_yes); }
+    if (btn_no)  { add_cls(btn_no,  "win95"); pf_apply_hand_cursor_to(btn_no); }
 
-    /* interpretar resposta simples */
-    gboolean ok = FALSE;
-    if (strstr(result, "OK") || strstr(result, "Success") || strstr(result, "DELETED")) {
-        ok = TRUE;
-    }
+    /* Resposta assíncrona */
+    DelDlgState *st = g_new0(DelDlgState, 1);
+    st->ctx = ctx; st->dataset_id = dataset_id;
+    g_signal_connect(dialog, "response", G_CALLBACK(on_delete_response), st);
 
-    if (ok) {
-        /* Recarrega toda a listagem (mais robusto do que apenas destruir a linha)
-           — profile_tab_load_datasets limpa e reconsulta do backend. */
-        profile_tab_set_status(ctx, "Dataset excluído com sucesso.", TRUE);
-        profile_tab_load_datasets(ctx);
-    } else {
-        /* mostra a mensagem da API como erro (ou fallback) */
-        char buf[512];
-        snprintf(buf, sizeof(buf), "Falha ao excluir: %s", result);
-        profile_tab_set_status(ctx, buf, FALSE);
-    }
-
-    g_free(result);
+    gtk_widget_show_all(dialog);
 }
 
 static void profile_tab_on_save_clicked(GtkButton *btn, gpointer user_data) {
@@ -629,92 +752,37 @@ static void profile_tab_load_user(ProfileTabCtx *ctx) {
     profile_tab_load_datasets(ctx);
 }
 
-static void dataset_edit_clicked(GtkButton *btn, gpointer user_data) {
-    ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
-    if (!ctx) return;
-    debug_log("dataset_edit_clicked chamado");
+static void on_edit_response(GtkDialog *dlg, gint response, gpointer user_data) {
+    EditDlgState *st = (EditDlgState*)user_data;
 
-
-    /* recuperar id + dados atuais (armazenados ao criar o botão) */
-    int ds_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "dataset-id"));
-    const char *cur_name = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-name");
-    const char *cur_desc = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-desc");
-
-    debug_log("dataset_edit_clicked: id=%d nome='%s' desc='%s'", ds_id,
-              cur_name ? cur_name : "(null)",
-              cur_desc ? cur_desc : "(null)");
-
-    if (ds_id <= 0) {
-        profile_tab_set_status(ctx, "ID de dataset inválido para edição", FALSE);
-        return;
-    }
-
-    /* Construir diálogo modal simples */
-    GtkWindow *parent = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(btn)));
-    GtkWidget *dialog = gtk_dialog_new_with_buttons("Editar Dataset",
-                                                    parent,
-                                                    GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                    "_Cancelar", GTK_RESPONSE_CANCEL,
-                                                    "_Salvar", GTK_RESPONSE_ACCEPT,
-                                                    NULL);
-    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
-    gtk_container_set_border_width(GTK_CONTAINER(grid), 8);
-    gtk_container_add(GTK_CONTAINER(content), grid);
-
-    GtkWidget *lbl_name = gtk_label_new("Nome:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_name), 0.0);
-    GtkWidget *entry_name = gtk_entry_new();
-    if (cur_name) gtk_entry_set_text(GTK_ENTRY(entry_name), cur_name);
-
-    GtkWidget *lbl_desc = gtk_label_new("Descrição:");
-    gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
-    GtkWidget *txt_desc = gtk_text_view_new();
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(txt_desc), GTK_WRAP_WORD_CHAR);
-    GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(txt_desc));
-    if (cur_desc) gtk_text_buffer_set_text(buf, cur_desc, -1);
-    GtkWidget *sc_desc = gtk_scrolled_window_new(NULL, NULL);
-    gtk_widget_set_size_request(sc_desc, 400, 160);
-    gtk_container_add(GTK_CONTAINER(sc_desc), txt_desc);
-
-    gtk_grid_attach(GTK_GRID(grid), lbl_name, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), entry_name, 1, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), lbl_desc, 0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), sc_desc, 1, 1, 1, 1);
-
-    gtk_widget_show_all(content);
-
-    int resp = gtk_dialog_run(GTK_DIALOG(dialog));
-    if (resp == GTK_RESPONSE_ACCEPT) {
-        const char *new_name = gtk_entry_get_text(GTK_ENTRY(entry_name));
+    if (response == GTK_RESPONSE_ACCEPT) {
+        const char *new_name = gtk_entry_get_text(GTK_ENTRY(st->entry_name));
 
         GtkTextIter s,e;
-        gtk_text_buffer_get_start_iter(buf, &s);
-        gtk_text_buffer_get_end_iter(buf, &e);
-        char *new_desc = gtk_text_buffer_get_text(buf, &s, &e, FALSE);
+        gtk_text_buffer_get_start_iter(st->buf_desc, &s);
+        gtk_text_buffer_get_end_iter  (st->buf_desc, &e);
+        char *new_desc = gtk_text_buffer_get_text(st->buf_desc, &s, &e, FALSE);
 
         if (!new_name || !*new_name) {
-            profile_tab_set_status(ctx, "O nome do dataset não pode ficar vazio.", FALSE);
+            profile_tab_set_status(st->ctx, "O nome do dataset não pode ficar vazio.", FALSE);
             if (new_desc) g_free(new_desc);
-            gtk_widget_destroy(dialog);
+            gtk_widget_destroy(GTK_WIDGET(dlg));
+            g_free(st);
             return;
         }
 
-        /* Montar JSON: { "dataset-id": X, "nome": "...", "descricao": "..." } */
         cJSON *j = cJSON_CreateObject();
-        cJSON_AddNumberToObject(j, "dataset-id", ds_id);
+        cJSON_AddNumberToObject(j, "dataset-id", st->ds_id);
         cJSON_AddStringToObject(j, "nome", new_name);
         cJSON_AddStringToObject(j, "descricao", new_desc ? new_desc : "");
         char *payload = cJSON_PrintUnformatted(j);
         cJSON_Delete(j);
+        if (new_desc) g_free(new_desc);
 
         if (!payload) {
-            profile_tab_set_status(ctx, "Erro ao construir payload JSON", FALSE);
-            if (new_desc) g_free(new_desc);
-            gtk_widget_destroy(dialog);
+            profile_tab_set_status(st->ctx, "Erro ao construir payload JSON", FALSE);
+            gtk_widget_destroy(GTK_WIDGET(dlg));
+            g_free(st);
             return;
         }
 
@@ -722,12 +790,11 @@ static void dataset_edit_clicked(GtkButton *btn, gpointer user_data) {
         snprintf(cmd, sizeof(cmd), "UPDATE_DATASET_INFO %s", payload);
         g_free(payload);
 
-        /* converter e enviar */
         WCHAR *wcmd = utf8_to_wchar_alloc(cmd);
         if (!wcmd) {
-            profile_tab_set_status(ctx, "Erro de codificação (wchar)", FALSE);
-            if (new_desc) g_free(new_desc);
-            gtk_widget_destroy(dialog);
+            profile_tab_set_status(st->ctx, "Erro de codificação (wchar)", FALSE);
+            gtk_widget_destroy(GTK_WIDGET(dlg));
+            g_free(st);
             return;
         }
 
@@ -735,48 +802,125 @@ static void dataset_edit_clicked(GtkButton *btn, gpointer user_data) {
         free(wcmd);
 
         if (!wres) {
-            profile_tab_set_status(ctx, "Sem resposta do servidor", FALSE);
-            if (new_desc) g_free(new_desc);
-            gtk_widget_destroy(dialog);
+            profile_tab_set_status(st->ctx, "Sem resposta do servidor", FALSE);
+            gtk_widget_destroy(GTK_WIDGET(dlg));
+            g_free(st);
             return;
         }
 
         char *resp_utf8 = wchar_to_utf8_alloc(wres);
         free(wres);
 
-        if (!resp_utf8) {
-            profile_tab_set_status(ctx, "Resposta inválida do servidor", FALSE);
-            if (new_desc) g_free(new_desc);
-            gtk_widget_destroy(dialog);
-            return;
-        }
-
-        /* interpretar resposta */
         gboolean ok = FALSE;
-        cJSON *r = cJSON_Parse(resp_utf8);
-        if (r) {
-            cJSON *status = cJSON_GetObjectItemCaseSensitive(r, "status");
-            if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) ok = TRUE;
-            cJSON_Delete(r);
-        } else {
-            if (strncmp(resp_utf8, "OK", 2) == 0) ok = TRUE;
+        if (resp_utf8) {
+            cJSON *r = cJSON_Parse(resp_utf8);
+            if (r) {
+                cJSON *status = cJSON_GetObjectItemCaseSensitive(r, "status");
+                if (cJSON_IsString(status) && strcmp(status->valuestring, "OK") == 0) ok = TRUE;
+                cJSON_Delete(r);
+            } else if (strncmp(resp_utf8, "OK", 2) == 0) {
+                ok = TRUE;
+            }
         }
 
         if (ok) {
-            profile_tab_set_status(ctx, "Dataset atualizado com sucesso.", TRUE);
-            /* recarrega a lista para refletir a alteração */
-            profile_tab_load_datasets(ctx);
+            profile_tab_set_status(st->ctx, "Dataset atualizado com sucesso.", TRUE);
+            profile_tab_load_datasets(st->ctx);
         } else {
             char bufmsg[512];
-            snprintf(bufmsg, sizeof(bufmsg), "Falha ao atualizar dataset: %s", resp_utf8);
-            profile_tab_set_status(ctx, bufmsg, FALSE);
+            snprintf(bufmsg, sizeof(bufmsg), "Falha ao atualizar dataset: %s", resp_utf8 ? resp_utf8 : "(sem resposta)");
+            profile_tab_set_status(st->ctx, bufmsg, FALSE);
         }
-
-        g_free(resp_utf8);
-        if (new_desc) g_free(new_desc);
+        if (resp_utf8) g_free(resp_utf8);
     }
 
-    gtk_widget_destroy(dialog);
+    gtk_widget_destroy(GTK_WIDGET(dlg));
+    g_free(st);
+}
+
+static void dataset_edit_clicked(GtkButton *btn, gpointer user_data) {
+    ProfileTabCtx *ctx = (ProfileTabCtx*) user_data;
+    if (!ctx) return;
+
+    int ds_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "dataset-id"));
+    const char *cur_name = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-name");
+    const char *cur_desc = (const char*) g_object_get_data(G_OBJECT(btn), "dataset-desc");
+    if (ds_id <= 0) {
+        profile_tab_set_status(ctx, "ID de dataset inválido para edição", FALSE);
+        return;
+    }
+
+    char ttl[256];
+    g_snprintf(ttl, sizeof(ttl), "Editar Dataset — %s (ID %d)", cur_name ? cur_name : "sem nome", ds_id);
+
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        ttl, NULL /* parent */, 0 /* flags */,
+        "_Cancelar", GTK_RESPONSE_CANCEL,
+        "_Salvar",   GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+
+    gtk_widget_set_name(dialog, "profile-edit-dialog");
+    install_w95_titlebar_named(GTK_WINDOW(dialog), ttl, "assets/cadastro.png");
+    apply_css_to(dialog, "profile_tab.css");
+    center_and_flatten_dialog(GTK_DIALOG(dialog), "profile-edit-dialog");
+
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *panel   = gtk_event_box_new(); add_cls(panel, "metal-panel");
+    gtk_container_add(GTK_CONTAINER(content), panel);
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), 8);
+    gtk_container_add(GTK_CONTAINER(panel), grid);
+
+    /* Nome */
+    GtkWidget *lbl_name   = gtk_label_new("Nome:");
+    gtk_label_set_xalign(GTK_LABEL(lbl_name), 0.0);
+    GtkWidget *entry_name = gtk_entry_new(); add_cls(entry_name, "edit-input");
+    if (cur_name) gtk_entry_set_text(GTK_ENTRY(entry_name), cur_name);
+
+    /* Descrição com moldura 3D garantida */
+    GtkWidget *lbl_desc = gtk_label_new("Descrição:");
+    gtk_label_set_xalign(GTK_LABEL(lbl_desc), 0.0);
+
+    GtkWidget *txt_desc = gtk_text_view_new(); add_cls(txt_desc, "edit-textview");
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(txt_desc), GTK_WRAP_WORD_CHAR);
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(txt_desc));
+    if (cur_desc) gtk_text_buffer_set_text(buf, cur_desc, -1);
+
+    GtkWidget *sc_desc = gtk_scrolled_window_new(NULL, NULL);
+    add_cls(sc_desc, "edit-scrolled");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc_desc),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(sc_desc, 420, 160);
+    gtk_container_add(GTK_CONTAINER(sc_desc), txt_desc);
+
+    /* wrapper com classe edit-row para a bordinha 3D */
+    GtkWidget *wrap3d = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    add_cls(wrap3d, "edit-row");
+    gtk_box_pack_start(GTK_BOX(wrap3d), sc_desc, TRUE, TRUE, 0);
+
+    gtk_grid_attach(GTK_GRID(grid), lbl_name, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), entry_name, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl_desc, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), wrap3d,   1, 1, 1, 1);
+
+    /* Botões com look Win95 */
+    GtkWidget *btn_cancel = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+    GtkWidget *btn_save   = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
+    if (btn_cancel) { add_cls(btn_cancel, "win95"); pf_apply_hand_cursor_to(btn_cancel); }
+    if (btn_save)   { add_cls(btn_save,   "win95"); add_cls(btn_save,"save-button"); pf_apply_hand_cursor_to(btn_save); }
+    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
+
+    /* Resposta assíncrona */
+    EditDlgState *st = g_new0(EditDlgState, 1);
+    st->ctx = ctx; st->ds_id = ds_id;
+    st->entry_name = entry_name; st->buf_desc = buf; st->dialog = dialog;
+    g_signal_connect(dialog, "response", G_CALLBACK(on_edit_response), st);
+
+    gtk_widget_show_all(dialog);
 }
 
 
@@ -1028,7 +1172,9 @@ static void add_profile_tab(GtkNotebook *nb, EnvCtx *env) {
     set_default_avatar(ctx);
 
     GtkWidget *avatar_event = gtk_event_box_new();
-    add_cls(avatar_event, "avatar-box");       
+    add_cls(avatar_event, "avatar-box");
+    pf_apply_hand_cursor_to(avatar_event);    
+    pf_apply_hand_cursor_to(ctx->avatar_image);
     ctx->avatar_box = avatar_event;
     gtk_widget_set_halign(avatar_event, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(avatar_event, GTK_ALIGN_START);

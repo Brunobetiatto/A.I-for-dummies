@@ -16,7 +16,7 @@
 #ifndef ENV_H
 #define ENV_H
 
-/* -------- Barra Win95 para a janela do Environment ---------- */
+/* -------- Barra Win95 para a janela do Environment --------- */
 
 #include <gtk/gtk.h>
 
@@ -96,6 +96,144 @@ static void append_log(EnvCtx *ctx, const char *fmt, ...) {
     va_end(ap);
     gtk_text_buffer_insert(buf, &end, line, -1);
     gtk_text_buffer_insert(buf, &end, "\n", -1);
+}
+
+/* ===== Metrics table (Win95) ===================================== */
+
+/* cria a "tabela" de métricas: scrolled + grid com cabeçalho */
+static GtkWidget* metrics_build_panel(void) {
+    GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_name(sc, "metrics-panel");
+
+    /* ocupa todo o espaço disponível */
+    gtk_widget_set_hexpand(sc, TRUE);
+    gtk_widget_set_vexpand(sc, TRUE);
+    gtk_widget_set_halign(sc, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(sc, GTK_ALIGN_FILL);
+
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    /* deixa o conteúdo “ditar” o natural quando couber */
+    gtk_scrolled_window_set_propagate_natural_width (GTK_SCROLLED_WINDOW(sc), TRUE);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(sc), TRUE);
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_widget_set_name(grid, "metrics-grid");
+    gtk_widget_set_hexpand(grid, TRUE);
+    gtk_widget_set_vexpand(grid, TRUE);
+    gtk_widget_set_halign(grid, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(grid, GTK_ALIGN_START);
+
+    /* linhas com leve respiro; sem espaço entre colunas (usaremos “divisor” por CSS) */
+    gtk_grid_set_row_spacing   (GTK_GRID(grid), 2);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 0);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE); /* 50/50 */
+
+    gtk_container_add(GTK_CONTAINER(sc), grid);
+
+    /* Cabeçalho (Metric | Value) */
+    GtkWidget *h_metric = gtk_label_new("Metric");
+    GtkWidget *h_value  = gtk_label_new("Value");
+
+    /* classes CSS (não “name”) para estilização */
+    GtkStyleContext *cm = gtk_widget_get_style_context(h_metric);
+    GtkStyleContext *cv = gtk_widget_get_style_context(h_value);
+    gtk_style_context_add_class(cm, "w95-th");
+    gtk_style_context_add_class(cm, "key");
+    gtk_style_context_add_class(cv, "w95-th");
+    gtk_style_context_add_class(cv, "value");
+
+    gtk_label_set_xalign(GTK_LABEL(h_metric), 0.0);
+    gtk_label_set_xalign(GTK_LABEL(h_value),  1.0);
+
+    gtk_widget_set_hexpand(h_metric, TRUE);
+    gtk_widget_set_hexpand(h_value,  TRUE);
+
+    gtk_grid_attach(GTK_GRID(grid), h_metric, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), h_value,  1, 0, 1, 1);
+
+    /* guarda o grid dentro do próprio scrolled para fácil acesso */
+    g_object_set_data(G_OBJECT(sc), "metrics-grid", grid);
+    return sc;
+}
+
+/* reconstroi grid (header + linhas) a partir de texto */
+static void metrics_update_from_text(GtkWidget *panel_scrolled, const char *text) {
+    if (!panel_scrolled || !text) return;
+    GtkWidget *grid = g_object_get_data(G_OBJECT(panel_scrolled), "metrics-grid");
+    if (!grid) return;
+
+    /* limpa tudo */
+    GList *children = gtk_container_get_children(GTK_CONTAINER(grid));
+    for (GList *l = children; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(children);
+
+    /* cabeçalho novamente */
+    GtkWidget *h_metric = gtk_label_new("Metric");
+    GtkWidget *h_value  = gtk_label_new("Value");
+    GtkStyleContext *cm = gtk_widget_get_style_context(h_metric);
+    GtkStyleContext *cv = gtk_widget_get_style_context(h_value);
+    gtk_style_context_add_class(cm, "w95-th");
+    gtk_style_context_add_class(cm, "key");
+    gtk_style_context_add_class(cv, "w95-th");
+    gtk_style_context_add_class(cv, "value");
+
+    gtk_label_set_xalign(GTK_LABEL(h_metric), 0.0);
+    gtk_label_set_xalign(GTK_LABEL(h_value),  1.0);
+    gtk_widget_set_hexpand(h_metric, TRUE);
+    gtk_widget_set_hexpand(h_value,  TRUE);
+
+    gtk_grid_attach(GTK_GRID(grid), h_metric, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), h_value,  1, 0, 1, 1);
+
+    /* corpo: linhas "KEY : VALUE" */
+    gchar **lines = g_strsplit_set(text, "\r\n", -1);
+    int row = 1;
+    for (gchar **p = lines; p && *p; ++p) {
+        char *ln = g_strstrip(*p);
+        if (!ln || !*ln) continue;
+        if (g_str_has_prefix(ln, "===")) continue;
+
+        char *colon = strchr(ln, ':');
+        if (!colon) continue;
+
+        *colon = '\0';
+        char *key = g_strstrip(ln);
+        char *val = g_strstrip(colon + 1);
+
+        GtkWidget *k = gtk_label_new(key);
+        GtkWidget *v = gtk_label_new(val);
+
+        /* classes CSS corretas (em vez de widget name) */
+        GtkStyleContext *ck = gtk_widget_get_style_context(k);
+        GtkStyleContext *cv2= gtk_widget_get_style_context(v);
+        gtk_style_context_add_class(ck, "w95-td");
+        gtk_style_context_add_class(ck, "key");
+        gtk_style_context_add_class(cv2,"w95-td");
+        gtk_style_context_add_class(cv2,"value");
+        if (row % 2 == 0) {
+            gtk_style_context_add_class(ck, "zebra");
+            gtk_style_context_add_class(cv2,"zebra");
+        }
+
+        /* alinhamentos */
+        gtk_label_set_xalign(GTK_LABEL(k), 0.02);
+        gtk_label_set_xalign(GTK_LABEL(v), 1.00);
+
+        /* expande para preencher 50/50 */
+        gtk_widget_set_hexpand(k, TRUE);
+        gtk_widget_set_hexpand(v, TRUE);
+
+        /* evita quebrar layout com chaves muito longas */
+        gtk_label_set_ellipsize(GTK_LABEL(k), PANGO_ELLIPSIZE_END);
+
+        gtk_grid_attach(GTK_GRID(grid), k, 0, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), v, 1, row, 1, 1);
+        row++;
+    }
+    g_strfreev(lines);
+
+    gtk_widget_show_all(grid);
 }
 
 // --- helpers para colocar ícone no Logout já existente ---
@@ -290,7 +428,7 @@ static gboolean poll_fit_image_cb(gpointer user_data) {
 
 static gboolean poll_metrics_cb(gpointer user_data) {
     EnvCtx *ctx = (EnvCtx*)user_data;
-    if (!ctx || !ctx->metrics_view || !ctx->metrics_path) return G_SOURCE_CONTINUE;
+    if (!ctx || !ctx->metrics_panel || !ctx->metrics_path) return G_SOURCE_CONTINUE;
 
     GStatBuf st;
     if (g_stat(ctx->metrics_path, &st) != 0) return G_SOURCE_CONTINUE;
@@ -303,11 +441,12 @@ static gboolean poll_metrics_cb(gpointer user_data) {
 
     gchar *text = NULL; gsize len = 0;
     if (g_file_get_contents(ctx->metrics_path, &text, &len, NULL)) {
-        GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->metrics_view);
-        gtk_text_buffer_set_text(buf, text, (gint)len);
+
+        /* atualiza tabela */
+        metrics_update_from_text(ctx->metrics_panel, text);
         g_free(text);
 
-        /* first time metrics show up? pop the tab to front once */
+        /* popa a aba Metrics na primeira vez */
         static gboolean popped = FALSE;
         if (!popped) {
             gint idx = find_notebook_page_by_label(ctx->right_nb, "Metrics");
@@ -1444,11 +1583,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, plot_tab);
 
     /* Metrics */
-    GtkWidget *metrics_view = gtk_text_view_new();
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(metrics_view), FALSE);
-    GtkWidget *metrics_tab = make_tab_label("assets/metrics.png", "Metrics");
-    gtk_notebook_append_page(ctx->right_nb, metrics_view, metrics_tab);
-    ctx->metrics_view = GTK_TEXT_VIEW(metrics_view);
+    GtkWidget *metrics_panel = metrics_build_panel();
+    GtkWidget *metrics_tab   = make_tab_label("assets/metrics.png", "Metrics");
+    gtk_notebook_append_page(ctx->right_nb, metrics_panel, metrics_tab);
+    ctx->metrics_panel = metrics_panel;
 
     GtkWidget *right_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", right_nb, "env-right-panel");
     gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, TRUE);

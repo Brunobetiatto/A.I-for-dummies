@@ -555,3 +555,59 @@ headerbar#w95-titlebar button.envbar-btn image {
   -gtk-icon-transform: scale(0.65);
   opacity:.45;
 }
+
+/* ===== Metrics table (Win95) — FULL WIDTH, CENTERED, COLUMN DIVIDER ===== */
+#env-window #metrics-panel{
+  background: var(--winface);
+  border: 1px solid var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+  padding: 8px;
+}
+
+#env-window #metrics-grid{
+  background:#fff;
+  border:1px solid var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+  padding: 6px;
+  /* ocupa toda largura dentro do scrolled */
+  min-width: 100%;
+}
+
+/* cabeçalho */
+#env-window #metrics-grid .w95-th{
+  font-weight:700;
+  color:#000;
+  background:#c0c0c0;
+  border:1px solid var(--shadow);
+  padding: 6px 10px;
+  box-shadow: inset 1px 1px 0 var(--highlight), inset -1px -1px 0 var(--darkshadow);
+}
+
+/* células */
+#env-window #metrics-grid .w95-td{
+  background:#fff;
+  color:#000;
+  border:1px solid #b9b9b9;
+  padding: 6px 10px;
+  box-shadow: inset 1px 1px 0 #efefef, inset -1px -1px 0 #a0a0a0;
+}
+
+/* zebra (linhas pares) */
+#env-window #metrics-grid .zebra{ background:#f4f4f4; }
+
+/* fontes e alinhamento */
+#env-window #metrics-grid .value{ font-family:"Cascadia Mono","Courier New",monospace; text-align:right; }
+
+/* ===== divisor vertical entre colunas ===== */
+#env-window #metrics-grid .key{   border-right: 2px solid var(--shadow); }
+#env-window #metrics-grid .value{ border-left:  2px solid var(--shadow); }
+
+/* cabeçalho com divisor mais marcado */
+#env-window #metrics-grid .w95-th.key{   border-right: 2px solid var(--darkshadow); }
+#env-window #metrics-grid .w95-th.value{ border-left:  2px solid var(--darkshadow); }
+
+/* opcional: levemente maior que o resto da UI para “parecer maior” */
+#env-window #metrics-grid .w95-th,
+#env-window #metrics-grid .w95-td{
+  font-size: 11pt;
+}

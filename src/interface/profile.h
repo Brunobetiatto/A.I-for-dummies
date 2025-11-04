@@ -10,7 +10,7 @@
 #ifndef PROFILE_H
 #define PROFILE_H
 
-#define AVATAR_SIZE 192
+#define AVATAR_SIZE 120
 
 #ifdef _WIN32
   #include <windows.h>

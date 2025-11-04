@@ -746,6 +746,47 @@ static void views_cell_data_func(GtkTreeViewColumn *col,
     g_object_set(renderer, "text", buf, NULL);
 }
 
+/* Extrai o inteiro de views a partir do meta (GHashTable* ou string) */
+static int meta_views_value(gpointer meta_ptr) {
+    if (!meta_ptr) return 0;
+    GHashTable *meta = (GHashTable*) meta_ptr;
+
+    /* tente chaves comuns */
+    gpointer v = g_hash_table_lookup(meta, "visualizacoes");
+    if (!v) v = g_hash_table_lookup(meta, "views");
+    if (!v) v = g_hash_table_lookup(meta, "visualizacao");
+
+    if (!v) return 0;
+
+    /* pode ter sido guardado como GINT_TO_POINTER ou como string */
+    guintptr uv = (guintptr) v;
+    if (uv > 0 && uv <= 0xFFFF) {
+        return GPOINTER_TO_INT(v);
+    } else {
+        const char *s = (const char*) v;
+        return s ? atoi(s) : 0;
+    }
+}
+
+/* Função de ordenação para a coluna Views (usa DS_COL_META) */
+static gint sort_by_views(GtkTreeModel *model,
+                          GtkTreeIter  *a,
+                          GtkTreeIter  *b,
+                          gpointer      user_data)
+{
+    (void)user_data;
+    gpointer ma = NULL, mb = NULL;
+    gtk_tree_model_get(model, a, DS_COL_META, &ma, -1);
+    gtk_tree_model_get(model, b, DS_COL_META, &mb, -1);
+
+    int va = meta_views_value(ma);
+    int vb = meta_views_value(mb);
+
+    /* padrão: crescente (va - vb). Use sinal para evitar overflow bobo. */
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+    return 0;
+}
 
 /* Preenche o painel de detalhes a partir do meta + título já pronto */
 static void fill_details_from_meta(DatasetsUI *dui, GHashTable *meta, const char *title_mk) {
@@ -1237,11 +1278,15 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
             g_error_free(err);
         }
     }
-    /* === NOVO: filter (para busca) + sort (para manter ordenação nas colunas) === */
+    /* === filter (para busca) + sort (para manter ordenação nas colunas) === */
     GtkTreeModel *filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(store), NULL);
     gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(filter),
                                         search_visible_func, entry, NULL);
     GtkTreeModel *sort = gtk_tree_model_sort_new_with_model(filter);
+    gtk_tree_sortable_set_sort_func(GTK_TREE_SORTABLE(sort),
+                                DS_COL_META,            /* sort_column_id virtual */
+                                sort_by_views,          /* nossa função */
+                                NULL, NULL);
 
     /* o TreeView passa a enxergar sort->filter->store */
     gtk_tree_view_set_model(GTK_TREE_VIEW(tv), sort);
@@ -1288,24 +1333,26 @@ static TabCtx* add_datasets_tab(GtkNotebook *nb, EnvCtx *env) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_desc);
 
     GtkCellRenderer *r3 = gtk_cell_renderer_text_new();
-    g_object_set(r3, "xalign", 1.0, NULL); /* alinhar Size à direita */
+    g_object_set(r3, "xalign", 1.0, NULL); 
     GtkTreeViewColumn *c_size = gtk_tree_view_column_new_with_attributes("Size", r3, "text", DS_COL_SIZE, NULL);
     gtk_tree_view_column_set_resizable(c_size, TRUE);
     gtk_tree_view_column_set_sort_column_id(c_size, DS_COL_SIZE);
     gtk_tree_view_column_set_sort_indicator(c_size, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_size);
 
-     /* --- Nova coluna: Views (não requer mudança no store) --- */
+    /* Views */
     GtkCellRenderer *r4 = gtk_cell_renderer_text_new();
-    g_object_set(r4, "xalign", 1.0, NULL); /* alinhar à direita */
+    g_object_set(r4, "xalign", 1.0, NULL);
     GtkTreeViewColumn *c_views = gtk_tree_view_column_new();
     gtk_tree_view_column_set_title(c_views, "Views");
     gtk_tree_view_column_pack_start(c_views, r4, TRUE);
-    /* não usamos atributo direto: usamos cell_data_func que lê DS_COL_META */
     gtk_tree_view_column_set_cell_data_func(c_views, r4, views_cell_data_func, NULL, NULL);
     gtk_tree_view_column_set_resizable(c_views, TRUE);
-    /* opcional: não definir sort_column_id (ou definir um custom sort) */
+    gtk_tree_view_column_set_sort_column_id(c_views, DS_COL_META);
+    gtk_tree_view_column_set_sort_indicator(c_views, TRUE);
+
     gtk_tree_view_append_column(GTK_TREE_VIEW(tv), c_views);
+
 
     DatasetsUI *dui = g_new0(DatasetsUI, 1);
     dui->stack = GTK_STACK(stack);
@@ -1752,7 +1799,7 @@ static void on_search_activate(GtkEntry *e, gpointer user_data) {
     } while (gtk_tree_model_iter_next(m, &it));
 
     if (count == 1) {
-        gchar *name=NULL,*desc=NULL,*size=NULL,*views=NULL;
+        gchar *name=NULL,*desc=NULL,*size=NULL;
         GHashTable *meta=NULL;
         gtk_tree_model_get(m, &first,
             DS_COL_NAME, &name,

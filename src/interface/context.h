@@ -108,6 +108,10 @@ typedef struct {
     char *token;
     char *avatar_image;
 
+    /* --- Description panel (Environment) --- */
+    GtkLabel  *desc_label;     /* label que mostra o texto */
+    GtkWidget *desc_panel;     /* wrapper do painel (útil p/ CSS/layout) */
+
 
 } EnvCtx;
 

@@ -7,10 +7,10 @@
 #ifdef G_OS_WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <io.h>   
-#include <fcntl.h>  
+#include <io.h>
+#include <fcntl.h>
 #include <errno.h>
-#include <process.h> 
+#include <process.h>
 #endif
 
 #ifndef ENV_H
@@ -37,8 +37,7 @@ static void install_env_w95_titlebar(GtkWindow *win, const char *title_text) {
 
     /* ESQUERDA: ícone + título */
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GdkPixbuf *pb_logo =
-        gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
+    GdkPixbuf *pb_logo = gdk_pixbuf_new_from_file_at_scale("assets/AI-for-dummies.png", 20, 20, TRUE, NULL);
     GtkWidget *logo = gtk_image_new_from_pixbuf(pb_logo);
     g_object_unref(pb_logo);
     gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
@@ -48,58 +47,250 @@ static void install_env_w95_titlebar(GtkWindow *win, const char *title_text) {
     gtk_widget_set_name(title, "w95-title");
     gtk_widget_set_valign(title, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(left), title, FALSE, FALSE, 0);
+
     gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), left);
-    
-    GtkWidget *btn_min   = gtk_button_new();
-    GtkWidget *btn_max   = gtk_button_new();
+
+    GtkWidget *btn_min = gtk_button_new();
+    GtkWidget *btn_max = gtk_button_new();
     GtkWidget *btn_close = gtk_button_new();
 
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min),   "envbar-btn");
-    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max),   "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_min), "envbar-btn");
+    gtk_style_context_add_class(gtk_widget_get_style_context(btn_max), "envbar-btn");
     gtk_style_context_add_class(gtk_widget_get_style_context(btn_close), "envbar-btn");
-
 
     GdkPixbuf *pb_min   = gdk_pixbuf_new_from_file_at_scale("assets/minimize.png", 12, 12, TRUE, NULL);
     GdkPixbuf *pb_max   = gdk_pixbuf_new_from_file_at_scale("assets/maximize.png", 12, 12, TRUE, NULL);
-    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png",    12, 12, TRUE, NULL);
+    GdkPixbuf *pb_close = gdk_pixbuf_new_from_file_at_scale("assets/close.png", 12, 12, TRUE, NULL);
 
     gtk_button_set_image(GTK_BUTTON(btn_min),   gtk_image_new_from_pixbuf(pb_min));
     gtk_button_set_image(GTK_BUTTON(btn_max),   gtk_image_new_from_pixbuf(pb_max));
     gtk_button_set_image(GTK_BUTTON(btn_close), gtk_image_new_from_pixbuf(pb_close));
-    gtk_button_set_always_show_image(GTK_BUTTON(btn_min),   TRUE);
-    gtk_button_set_always_show_image(GTK_BUTTON(btn_max),   TRUE);
+
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_min), TRUE);
+    gtk_button_set_always_show_image(GTK_BUTTON(btn_max), TRUE);
     gtk_button_set_always_show_image(GTK_BUTTON(btn_close), TRUE);
 
-    g_object_unref(pb_min); g_object_unref(pb_max); g_object_unref(pb_close);
+    g_object_unref(pb_min);
+    g_object_unref(pb_max);
+    g_object_unref(pb_close);
 
     gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_close);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_max);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), btn_min);
 
     /* sinais (simples) */
-    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close),   win);
+    g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_window_close), win);
     g_signal_connect_swapped(btn_min,   "clicked", G_CALLBACK(gtk_window_iconify), win);
-    g_signal_connect        (btn_max,   "clicked", G_CALLBACK(titlebar_on_max_clicked), win);
+    g_signal_connect (btn_max,          "clicked", G_CALLBACK(titlebar_on_max_clicked), win);
 
     /* aplica como titlebar */
     gtk_window_set_titlebar(win, hb);
+}
+
+static void     env_bind_desc(EnvCtx *ctx, GtkWidget *w, const char *text);
+static gboolean env_desc_on_enter (GtkWidget *w, GdkEventCrossing *e, gpointer ud);
+static gboolean env_desc_on_leave (GtkWidget *w, GdkEventCrossing *e, gpointer ud);
+static gboolean env_desc_on_focus_in  (GtkWidget *w, GdkEvent *e, gpointer ud);
+static gboolean env_desc_on_focus_out (GtkWidget *w, GdkEvent *e, gpointer ud);
+
+/* Liga os handlers de descrição neste widget e em todos os seus descendentes */
+static void env_bind_desc_recursive(EnvCtx *ctx, GtkWidget *w, const char *text) {
+    if (!w) return;
+    env_bind_desc(ctx, w, text);
+    if (GTK_IS_CONTAINER(w)) {
+        GList *ch = gtk_container_get_children(GTK_CONTAINER(w));
+        for (GList *l = ch; l; l = l->next) {
+            env_bind_desc_recursive(ctx, GTK_WIDGET(l->data), text);
+        }
+        g_list_free(ch);
+    }
+}
+
+/* Re-amarrar hover nos filhos internos quando o widget alterar a hierarquia */
+static void on_child_hierarchy_changed(GtkWidget *w, GtkWidget *prev_toplevel, gpointer ud) {
+    (void)prev_toplevel;
+    EnvCtx *ctx = (EnvCtx*)ud;
+    const char *txt = (const char*)g_object_get_data(G_OBJECT(w), "hover-desc");
+    if (txt) {
+        /* Garante que todos os descendentes novos também disparem a descrição */
+        env_bind_desc_recursive(ctx, w, txt);
+    }
 }
 
 // ---- small helpers -------------------------------------------------
 static void append_log(EnvCtx *ctx, const char *fmt, ...) {
     if (!ctx || !ctx->logs_view) return;
     GtkTextBuffer *buf = gtk_text_view_get_buffer(ctx->logs_view);
-    GtkTextIter end; gtk_text_buffer_get_end_iter(buf, &end);
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buf, &end);
+
     char line[1024];
-    va_list ap; va_start(ap, fmt);
+    va_list ap;
+    va_start(ap, fmt);
     g_vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
+
     gtk_text_buffer_insert(buf, &end, line, -1);
     gtk_text_buffer_insert(buf, &end, "\n", -1);
 }
 
-/* ===== Metrics table (Win95) ===================================== */
+/* Repassa clique do wrapper para o filho sem roubar o comportamento */
+static gboolean forward_click_to_child(GtkWidget *eb, GdkEventButton *ev, gpointer child_) {
+    (void)eb;
+    GtkWidget *child = GTK_WIDGET(child_);
+    if (ev->type == GDK_BUTTON_PRESS && ev->button == 1) {
+        if (gtk_widget_get_can_focus(child)) gtk_widget_grab_focus(child);
 
+        if (GTK_IS_COMBO_BOX(child)) {
+            /* abre o popup do combo (equivalente ao clique) */
+            gtk_combo_box_popup(GTK_COMBO_BOX(child));
+            return TRUE;
+        }
+        if (GTK_IS_BUTTON(child)) {
+            gtk_button_clicked(GTK_BUTTON(child));
+            return TRUE;
+        }
+        return FALSE;
+    }
+    return FALSE;
+}
+
+/* Embrulha o widget para hover sem bloquear o clique */
+static GtkWidget* wrap_for_hover(EnvCtx *ctx, GtkWidget *child, const char *desc_text) {
+    GtkWidget *eb = gtk_event_box_new(); /* invisível, mas ACIMA do filho para capturar enter/leave */
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(eb), FALSE);
+    gtk_event_box_set_above_child (GTK_EVENT_BOX(eb), TRUE);
+
+    /* precisamos receber enter/leave e o clique para repassar */
+    gtk_widget_add_events(eb, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK);
+
+    /* o texto de descrição fica também no wrapper (garante hover confiável) */
+    g_object_set_data_full(G_OBJECT(eb), "hover-desc", g_strdup(desc_text), g_free);
+
+    /* conecta enter/leave no WRAPPER (hover sempre dispara) */
+    g_signal_connect(eb, "enter-notify-event", G_CALLBACK(env_desc_on_enter), ctx);
+    g_signal_connect(eb, "leave-notify-event", G_CALLBACK(env_desc_on_leave), ctx);
+
+    /* repassa o clique primário para o filho (combo abre normalmente, etc.) */
+    g_signal_connect(eb, "button-press-event", G_CALLBACK(forward_click_to_child), child);
+
+    /* mantém os handlers no filho para foco via teclado/tab */
+    if (child) {
+        if (!gtk_widget_get_can_focus(child)) gtk_widget_set_can_focus(child, TRUE);
+        env_bind_desc(ctx, child, desc_text);
+        env_bind_desc_recursive(ctx, child, desc_text);
+        /* se o controle reconstruir a hierarquia, reamarramos os filhos */
+        g_signal_connect(child, "hierarchy-changed", G_CALLBACK(on_child_hierarchy_changed), ctx);
+    }
+
+    gtk_container_add(GTK_CONTAINER(eb), child);
+    gtk_widget_show(child);
+    return eb;
+}
+
+/* ======================= Description (hover help) ======================= */
+static const char *ENV_DESC_DEFAULT = "Point your mouse at an option to display a description here.";
+
+static void env_desc_set(EnvCtx *ctx, const char *txt) {
+    if (!ctx || !ctx->desc_label) return;
+    gtk_label_set_text(ctx->desc_label, (txt && *txt) ? txt : ENV_DESC_DEFAULT);
+}
+
+/* enter/leave + focus in/out para funcionar com mouse e teclado */
+static gboolean env_desc_on_enter(GtkWidget *w, GdkEventCrossing *e, gpointer ud) {
+    (void)e;
+    EnvCtx *ctx = (EnvCtx*)ud;
+    const char *txt = (const char*)g_object_get_data(G_OBJECT(w), "hover-desc");
+    env_desc_set(ctx, txt);
+    return FALSE;
+}
+
+static gboolean env_desc_on_leave(GtkWidget *w, GdkEventCrossing *e, gpointer ud) {
+    (void)w; (void)e;
+    env_desc_set((EnvCtx*)ud, ENV_DESC_DEFAULT);
+    return FALSE;
+}
+
+static gboolean env_desc_on_focus_in(GtkWidget *w, GdkEvent *ev, gpointer ud) {
+    (void)ev;
+    EnvCtx *ctx = (EnvCtx*)ud;
+    const char *txt = (const char*)g_object_get_data(G_OBJECT(w), "hover-desc");
+    env_desc_set(ctx, txt);
+    return FALSE;
+}
+
+static gboolean env_desc_on_focus_out(GtkWidget *w, GdkEvent *ev, gpointer ud) {
+    (void)w; (void)ev;
+    env_desc_set((EnvCtx*)ud, ENV_DESC_DEFAULT);
+    return FALSE;
+}
+
+/* associa um texto ao widget e conecta os sinais de hover/focus */
+static void env_bind_desc(EnvCtx *ctx, GtkWidget *w, const char *text) {
+    if (!ctx || !w) return;
+
+    g_object_set_data_full(G_OBJECT(w), "hover-desc", g_strdup(text), g_free);
+
+    /* garante que o widget realmente receba os eventos */
+    gtk_widget_add_events(w,
+        GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK |
+        GDK_POINTER_MOTION_MASK | GDK_FOCUS_CHANGE_MASK);
+
+    g_signal_connect(w, "enter-notify-event", G_CALLBACK(env_desc_on_enter), ctx);
+    g_signal_connect(w, "leave-notify-event", G_CALLBACK(env_desc_on_leave), ctx);
+    g_signal_connect(w, "focus-in-event",  G_CALLBACK(env_desc_on_focus_in),  ctx);
+    g_signal_connect(w, "focus-out-event", G_CALLBACK(env_desc_on_focus_out), ctx);
+}
+
+/* constrói o painel fixo de descrição (hover help) com mais espaço e sem cortar texto */
+static GtkWidget* env_build_desc_panel(EnvCtx *ctx, const char *css_buf){
+    (void)css_buf;
+
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_name(outer, "env-desc-panel");
+    gtk_widget_set_hexpand(outer, TRUE);
+    gtk_widget_set_vexpand(outer, FALSE);
+
+    GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc),
+                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+#if GTK_CHECK_VERSION(3,16,0)
+    /* altura maior para não cortar (Win95 status bar “gordinha”) */
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(sc), 112);
+#endif
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(sc), FALSE);
+    gtk_widget_set_hexpand(sc, TRUE);
+    gtk_widget_set_vexpand(sc, FALSE);
+
+    GtkWidget *lbl = gtk_label_new(ENV_DESC_DEFAULT);
+    gtk_widget_set_name(lbl, "env-desc-label");
+    gtk_widget_set_hexpand(lbl, TRUE);
+    gtk_widget_set_vexpand(lbl, FALSE);
+
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
+    gtk_label_set_yalign(GTK_LABEL(lbl), 0.0);
+
+#if GTK_CHECK_VERSION(3,10,0)
+    /* mais linhas visíveis antes de rolar */
+    gtk_label_set_lines(GTK_LABEL(lbl), 5);
+#endif
+    gtk_label_set_line_wrap(GTK_LABEL(lbl), TRUE);
+    gtk_label_set_line_wrap_mode(GTK_LABEL(lbl), PANGO_WRAP_WORD_CHAR);
+
+    /* não elipsar (deixa rolar vertical quando necessário) */
+    gtk_label_set_ellipsize(GTK_LABEL(lbl), PANGO_ELLIPSIZE_NONE);
+    gtk_label_set_max_width_chars(GTK_LABEL(lbl), -1);
+
+    gtk_container_add(GTK_CONTAINER(sc), lbl);
+    gtk_box_pack_start(GTK_BOX(outer), sc, TRUE, TRUE, 8);
+
+    ctx->desc_label = GTK_LABEL(lbl);
+    ctx->desc_panel = outer;
+    return outer;
+}
+
+/* Metrics table */
 /* cria a "tabela" de métricas: scrolled + grid com cabeçalho */
 static GtkWidget* metrics_build_panel(void) {
     GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
@@ -1041,9 +1232,9 @@ static GtkWidget* group_panel(const char *title, GtkWidget *content) {
     return frame;
 }
 
-/* Widget para usar como rótulo da aba: [icon png]  Texto */
+/* Widget para usar como rótulo da aba: [icon png]  Texto*/
 static GtkWidget* make_tab_label(const char *icon_path, const char *text) {
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
 
     GError *err = NULL;
     GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(icon_path, 16, 16, TRUE, &err);
@@ -1056,11 +1247,15 @@ static GtkWidget* make_tab_label(const char *icon_path, const char *text) {
     gtk_widget_set_valign(img, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(lab, GTK_ALIGN_CENTER);
 
-    gtk_box_pack_start(GTK_BOX(box), img, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), lab, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(inner), img, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(inner), lab, FALSE, FALSE, 0);
 
-    gtk_widget_show_all(box);
-    return box;
+    /* embrulha em EventBox para capturar enter/leave */
+    GtkWidget *eb = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(eb), FALSE);
+    gtk_container_add(GTK_CONTAINER(eb), inner);
+    gtk_widget_show_all(eb);
+    return eb;
 }
 
 /* troca uma aba de rótulo textual por [icon + texto] */
@@ -1150,6 +1345,11 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         g_object_set_data(G_OBJECT(ent_lr),    "hp-key", "lr");
         g_object_set_data(G_OBJECT(cb_act),    "hp-key", "activation");
 
+        env_bind_desc(ctx, sp_hidden, "Hidden units: largura das camadas internas. Mais alto = mais capacidade (cuidado com overfitting).");
+        env_bind_desc(ctx, sp_layers, "Layers: número de camadas densas. Aumenta profundidade e custo.");
+        env_bind_desc(ctx, ent_lr,    "Learning rate: passo do otimizador. Dica: 1e-3 é ponto inicial clássico.");
+        env_bind_desc(ctx, cb_act,    "Activation: função de ativação (relu/tanh).");
+
     } else if (g_strcmp0(flag, "logreg") == 0) {
         GtkWidget *ent_C = gtk_entry_new();
         gtk_entry_set_text(GTK_ENTRY(ent_C), "1.0");
@@ -1171,7 +1371,10 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         g_object_set_data(G_OBJECT(cb_pen),   "hp-key", "penalty");
         g_object_set_data(G_OBJECT(sp_maxit), "hp-key", "max_iter");
 
-    /* Classical models – show only the knobs `models.py` actually reads */
+        env_bind_desc(ctx, ent_C,    "C: inverso da regularização. Maior C = menos regularização.");
+        env_bind_desc(ctx, cb_pen,   "Penalty: L2 (padrão) ou L1 (sparse).");
+        env_bind_desc(ctx, sp_maxit, "Max iterations: limite de iterações do otimizador.");
+
     } else if (g_strcmp0(flag, "rf_cls") == 0 || g_strcmp0(flag, "rf_reg") == 0) {
         GtkWidget *sp_n = gtk_spin_button_new_with_range(1, 10000, 1);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_n), 200);
@@ -1186,6 +1389,9 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         g_object_set_data(G_OBJECT(sp_n),    "hp-key", "n_estimators");
         g_object_set_data(G_OBJECT(sp_seed), "hp-key", "seed");
 
+        env_bind_desc(ctx, sp_n,   "n_estimators: número de árvores. Mais árvores = melhor estabilidade, maior custo.");
+        env_bind_desc(ctx, sp_seed,"seed: semente para reprodutibilidade.");
+
     } else if (g_strcmp0(flag, "dt_cls") == 0 || g_strcmp0(flag, "dt_reg") == 0
             || g_strcmp0(flag, "gb_cls") == 0 || g_strcmp0(flag, "gb_reg") == 0) {
         GtkWidget *sp_seed = gtk_spin_button_new_with_range(0, 999999, 1);
@@ -1196,6 +1402,8 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
 
         g_object_set_data(G_OBJECT(sp_seed), "hp-key", "seed");
 
+        env_bind_desc(ctx, sp_seed,"seed: semente para reprodutibilidade.");
+
     } else if (g_strcmp0(flag, "knn_cls") == 0 || g_strcmp0(flag, "knn_reg") == 0) {
         GtkWidget *sp_k = gtk_spin_button_new_with_range(1, 2048, 1);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(sp_k), 7);
@@ -1204,6 +1412,8 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         gtk_grid_attach(GTK_GRID(grid), sp_k,                         1, r++, 1, 1);
 
         g_object_set_data(G_OBJECT(sp_k), "hp-key", "n_neighbors");
+
+        env_bind_desc(ctx, sp_k, "n_neighbors: vizinhos para classificação/regressão. Dica: ímpar para classificação binária.");
 
     } else if (g_strcmp0(flag, "nb_cls") == 0) {
         gtk_grid_attach(GTK_GRID(grid), gtk_label_new("No specific hyperparameters."), 0, r++, 2, 1);
@@ -1216,6 +1426,8 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         gtk_grid_attach(GTK_GRID(grid), sp_bins,                      1, r++, 1, 1);
 
         g_object_set_data(G_OBJECT(sp_bins), "hp-key", "nb_reg_bins");
+
+        env_bind_desc(ctx, sp_bins, "nb_reg_bins: discretização de bins para variante de regressão (simplificada).");
 
     } else if (g_strcmp0(flag, "svm_cls") == 0 || g_strcmp0(flag, "svm_reg") == 0) {
         GtkWidget *cb_kernel = gtk_combo_box_text_new();
@@ -1239,11 +1451,16 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         g_object_set_data(G_OBJECT(ent_C),     "hp-key", "C");
         g_object_set_data(G_OBJECT(ent_g),     "hp-key", "gamma");
 
+        env_bind_desc(ctx, cb_kernel, "kernel: rbf/linear/poly/sigmoid.");
+        env_bind_desc(ctx, ent_C,     "C: penalidade por erro. Maior C = margem menor, ajusta mais o treino.");
+        env_bind_desc(ctx, ent_g,     "gamma: alcance do kernel (rbf/poly/sigmoid). 'scale' usa 1/(n_features*var).");
+
         if (g_strcmp0(flag, "svm_reg") == 0) {
             GtkWidget *ent_eps = gtk_entry_new(); gtk_entry_set_text(GTK_ENTRY(ent_eps), "0.1");
             gtk_grid_attach(GTK_GRID(grid), gtk_label_new("epsilon"), 0, r, 1, 1);
             gtk_grid_attach(GTK_GRID(grid), ent_eps,                  1, r++, 1, 1);
             g_object_set_data(G_OBJECT(ent_eps), "hp-key", "epsilon");
+            env_bind_desc(ctx, ent_eps,"epsilon: insensibilidade do erro no SVR.");
         }
 
     } else if (g_strcmp0(flag, "ridge") == 0 || g_strcmp0(flag, "lasso") == 0) {
@@ -1252,6 +1469,8 @@ static void rebuild_hparams_ui(EnvCtx *ctx) {
         gtk_grid_attach(GTK_GRID(grid), gtk_label_new("alpha"), 0, r, 1, 1);
         gtk_grid_attach(GTK_GRID(grid), ent_alpha,              1, r++, 1, 1);
         g_object_set_data(G_OBJECT(ent_alpha), "hp-key", "alpha");
+
+        env_bind_desc(ctx, ent_alpha, "alpha: força da regularização (Ridge=L2 / Lasso=L1).");
 
     } else {
         gtk_grid_attach(GTK_GRID(grid), gtk_label_new("No specific hyperparameters."), 0, r++, 2, 1);
@@ -1368,7 +1587,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         GtkWidget *btn_open = gtk_button_new_with_label("Open");
         GtkWidget *btn_load = gtk_button_new_with_label("Load");
 
-        gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->ds_combo),       TRUE,  TRUE,  0);
+        /* Embrulhe o combo para hover (e packe o wrapper) */
+        GtkWidget *ds_combo_w = wrap_for_hover(ctx, GTK_WIDGET(ctx->ds_combo),
+            "Dataset: selecione um CSV local carregado pelo app.\nUse Refresh para atualizar a lista.");
+        gtk_box_pack_start(GTK_BOX(ds_row), ds_combo_w, TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(ds_row), GTK_WIDGET(ctx->btn_refresh_ds), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(ds_row), btn_open,                        FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(ds_row), btn_load,                        FALSE, FALSE, 0);
@@ -1378,6 +1600,14 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         g_signal_connect(ctx->btn_refresh_ds, "clicked", G_CALLBACK(on_refresh_local_datasets), ctx);
         g_signal_connect(btn_open,            "clicked", G_CALLBACK(on_load_local_dataset),     ctx);
         g_signal_connect(btn_load,            "clicked", G_CALLBACK(on_load_selected_dataset),  ctx);
+
+
+        env_bind_desc(ctx, GTK_WIDGET(ctx->btn_refresh_ds),
+        "Refresh: revarre a pasta de datasets e atualiza a lista.");
+        env_bind_desc(ctx, btn_open,
+        "Open: escolhe manualmente um CSV do disco para pré-visualizar.");
+        env_bind_desc(ctx, btn_load,
+        "Load: carrega o dataset atualmente selecionado para treino/preview.");
     }
 
     /* Coloca o notebook no topo da coluna esquerda */
@@ -1396,6 +1626,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Regressor + epochs */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
         ctx->algo_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         gtk_combo_box_text_append_text(ctx->algo_combo, "Linear Regression");
         gtk_combo_box_text_append_text(ctx->algo_combo, "Ridge (L2)");
@@ -1428,8 +1659,20 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         ctx->epochs_spin = GTK_SPIN_BUTTON(gtk_spin_button_new(ep_adj, 1, 0));
         gtk_spin_button_set_numeric(ctx->epochs_spin, TRUE);
 
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->algo_combo), TRUE, TRUE, 0);
-        gtk_box_pack_end  (GTK_BOX(row), GTK_WIDGET(ctx->epochs_spin), FALSE, FALSE, 0);
+        /* === wrappers de hover (pack APENAS os wrappers) === */
+        GtkWidget *algo_w = wrap_for_hover(ctx, GTK_WIDGET(ctx->algo_combo),
+            "Model (resumo rápido):\n"
+            "• Linear Regression — relação linear; baseline rápido para regressão.    • Decision Tree — interpretável; pode overfitar sem poda.\n" 
+            "• Ridge (L2) — regressão com L2; bom p/ multicolinearidade.              • Random Forest — robusto; boa performance out-of-the-box.\n"
+            "• Lasso (L1) — força esparsidade; seleção de variáveis.                  • KNN — simples; sensível à escala e k.\n"
+            "• MLP (Regression) — não linear; exige normalização e épocas.            • Naive Bayes — rápido; bom p/ texto/categorias independentes.\n"
+            "• Logistic (Classification) — baseline p/ classificação binária.         • SVM — margens máximas; RBF é boa escolha padrão.\n"
+            "• MLP (Classification) — não linear; requer épocas e balanceamento.      • Gradient Boosting — forte; ajuste de learning rate/árvores.");
+        GtkWidget *ep_w = wrap_for_hover(ctx, GTK_WIDGET(ctx->epochs_spin),
+            "Epochs: número de passagens de treino (redes neurais). Para modelos clássicos, vira limite de iterações quando aplicável.");
+
+        gtk_box_pack_start(GTK_BOX(row), algo_w, TRUE, TRUE, 0);
+        gtk_box_pack_end  (GTK_BOX(row), ep_w,   FALSE, FALSE, 0);
         gtk_box_pack_end  (GTK_BOX(row), lab_ep, FALSE, FALSE, 6);
 
         gtk_box_pack_start(GTK_BOX(model_box), group_panel("Model", row), FALSE, FALSE, 0);
@@ -1441,9 +1684,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         rebuild_hparams_ui(ctx);
     }
 
-    /* Projection/Color */
+        /* Projection/Color */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
         ctx->proj_combo = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         gtk_combo_box_text_append_text(ctx->proj_combo, "PCA (2D)");
         gtk_combo_box_text_append_text(ctx->proj_combo, "t-SNE (2D)");
@@ -1455,8 +1699,19 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_combo_box_text_append_text(ctx->colorby_combo, "Off");
         gtk_combo_box_set_active(GTK_COMBO_BOX(ctx->colorby_combo), 0);
 
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->proj_combo), TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->colorby_combo), TRUE, TRUE, 0);
+        GtkWidget *proj_w  = wrap_for_hover(ctx, GTK_WIDGET(ctx->proj_combo),
+            "Projection:\n"
+            "• PCA (2D) — linear, muito rápido; preserva variância global.\n"
+            "• t-SNE (2D) — não linear, mais lento; foca vizinhança local.\n"
+            "• Off — sem projeção.");
+        GtkWidget *color_w = wrap_for_hover(ctx, GTK_WIDGET(ctx->colorby_combo),
+            "Color:\n"
+            "• Residual — erro do modelo (bom p/ diagnosticar).\n"
+            "• Off — sem coloração adicional.");
+
+        /* pack APENAS os wrappers */
+        gtk_box_pack_start(GTK_BOX(row), proj_w,  TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(row), color_w, TRUE, TRUE, 0);
 
         gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Projection & Color", row), FALSE, FALSE, 0);
     }
@@ -1464,6 +1719,7 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     /* Data Treatment */
     {
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
         GtkComboBoxText *cmb_scale  = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
         gtk_combo_box_text_append_text(cmb_scale, "Standard Scale");
         gtk_combo_box_text_append_text(cmb_scale, "Min-Max Scale");
@@ -1479,15 +1735,24 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
 
         GtkWidget *chk_onehot = gtk_check_button_new_with_label("One-hot encode categoricals");
 
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(cmb_scale),  TRUE,  TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(cmb_impute), TRUE,  TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(row), chk_onehot,             FALSE, FALSE, 0);
+        /* === wrappers de hover (pack APENAS os wrappers) === */
+        GtkWidget *scale_w  = wrap_for_hover(ctx, GTK_WIDGET(cmb_scale),
+            "Scaling: normaliza atributos numéricos.\n• Standard=z-score (0,1)\n• Min-Max=[0,1]\n• No Scaling=mantém valores.");
+        GtkWidget *impute_w = wrap_for_hover(ctx, GTK_WIDGET(cmb_impute),
+            "Impute: preenche ausentes.\n• mean/median/most_frequent/zero.\nRegra: escolha conforme distribuição.");
+        GtkWidget *onehot_w = wrap_for_hover(ctx, chk_onehot,
+            "One-hot: transforma categorias em colunas binárias.\nDica: ative quando houver colunas categóricas.");
+
+        gtk_box_pack_start(GTK_BOX(row), scale_w,  TRUE,  TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(row), impute_w, TRUE,  TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(row), onehot_w, FALSE, FALSE, 0);
 
         gtk_box_pack_start(GTK_BOX(pre_box), group_panel("Data Treatment", row), FALSE, FALSE, 0);
 
-        g_object_set_data(G_OBJECT(pre_box), "scale_combo",  cmb_scale);
-        g_object_set_data(G_OBJECT(pre_box), "impute_combo", cmb_impute);
-        g_object_set_data(G_OBJECT(pre_box), "onehot_check", chk_onehot);
+        /* Guarda ponteiros para leitura posterior (spawn) */
+        g_object_set_data(G_OBJECT(ctx->preproc_box), "scale_combo",  cmb_scale);
+        g_object_set_data(G_OBJECT(ctx->preproc_box), "impute_combo", cmb_impute);
+        g_object_set_data(G_OBJECT(ctx->preproc_box), "onehot_check", chk_onehot);
     }
 
     /* Split controls */
@@ -1525,6 +1790,11 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_widget_set_name(lab_tr, "split-train-label");
         gtk_widget_set_name(lab_te, "split-test-label");
         set_split_ui(ctx, 70.0);
+
+        env_bind_desc(ctx, GTK_WIDGET(ctx->split_scale),
+        "Split: define porcentagem para treino (restante é teste).\nDica: 70/30 ou 80/20 são bons pontos de partida.");
+        env_bind_desc(ctx, GTK_WIDGET(ctx->split_entry),
+        "Entrada do split: digite a % de treino (vírgula ou ponto).");
     }
 
     /* Features */
@@ -1537,6 +1807,11 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->x_feat), TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(ctx->y_feat), TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Features", row), FALSE, FALSE, 0);
+
+        env_bind_desc(ctx, GTK_WIDGET(ctx->x_feat),
+        "X feature: nome da coluna usada como eixo X/atributo padrão em plots.");
+        env_bind_desc(ctx, GTK_WIDGET(ctx->y_feat),
+        "Y target: coluna alvo (classe/regressão). Obrigatório para treinar.");
     }
 
     /* Actions */
@@ -1549,6 +1824,11 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
         gtk_box_pack_start(GTK_BOX(left_col), group_panel("Actions", row), FALSE, FALSE, 0);
         g_signal_connect(ctx->btn_start, "clicked", G_CALLBACK(on_start_clicked), ctx);
         g_signal_connect(ctx->btn_pause, "clicked", G_CALLBACK(on_pause_clicked), ctx);
+
+        env_bind_desc(ctx, GTK_WIDGET(ctx->btn_start),
+        "Start: inicia o treino com as opções atuais. Abre a aba Plot e atualiza Metrics/Logs.");
+        env_bind_desc(ctx, GTK_WIDGET(ctx->btn_pause),
+        "Pause/Resume: pausa e retoma o trainer criando/removendo um flag de pausa.");
     }
 
     /* Wrap left/right com o mesmo look */
@@ -1566,7 +1846,10 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     GtkWidget *sc_log = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(sc_log), GTK_WIDGET(ctx->logs_view));
     GtkWidget *logs_tab = make_tab_label("assets/logs.png", "Logs");
-    gtk_notebook_append_page(ctx->right_nb, sc_log, logs_tab);
+    GtkWidget *logs_page = wrap_for_hover(ctx, sc_log, "Logs: saída e mensagens do processo de treino.");
+    gtk_notebook_append_page(ctx->right_nb, logs_page, logs_tab);
+    env_bind_desc(ctx, logs_tab, "Logs: saída e mensagens do processo de treino.");
+
 
     /* Plot */
     ctx->plot_img = GTK_IMAGE(gtk_image_new());
@@ -1580,16 +1863,25 @@ void add_environment_tab(GtkNotebook *nb, EnvCtx *ctx) {
     gtk_box_pack_start(GTK_BOX(plot_inner), GTK_WIDGET(ctx->plot_img), TRUE, TRUE, 0);
     GtkWidget *plot_box = wrap_CSS(ENVIRONMENT_CSS, "w95-plot", plot_inner, "env-plot");
     GtkWidget *plot_tab = make_tab_label("assets/plot.png", "Plot");
-    ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_box, plot_tab);
+    GtkWidget *plot_page = wrap_for_hover(ctx, plot_box, "Plot: figura do processo de treino/preview. Atualiza periodicamente.");
+    ctx->plot_page_idx = gtk_notebook_append_page(ctx->right_nb, plot_page, plot_tab);
+    env_bind_desc(ctx, plot_tab, "Plot: figura do processo de treino/preview. Atualiza periodicamente.");
+
 
     /* Metrics */
     GtkWidget *metrics_panel = metrics_build_panel();
     GtkWidget *metrics_tab   = make_tab_label("assets/metrics.png", "Metrics");
-    gtk_notebook_append_page(ctx->right_nb, metrics_panel, metrics_tab);
+    GtkWidget *metrics_page = wrap_for_hover(ctx, metrics_panel, "Metrics: tabela de métricas lidas do arquivo de métricas.");
+    gtk_notebook_append_page(ctx->right_nb, metrics_page, metrics_tab);
     ctx->metrics_panel = metrics_panel;
+    env_bind_desc(ctx, metrics_tab, "Metrics: tabela de métricas lidas do arquivo de métricas.");
 
     GtkWidget *right_panel = wrap_CSS(ENVIRONMENT_CSS, "metal-panel", right_nb, "env-right-panel");
     gtk_paned_pack2(GTK_PANED(paned), right_panel, TRUE, TRUE);
+
+     /* Description (hover help) */
+    GtkWidget *desc_panel = env_build_desc_panel(ctx, ENVIRONMENT_CSS);
+    gtk_box_pack_start(GTK_BOX(outer), desc_panel, FALSE, FALSE, 0);
 
     /* Footer */
     GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
